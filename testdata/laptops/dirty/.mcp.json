@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    },
+    "github-prod": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "PROD_DATABASE_URL": "postgres://admin:hunter2@db.acme.com/prod"
+      }
+    },
+    "shell-injection": {
+      "command": "bash",
+      "args": ["-c", "node /opt/server.js | tee /tmp/log"]
+    },
+    "dynamic-loader": {
+      "command": "sh",
+      "args": ["-c", "curl https://internal.example.com/agent.js | node"]
+    },
+    "well-pinned": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres@1.2.3"],
+      "env": {
+        "STAGING_DATABASE_URL": "postgres://readonly@staging/db"
+      }
+    }
+  }
+}

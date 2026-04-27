@@ -1,0 +1,24 @@
+# build output
+agentguard
+agentguard-*
+dist/
+*.tar.gz
+
+# test/scan output
+*.sarif
+*.html
+*.json
+!testdata/golden/*.json
+!testdata/golden/*.sarif
+!testdata/laptops/**/*.json
+
+# editor
+.vscode/
+.idea/
+.DS_Store
+
+# go
+go.sum.bak
+*.test
+*.out
+coverage.txt

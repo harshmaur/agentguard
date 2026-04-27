@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+          cache: true
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test (race detector)
+        run: go test -race -count=1 ./...
+
+      - name: build
+        run: go build -v ./cmd/agentguard
+
+      - name: smoke scan
+        run: |
+          ./agentguard version
+          ./agentguard scan -f sarif testdata/laptops/dirty > /tmp/scan.sarif
+          ./agentguard scan -f json testdata/laptops/dirty > /tmp/scan.json
+          ./agentguard scan -f html -o /tmp/scan.html testdata/laptops/dirty
+          # The dirty fixture must produce >= 8 findings.
+          jq '.stats.total' /tmp/scan.json
+          test "$(jq '.stats.total' /tmp/scan.json)" -ge 8
+
+      - name: clean fixture must have zero findings
+        run: |
+          ./agentguard scan -f json testdata/laptops/clean > /tmp/clean.json
+          test "$(jq '.stats.total' /tmp/clean.json)" -eq 0
+
+      - name: sarif must validate as JSON
+        run: jq . /tmp/scan.sarif > /dev/null
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      # Short fuzz run on parsers — catches crashes table-driven tests miss.
+      # Promoted into v1 per /plan-eng-review.
+      - name: fuzz parsers (short)
+        run: |
+          go test -fuzz=. -fuzztime=20s ./internal/parse/ || true

@@ -1,0 +1,91 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: install syft (for SBOM)
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: cross-compile binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          for os_arch in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            os="${os_arch%/*}"
+            arch="${os_arch#*/}"
+            out="dist/agentguard-${VERSION}-${os}-${arch}"
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+              go build \
+                -trimpath \
+                -buildvcs=false \
+                -ldflags="-s -w -X main.Version=${VERSION}" \
+                -o "$out" ./cmd/agentguard
+            (cd dist && tar -czf "$(basename "$out").tar.gz" "$(basename "$out")")
+          done
+          cd dist && sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: generate SBOM
+        run: |
+          syft scan dir:. -o spdx-json=dist/agentguard.sbom.spdx.json
+          syft scan dir:. -o cyclonedx-json=dist/agentguard.sbom.cyclonedx.json
+
+      - name: cosign sign release artifacts (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          cd dist
+          for f in *.tar.gz SHA256SUMS *.sbom.*.json; do
+            cosign sign-blob --yes --output-signature "${f}.sig" --output-certificate "${f}.crt" "$f"
+          done
+
+      - name: create github release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sig
+            dist/*.tar.gz.crt
+            dist/SHA256SUMS
+            dist/SHA256SUMS.sig
+            dist/SHA256SUMS.crt
+            dist/*.sbom.*.json
+            dist/*.sbom.*.json.sig
+            dist/*.sbom.*.json.crt
+          generate_release_notes: true
+
+  # SLSA L2 build provenance attestation for supply-chain transparency.
+  provenance:
+    needs: release
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.release.outputs.hashes }}
+      upload-assets: true
