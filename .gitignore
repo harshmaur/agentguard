@@ -1,8 +1,8 @@
-# build output
-agentguard
-agentguard-*
-dist/
-*.tar.gz
+# build output (root-anchored so cmd/agentguard/ is not ignored)
+/agentguard
+/agentguard-*
+/dist/
+/*.tar.gz
 
 # test/scan output
 *.sarif
