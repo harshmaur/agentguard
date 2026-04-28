@@ -42,6 +42,10 @@ func builtins() []rules.Rule {
 		codexApprovalDisabled{},
 		codexTrustHomeOrBroad{},
 		codexMCPPlaintextHeaderKey{},
+		// v0.2.0-alpha.2
+		claudeMCPAutoApprove{},
+		claudeBashAllowlistTooBroad{},
+		claudeThirdPartyPluginEnabled{},
 	}
 }
 

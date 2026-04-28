@@ -3,6 +3,20 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.0-alpha.2] - 2026-04-28
+
+Adds 3 Claude-side rules. All read from `ClaudeSettings.Raw` introduced in
+alpha.1 — no new format detector. Validated on the Mac: 2 net-new findings
+(third-party plugins + sideloaded marketplace).
+
+### Added
+- New rule: **`claude-mcp-auto-approve`** (Critical when `enableAllProjectMcpServers: true`, High when a non-empty `enabledMcpjsonServers` allowlist is present). CVE-2025-59536 MCP-consent-bypass shape: every project's `.mcp.json` auto-loads with no prompt = clone-and-pwn primitive.
+- New rule: **`claude-bash-allowlist-too-broad`** (Critical for `Bash(*)` / `Bash(:*)` / `Bash()` total wildcards; High for `Bash(<dangerous-verb>:*)` patterns). Dangerous-verb list covers exfil (curl, wget, nc, scp, sftp, rsync, aws, gh, glab), shell escape (bash, sh, zsh, fish, eval, exec), privilege escalation (sudo, doas, su), and container/k8s ops (docker, kubectl). Precision-tuned: safe verbs with arg wildcards (`Bash(npm:*)`, `Bash(git:*)`, `Bash(python3 -c:*)`) and fully-specified entries (`Bash(rsync -a path/ path/)`) do NOT fire.
+- New rule: **`claude-third-party-plugin-enabled`** (Medium for enabled third-party plugins; High for `extraKnownMarketplaces` entries with `source.source = "directory"` — sideloaded marketplaces). Inventory-shape rule that surfaces the plugin attack surface. Trusted marketplaces are `anthropic`, `anthropic-agent-skills`, `claude-plugins-official`.
+
+### Found in the wild
+- The Mac scan picked up 4 third-party plugins enabled (harshmaur-typescript-review, playwright-cli, coderabbit, vercel-plugin) + a sideloaded marketplace from `~/.cache/plugins/`. Neither was visible to v0.1.
+
 ## [0.2.0-alpha.1] - 2026-04-28
 
 First v0.2 milestone. Adds Codex CLI configuration scanning + 5 high-impact
