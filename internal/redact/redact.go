@@ -36,6 +36,14 @@ var patterns = []pattern{
 	{"slack-token", regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`)},
 	// Google API keys.
 	{"google-api-key", regexp.MustCompile(`AIza[0-9A-Za-z_\-]{35}`)},
+	// GitLab personal access token (v0.1.4).
+	{"gitlab-token", regexp.MustCompile(`\bglpat-[A-Za-z0-9_\-\.]{20,}`)},
+	// GitLab project trigger token (v0.1.4).
+	{"gitlab-project-token", regexp.MustCompile(`\bglptt-[A-Za-z0-9_\-\.]{20,}`)},
+	// Hugging Face API token (v0.1.4).
+	{"huggingface-token", regexp.MustCompile(`\bhf_[A-Za-z0-9]{30,}`)},
+	// npm modern auth token (v0.1.4).
+	{"npm-token", regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36,}`)},
 	// JSON Web Tokens (three base64 segments separated by dots).
 	{"jwt", regexp.MustCompile(`eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}`)},
 	// PEM private keys (single-line marker; multi-line handled by line-aware redactor).

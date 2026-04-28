@@ -199,12 +199,72 @@ func (mcpPlaintextAPIKey) Taxonomy() finding.Taxonomy { return finding.TaxDetect
 func (mcpPlaintextAPIKey) Formats() []parse.Format    { return []parse.Format{parse.FormatMCPConfig} }
 
 var apiKeyValuePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
-	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}`),
-	regexp.MustCompile(`(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{24,}`),
-	regexp.MustCompile(`sk-ant-[a-z][a-z0-9]{2,}-[A-Za-z0-9_\-]{32,}`),
-	regexp.MustCompile(`AIza[0-9A-Za-z_\-]{35}`),
-	regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`),
+	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                            // AWS access key
+	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}`),                  // GitHub token (classic, fine-grained, server-to-server)
+	regexp.MustCompile(`(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{24,}`),    // Stripe live/test, secret/restricted
+	regexp.MustCompile(`sk-ant-[a-z][a-z0-9]{2,}-[A-Za-z0-9_\-]{32,}`), // Anthropic
+	regexp.MustCompile(`AIza[0-9A-Za-z_\-]{35}`),                      // Google API
+	regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`),                // Slack
+	// v0.1.4: extended set after a real Mac scan caught only 1 of 3
+	// production tokens in .zprofile. Found in the wild on a CISO-style
+	// dev machine but missed by the value-pattern set above.
+	regexp.MustCompile(`\bglpat-[A-Za-z0-9_\-\.]{20,}`),                // GitLab personal access token
+	regexp.MustCompile(`\bglptt-[A-Za-z0-9_\-\.]{20,}`),                // GitLab project trigger token
+	regexp.MustCompile(`\bhf_[A-Za-z0-9]{30,}`),                        // Hugging Face
+	regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36,}`),                       // npm modern token
+}
+
+// credentialNameSuffix recognizes env var names that scream "I am a secret"
+// even when the value's shape isn't a known credential prefix. The Mac scan
+// surfaced FONTAWESOME_REGISTRY_AUTHTOKEN=<UUID> — the UUID alone is not a
+// recognizable credential, but the env name's _AUTHTOKEN suffix makes the
+// risk obvious. Trades up some false positives for catching the real prod
+// secrets that don't fit a vendor prefix.
+var credentialNameSuffix = regexp.MustCompile(
+	`(?i)(?:^|_)(?:token|key|secret|password|passwd|auth|credential|credentials|pat|psk|apikey|authtoken)$`,
+)
+
+// valueLooksLikeSecret returns true for non-trivial values that could plausibly
+// be a credential. Filters out things like "true", "info", short paths, etc.
+// Requires length >= 16 AND at least 2 character classes (digits + letters,
+// or mixed case). UUIDs satisfy this trivially.
+func valueLooksLikeSecret(v string) bool {
+	if len(v) < 16 {
+		return false
+	}
+	hasDigit, hasLower, hasUpper := false, false, false
+	for _, c := range v {
+		switch {
+		case '0' <= c && c <= '9':
+			hasDigit = true
+		case 'a' <= c && c <= 'z':
+			hasLower = true
+		case 'A' <= c && c <= 'Z':
+			hasUpper = true
+		}
+	}
+	classes := 0
+	for _, b := range []bool{hasDigit, hasLower, hasUpper} {
+		if b {
+			classes++
+		}
+	}
+	return classes >= 2
+}
+
+// matchesCredential checks both the value (against known credential prefix
+// patterns) and the name (for credential-suggesting suffixes paired with a
+// non-trivial value). Used by both the MCP env rule and the shellrc rule.
+func matchesCredential(name, value string) bool {
+	for _, pat := range apiKeyValuePatterns {
+		if pat.MatchString(value) {
+			return true
+		}
+	}
+	if name != "" && credentialNameSuffix.MatchString(name) && valueLooksLikeSecret(value) {
+		return true
+	}
+	return false
 }
 
 func (mcpPlaintextAPIKey) Apply(doc *parse.Document) []finding.Finding {
@@ -214,14 +274,7 @@ func (mcpPlaintextAPIKey) Apply(doc *parse.Document) []finding.Finding {
 	var out []finding.Finding
 	for _, s := range doc.MCPConfig.Servers {
 		for k, v := range s.Env {
-			matched := false
-			for _, pat := range apiKeyValuePatterns {
-				if pat.MatchString(v) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
+			if !matchesCredential(k, v) {
 				continue
 			}
 			out = append(out, finding.New(finding.Args{
@@ -494,14 +547,7 @@ func (shellrcSecretExport) Apply(doc *parse.Document) []finding.Finding {
 	}
 	var out []finding.Finding
 	for k, v := range doc.ShellRC.EnvVars {
-		matched := false
-		for _, pat := range apiKeyValuePatterns {
-			if pat.MatchString(v) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !matchesCredential(k, v) {
 			continue
 		}
 		out = append(out, finding.New(finding.Args{

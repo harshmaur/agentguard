@@ -3,6 +3,18 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.1.4] - 2026-04-28
+
+### Added
+- `shellrc-secret-export` and `mcp-plaintext-api-key` rules now recognize four additional credential value shapes that were missed in v0.1.0–0.1.3: GitLab personal access tokens (`glpat-…`), GitLab project trigger tokens (`glptt-…`), Hugging Face tokens (`hf_…`), and modern npm tokens (`npm_…`).
+- Both rules now also fire on env vars whose **name** ends in a credential-suggesting suffix (`_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`, `_AUTH`, `_CREDENTIAL`, `_PAT`, `_PSK`, `AUTHTOKEN`, `APIKEY`) when the value is non-trivial (≥16 chars, ≥2 character classes). Catches UUID-shaped tokens like `FONTAWESOME_REGISTRY_AUTHTOKEN=C407A854-…` whose value alone wouldn't be recognizable as a credential but whose name removes all doubt.
+- New `valueLooksLikeSecret` heuristic filters obvious non-secrets: short values, boolean-like values (`true`/`false`/`yes`/etc.), and single-class values are ignored even when paired with a credential-shaped name.
+- 9 new regression test cases (`TestRule_ShellrcSecretExport_v014ExtendedShapes`) covering each new pattern + the obvious negatives (PATH-like values, short values, booleans).
+- `internal/redact` matching extended for the same four new credential prefixes so report output redacts them.
+
+### Found in the wild
+- v0.1.3 scan of a real Mac dev-machine `.zprofile` exported three production tokens: a `glpat-…` GitLab PAT, a UUID-shaped FontAwesome auth token, and a `ghp_…` GitHub PAT. Only the GitHub token was caught. v0.1.4 catches all three.
+
 ## [0.1.3] - 2026-04-28
 
 ### Fixed
