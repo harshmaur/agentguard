@@ -22,6 +22,7 @@ const (
 	FormatEnv          Format = "env"            // .env, .env.local, .env.example
 	FormatCodexConfig  Format = "codex-config"   // ~/.codex/config.toml, .codex/config.toml (v0.2)
 	FormatWindsurfMCP  Format = "windsurf-mcp"   // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
+	FormatCursorPermissions Format = "cursor-permissions" // ~/.cursor/permissions.json (v0.2.0-alpha.4)
 	FormatUnknown      Format = ""
 )
 
@@ -41,6 +42,7 @@ type Document struct {
 	Env            *EnvFile
 	CodexConfig    *CodexConfig // v0.2
 	WindsurfMCP    *WindsurfMCP // v0.2.0-alpha.3
+	CursorPermissions *CursorPermissions // v0.2.0-alpha.4
 
 	// ParseError is set if parsing failed; rules treat this as an advisory
 	// finding, the scan continues.
@@ -206,6 +208,27 @@ type NormalizedMCPServer struct {
 	Line        int
 }
 
+// CursorPermissions is the parsed form of ~/.cursor/permissions.json.
+//
+// Schema (per Cursor docs):
+//   {
+//     "mcpAllowlist":      ["github:*", "linear:list_issues", "*:my_tool"],
+//     "terminalAllowlist": ["git", "npm:install*", "cargo build"]
+//   }
+//
+// Both fields are optional; either can be omitted (or empty array).
+// Cursor docs explicitly state these are "best-effort convenience, not
+// security guarantees", but they're the most readable signal of how
+// loose a user's Cursor auto-run permissions are.
+type CursorPermissions struct {
+	MCPAllowlist      []string
+	TerminalAllowlist []string
+	// Hint: when both arrays are explicitly empty, Cursor falls back to
+	// no auto-run. When the file is missing, IDE settings apply.
+	HasMCPAllowlist      bool // true if the key was present (vs missing)
+	HasTerminalAllowlist bool
+}
+
 // CodexMCPServer is a single [mcp_servers.<name>] entry from config.toml.
 type CodexMCPServer struct {
 	Name        string
@@ -250,6 +273,13 @@ func DetectFormat(path string) Format {
 	// on macOS/Linux. Same logical shape as Cursor's mcp.json, different path.
 	if base == "mcp_config.json" && strings.Contains(dir, "/.codeium/windsurf") {
 		return FormatWindsurfMCP
+	}
+
+	// Cursor global permissions config (v0.2.0-alpha.4). Lives at
+	// ~/.cursor/permissions.json. Distinct from .cursor/mcp.json (already
+	// FormatMCPConfig). Holds mcpAllowlist + terminalAllowlist arrays.
+	if base == "permissions.json" && strings.Contains(dir, "/.cursor") {
+		return FormatCursorPermissions
 	}
 
 	// Skill files: anything under .claude/skills/ ending in .md.

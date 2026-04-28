@@ -3,6 +3,18 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.0-alpha.4] - 2026-04-28
+
+Adds Cursor's global permissions file. Doesn't fire new findings on the Mac
+(that machine doesn't have a permissions.json — Cursor falls back to IDE
+defaults), but covers heavy-Cursor users where the file is the primary
+auto-run gate.
+
+### Added
+- New format detector: **Cursor permissions** (`~/.cursor/permissions.json`). Distinct from `.cursor/mcp.json` (already FormatMCPConfig). Tracks `mcpAllowlist` and `terminalAllowlist` arrays plus presence flags so rules can distinguish "explicitly empty" (no auto-run) from "key missing" (falls back to IDE settings).
+- New rule: **`cursor-allowlist-too-broad`** (Critical for `*`, High for dangerous-verb entries). Reuses the v0.2.0-alpha.2 dangerous-verb list (curl/wget/sudo/eval/bash/etc.) so the same risks are caught whether they appear in Claude's allowlist or Cursor's. Cursor uses `<verb>:<arg-glob>` syntax instead of `Bash(verb:*)`; the rule handles both.
+- New rule: **`cursor-mcp-wildcard`** (Critical for `*:*`, High for `*:<tool>`, Medium for `<server>:*`). Catches the three wildcard shapes documented in the Cursor permissions reference. Backslash Security and Pillar Security both demonstrated bypass paths when broad allowlists are present.
+
 ## [0.2.0-alpha.3] - 2026-04-28
 
 Architectural pull-forward from the design's Round 3: ship a normalized MCP

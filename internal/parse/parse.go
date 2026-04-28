@@ -51,6 +51,10 @@ func Parse(path string, raw []byte) *Document {
 		w, err := parseWindsurfMCP(raw)
 		doc.WindsurfMCP = w
 		doc.ParseError = err
+	case FormatCursorPermissions:
+		cp, err := parseCursorPermissions(raw)
+		doc.CursorPermissions = cp
+		doc.ParseError = err
 	}
 	return doc
 }
