@@ -1,9 +1,12 @@
 #!/usr/bin/env sh
 # AgentGuard install script.
 #
-# Usage:
-#   curl -fsSL https://agentguard.dev/install.sh | sh
-#   curl -fsSL https://agentguard.dev/install.sh | sh -s -- --version v0.1.0
+# Usage (once the repo is public):
+#   curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh -s -- --version v0.1.1
+#
+# While the repo is private, use the gh CLI path documented in README.md instead:
+#   gh release download <version> -R harshmaur/agentguard ...
 #
 # This script:
 #   1. Detects OS + arch.

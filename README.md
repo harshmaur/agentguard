@@ -33,11 +33,68 @@ wedge is **AI-agent-config posture management**.
 
 ## Quick start
 
-```sh
-# Install (macOS + Linux). Verifies SHA-256 + cosign signature.
-curl -fsSL https://agentguard.dev/install.sh | sh
+### Install
 
-# Scan your machine ($HOME).
+> **Note: this repo is currently private.** The `curl | sh` flow below works
+> once the repo is public. While it's private, use the **`gh release
+> download`** path further down.
+
+```sh
+# macOS + Linux, once the repo is public:
+curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh
+```
+
+The script downloads the matching signed release tarball from GitHub
+Releases, verifies the SHA-256 against the published `SHA256SUMS`,
+verifies the cosign signature against the sigstore transparency log if
+`cosign` is on PATH, then extracts the binary to `~/.local/bin/agentguard`.
+
+#### Private-repo / authenticated install (current)
+
+```sh
+# Authenticated download via gh CLI (requires repo access):
+VERSION=v0.1.1
+ARCH=$(uname -m); case "$ARCH" in x86_64|amd64) ARCH=amd64;; arm64|aarch64) ARCH=arm64;; esac
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+mkdir -p ~/.local/bin && cd "$(mktemp -d)"
+gh release download "$VERSION" -R harshmaur/agentguard \
+  --pattern "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz" \
+  --pattern "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz.sig" \
+  --pattern "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz.crt" \
+  --pattern "SHA256SUMS"
+
+# (recommended) verify SHA-256 against the published sums file
+sha256sum -c <(grep -F " agentguard-${VERSION}-${OS}-${ARCH}.tar.gz" SHA256SUMS)
+
+# (recommended) verify cosign signature against sigstore transparency log
+cosign verify-blob \
+  --certificate "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz.crt" \
+  --signature   "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz.sig" \
+  --certificate-identity-regexp 'https://github.com/harshmaur/agentguard/.+' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz"
+
+tar -xzf "agentguard-${VERSION}-${OS}-${ARCH}.tar.gz"
+install -m755 "agentguard-${VERSION}-${OS}-${ARCH}/agentguard" ~/.local/bin/agentguard
+
+agentguard version
+```
+
+#### Build from source
+
+```sh
+git clone https://github.com/harshmaur/agentguard
+cd agentguard
+go build -o agentguard ./cmd/agentguard
+./agentguard version
+```
+
+### Run
+
+```sh
+# Scan your machine ($HOME). Writes HTML to /tmp/, opens in your browser,
+# prints a readable summary on stdout.
 agentguard scan
 
 # Scan a single repo.
@@ -47,6 +104,7 @@ agentguard scan ~/code/my-repo
 agentguard scan -f sarif -o scan.sarif    # GitHub Code Scanning compatible
 agentguard scan -f html  -o scan.html     # screenshot-friendly report
 agentguard scan -f json  -o scan.json     # for piping / SaaS sync
+agentguard scan -f json  -o -  | jq       # explicit pipe-to-stdout
 
 # Suppress findings (per-rule or per-path globs).
 echo 'mcp-unpinned-npx **/old-mcp.json' > .agentguardignore
@@ -124,20 +182,27 @@ supply-chain risk. AgentGuard takes that seriously.
 
 ### Manual verify (CISO security team workflow)
 
+Pick the latest release at https://github.com/harshmaur/agentguard/releases.
+The full chain a security team should walk before approving the binary:
+
 ```sh
-# Download release artifacts.
-VERSION=v0.1.0
-ARCH=darwin-arm64
+# Pick a version. Find the latest at /releases.
+VERSION=v0.1.1
+ARCH=darwin-arm64   # or linux-amd64, linux-arm64, darwin-amd64
+
+# Public-repo download path (or use `gh release download` for private):
 BASE="https://github.com/harshmaur/agentguard/releases/download/${VERSION}"
 curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz"
 curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz.sig"
 curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz.crt"
-
-# Verify checksum.
 curl -fsSL -O "${BASE}/SHA256SUMS"
+
+# 1) Verify the checksum matches the published sums file.
 shasum -a 256 -c SHA256SUMS --ignore-missing
 
-# Verify cosign signature against sigstore transparency log.
+# 2) Verify the cosign signature against the sigstore transparency log.
+#    This proves the binary was built by the GitHub Actions workflow at
+#    harshmaur/agentguard, signed by an OIDC identity, and recorded in Rekor.
 cosign verify-blob \
   --certificate "agentguard-${VERSION}-${ARCH}.tar.gz.crt" \
   --signature   "agentguard-${VERSION}-${ARCH}.tar.gz.sig" \
@@ -145,7 +210,7 @@ cosign verify-blob \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   "agentguard-${VERSION}-${ARCH}.tar.gz"
 
-# Optional: build from source and compare hashes.
+# 3) (Optional belt-and-suspenders) build from source and compare.
 git clone --depth 1 --branch "${VERSION}" https://github.com/harshmaur/agentguard
 cd agentguard && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=${VERSION}" -o agentguard ./cmd/agentguard
 shasum -a 256 agentguard
