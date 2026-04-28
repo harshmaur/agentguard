@@ -41,11 +41,16 @@ func builtins() []rules.Rule {
 		claudeSkipPermissionPrompt{},
 		codexApprovalDisabled{},
 		codexTrustHomeOrBroad{},
-		codexMCPPlaintextHeaderKey{},
+		// codex-mcp-plaintext-header-key (alpha.1) was subsumed by the
+		// generalized mcp-plaintext-api-key in alpha.3. The Codex-specific
+		// rule was removed; mcp-plaintext-api-key now fires across
+		// FormatMCPConfig + FormatCodexConfig + FormatWindsurfMCP.
 		// v0.2.0-alpha.2
 		claudeMCPAutoApprove{},
 		claudeBashAllowlistTooBroad{},
 		claudeThirdPartyPluginEnabled{},
+		// v0.2.0-alpha.3
+		mcpUnauthRemoteURL{},
 	}
 }
 
@@ -53,17 +58,18 @@ func builtins() []rules.Rule {
 
 type mcpUnpinnedNPX struct{}
 
-func (mcpUnpinnedNPX) ID() string                    { return "mcp-unpinned-npx" }
-func (mcpUnpinnedNPX) Title() string                 { return "MCP server uses unpinned npx" }
-func (mcpUnpinnedNPX) Severity() finding.Severity    { return finding.SeverityHigh }
-func (mcpUnpinnedNPX) Taxonomy() finding.Taxonomy    { return finding.TaxEnforced }
-func (mcpUnpinnedNPX) Formats() []parse.Format       { return []parse.Format{parse.FormatMCPConfig} }
+func (mcpUnpinnedNPX) ID() string                 { return "mcp-unpinned-npx" }
+func (mcpUnpinnedNPX) Title() string              { return "MCP server uses unpinned npx" }
+func (mcpUnpinnedNPX) Severity() finding.Severity { return finding.SeverityHigh }
+func (mcpUnpinnedNPX) Taxonomy() finding.Taxonomy { return finding.TaxEnforced }
+func (mcpUnpinnedNPX) Formats() []parse.Format    { return parse.AllMCPFormats() }
 func (mcpUnpinnedNPX) Apply(doc *parse.Document) []finding.Finding {
-	if doc.MCPConfig == nil {
+	servers := parse.NormalizeMCPServers(doc)
+	if len(servers) == 0 {
 		return nil
 	}
 	var out []finding.Finding
-	for _, s := range doc.MCPConfig.Servers {
+	for _, s := range servers {
 		if s.Command != "npx" {
 			continue
 		}
@@ -99,7 +105,7 @@ func (mcpUnpinnedNPX) Apply(doc *parse.Document) []finding.Finding {
 			Severity:     finding.SeverityHigh,
 			Taxonomy:     finding.TaxEnforced,
 			Title:        "MCP server launched via unpinned npx",
-			Description:  fmt.Sprintf("Server %q runs `%s %s` without a pinned package version. The package can change between runs, exposing the agent to supply-chain risk.", s.Name, s.Command, strings.Join(s.Args, " ")),
+			Description:  fmt.Sprintf("Server %q (in %s) runs `%s %s` without a pinned package version. The package can change between runs, exposing the agent to supply-chain risk.", s.Name, s.Source, s.Command, strings.Join(s.Args, " ")),
 			Path:         doc.Path,
 			Line:         s.Line,
 			Match:        fmt.Sprintf("%s %s", s.Command, strings.Join(s.Args, " ")),
@@ -204,10 +210,10 @@ func (mcpShellPipelineCommand) Apply(doc *parse.Document) []finding.Finding {
 type mcpPlaintextAPIKey struct{}
 
 func (mcpPlaintextAPIKey) ID() string                 { return "mcp-plaintext-api-key" }
-func (mcpPlaintextAPIKey) Title() string              { return "MCP server has plaintext API key in env" }
+func (mcpPlaintextAPIKey) Title() string              { return "MCP server has plaintext API key" }
 func (mcpPlaintextAPIKey) Severity() finding.Severity { return finding.SeverityCritical }
 func (mcpPlaintextAPIKey) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
-func (mcpPlaintextAPIKey) Formats() []parse.Format    { return []parse.Format{parse.FormatMCPConfig} }
+func (mcpPlaintextAPIKey) Formats() []parse.Format    { return parse.AllMCPFormats() }
 
 var apiKeyValuePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                            // AWS access key
@@ -279,27 +285,38 @@ func matchesCredential(name, value string) bool {
 }
 
 func (mcpPlaintextAPIKey) Apply(doc *parse.Document) []finding.Finding {
-	if doc.MCPConfig == nil {
+	servers := parse.NormalizeMCPServers(doc)
+	if len(servers) == 0 {
 		return nil
 	}
 	var out []finding.Finding
-	for _, s := range doc.MCPConfig.Servers {
-		for k, v := range s.Env {
-			if !matchesCredential(k, v) {
-				continue
-			}
+	for _, s := range servers {
+		// Check both Env (process env) and Headers (remote auth headers).
+		// Codex uses Headers, Cursor/Windsurf historically used Env, but
+		// modern Windsurf also uses Headers. The risk shape is identical.
+		emit := func(loc, k, v string) {
 			out = append(out, finding.New(finding.Args{
 				RuleID:       "mcp-plaintext-api-key",
 				Severity:     finding.SeverityCritical,
 				Taxonomy:     finding.TaxDetectable,
-				Title:        "Plaintext API key in MCP server env",
-				Description:  fmt.Sprintf("Server %q has env var %q whose value matches a known credential pattern. Plaintext credentials in version-controllable config files are a common breach vector.", s.Name, k),
+				Title:        fmt.Sprintf("Plaintext API key in MCP server %s", loc),
+				Description:  fmt.Sprintf("Server %q (in %s) has %s key %q whose value matches a known credential pattern. Plaintext credentials in version-controllable config files are a common breach vector.", s.Name, s.Source, loc, k),
 				Path:         doc.Path,
 				Line:         s.Line,
 				Match:        fmt.Sprintf("%s=%s", k, v),
-				SuggestedFix: "Reference the credential via a secret manager (e.g. `${KEYCHAIN:foo}`) or environment variable that's set at runtime, not in the JSON.",
+				SuggestedFix: "Reference the credential via a secret manager (e.g. `${KEYCHAIN:foo}`) or environment variable that's set at runtime, not in the JSON/TOML.",
 				Tags:         []string{"mcp", "secrets"},
 			}))
+		}
+		for k, v := range s.Env {
+			if matchesCredential(k, v) {
+				emit("env", k, v)
+			}
+		}
+		for k, v := range s.Headers {
+			if matchesCredential(k, v) {
+				emit("headers", k, v)
+			}
 		}
 	}
 	return out

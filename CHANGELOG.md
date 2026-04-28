@@ -3,6 +3,30 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.0-alpha.3] - 2026-04-28
+
+Architectural pull-forward from the design's Round 3: ship a normalized MCP
+model so one rule fires across every harness's MCP config shape. Adds
+Windsurf detection + 1 new rule + generalizes 2 existing rules. **Net-new
+findings on the Mac: 9.** Total v0.2-alpha cumulative findings on Mac is
+now 14 net-new criticals/highs vs v0.1.
+
+### Added
+- New format detector: **Windsurf MCP** (`~/.codeium/windsurf/mcp_config.json`). Reuses JSON parsing; no new dep.
+- New rule: **`mcp-unauth-remote-url`** (High / Detectable). Fires when an MCP server has a remote `url` set but no auth-shaped header (Authorization, X-API-Key, X-Auth-Token, or any header whose name has a credential-suggesting suffix). Skips localhost / 127.0.0.1 (different threat model). Drove **5 findings on the Mac** including unauthed GitLab MCPs across all 3 harnesses + plugin-bundled `.mcp.json` files in `~/.claude/plugins/cache/` (Vercel) and `~/.codex/.tmp/plugins/` (Cloudflare).
+- New parse helper: `parse.NormalizeMCPServers(doc) []NormalizedMCPServer` returns MCP server entries in a uniform shape regardless of source format. `parse.AllMCPFormats()` returns the formats it knows how to extract from.
+
+### Changed
+- **`mcp-unpinned-npx`** rule generalized from `FormatMCPConfig`-only to all MCP-bearing formats. Now fires on Codex TOML and Windsurf JSON in addition to `.mcp.json`. Caught **2 new Windsurf cases** (`@mastra/mcp-docs-server`, `@modelcontextprotocol/server-sequential-thinking`) on the Mac.
+- **`mcp-plaintext-api-key`** rule generalized similarly. Now also walks the `Headers` field on each server (in addition to `Env`) since Codex and Windsurf both expose plaintext credentials there. Caught the **Windsurf CONTEXT7_API_KEY** in addition to the Codex one (different key value, same rule fire).
+- Existing rule descriptions now include the source format ("in codex-config", "in windsurf-mcp") so multi-source reports are unambiguous.
+
+### Removed (alpha-pre-release breaking change)
+- **`codex-mcp-plaintext-header-key`** rule (shipped briefly in alpha.1) was removed — its coverage is now provided by the generalized `mcp-plaintext-api-key`. One rule across all sources is the architecturally correct shape.
+
+### Found in the wild
+- The Vercel and Cloudflare plugin caches both ship bundled `.mcp.json` files pointing at remote MCP services without auth headers. These were invisible to alpha.1+2 because the rules were per-harness; alpha.3's generalized rule walks them as standard MCP configs.
+
 ## [0.2.0-alpha.2] - 2026-04-28
 
 Adds 3 Claude-side rules. All read from `ClaudeSettings.Raw` introduced in

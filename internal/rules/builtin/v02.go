@@ -301,50 +301,11 @@ func (codexTrustHomeOrBroad) Apply(doc *parse.Document) []finding.Finding {
 	return out
 }
 
-// --- codex-mcp-plaintext-header-key ----------------------------------------
-//
-// `[mcp_servers.<name>.http_headers] *_API_KEY = "<literal>"` is a plaintext
-// credential in a config file. The Mac scan caught a real CONTEXT7_API_KEY
-// here. Reuses the v0.1.4 matchesCredential helper so this rule benefits
-// from the same provider-prefix + name-suffix matchers as shellrc.
-
-type codexMCPPlaintextHeaderKey struct{}
-
-func (codexMCPPlaintextHeaderKey) ID() string                 { return "codex-mcp-plaintext-header-key" }
-func (codexMCPPlaintextHeaderKey) Title() string              { return "Codex MCP server has plaintext credential in HTTP headers" }
-func (codexMCPPlaintextHeaderKey) Severity() finding.Severity { return finding.SeverityCritical }
-func (codexMCPPlaintextHeaderKey) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
-func (codexMCPPlaintextHeaderKey) Formats() []parse.Format    { return []parse.Format{parse.FormatCodexConfig} }
-
-func (codexMCPPlaintextHeaderKey) Apply(doc *parse.Document) []finding.Finding {
-	if doc.CodexConfig == nil {
-		return nil
-	}
-	var out []finding.Finding
-	for _, s := range doc.CodexConfig.MCPServers {
-		for k, v := range s.HTTPHeaders {
-			if !matchesCredential(k, v) {
-				continue
-			}
-			out = append(out, finding.New(finding.Args{
-				RuleID:       "codex-mcp-plaintext-header-key",
-				Severity:     finding.SeverityCritical,
-				Taxonomy:     finding.TaxDetectable,
-				Title:        "Plaintext credential in Codex MCP http_headers",
-				Description: fmt.Sprintf(
-					"Server %q has HTTP header %q whose value matches a credential pattern. Anyone with read access to ~/.codex/config.toml can authenticate as you to %s.",
-					s.Name, k, prettyURL(s.URL),
-				),
-				Path:         doc.Path,
-				Line:         s.Line,
-				Match:        fmt.Sprintf("%s=%s", k, v),
-				SuggestedFix: "Move the credential to your OS keychain (`security` on macOS, `secret-tool` on Linux) and reference it via an env var Codex resolves at runtime.",
-				Tags:         []string{"codex", "mcp", "secrets"},
-			}))
-		}
-	}
-	return out
-}
+// codex-mcp-plaintext-header-key was removed in alpha.3 — its coverage is
+// now provided by the generalized mcp-plaintext-api-key rule which fires
+// across FormatMCPConfig + FormatCodexConfig + FormatWindsurfMCP. Reusing
+// the existing v0.1 stable rule ID rather than shipping a per-harness rule
+// per source format.
 
 // --- helpers ---------------------------------------------------------------
 

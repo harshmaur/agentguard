@@ -47,6 +47,10 @@ func Parse(path string, raw []byte) *Document {
 		c, err := parseCodexConfig(raw)
 		doc.CodexConfig = c
 		doc.ParseError = err
+	case FormatWindsurfMCP:
+		w, err := parseWindsurfMCP(raw)
+		doc.WindsurfMCP = w
+		doc.ParseError = err
 	}
 	return doc
 }

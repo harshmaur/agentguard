@@ -170,7 +170,7 @@ func TestRule_CodexTrustHomeOrBroad(t *testing.T) {
 	}
 }
 
-func TestRule_CodexMCPPlaintextHeaderKey(t *testing.T) {
+func TestRule_MCPPlaintextAPIKey_CodexHeaders(t *testing.T) {
 	cases := []struct {
 		name string
 		toml string
@@ -204,7 +204,7 @@ func TestRule_CodexMCPPlaintextHeaderKey(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			doc := parse.Parse("/u/.codex/config.toml", []byte(c.toml))
-			if got := fired(doc, "codex-mcp-plaintext-header-key"); got != c.want {
+			if got := fired(doc, "mcp-plaintext-api-key"); got != c.want {
 				t.Errorf("fired = %v, want %v (full apply: %v)", got, c.want, applyRule(doc))
 			}
 		})
@@ -239,7 +239,7 @@ CONTEXT7_API_KEY = "ctx7sk-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 	want := map[string]bool{
 		"codex-approval-disabled":         false,
 		"codex-trust-home-or-broad":       false,
-		"codex-mcp-plaintext-header-key":  false,
+		"mcp-plaintext-api-key":  false,
 		"claude-hook-shell-rce":           false,
 		"claude-skip-permission-prompt":   false,
 	}

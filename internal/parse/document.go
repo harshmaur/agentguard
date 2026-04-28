@@ -21,6 +21,7 @@ const (
 	FormatShellRC      Format = "shellrc"        // .bashrc, .zshrc, .profile, etc.
 	FormatEnv          Format = "env"            // .env, .env.local, .env.example
 	FormatCodexConfig  Format = "codex-config"   // ~/.codex/config.toml, .codex/config.toml (v0.2)
+	FormatWindsurfMCP  Format = "windsurf-mcp"   // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
 	FormatUnknown      Format = ""
 )
 
@@ -39,6 +40,7 @@ type Document struct {
 	ShellRC        *ShellRC
 	Env            *EnvFile
 	CodexConfig    *CodexConfig // v0.2
+	WindsurfMCP    *WindsurfMCP // v0.2.0-alpha.3
 
 	// ParseError is set if parsing failed; rules treat this as an advisory
 	// finding, the scan continues.
@@ -159,6 +161,51 @@ type CodexConfig struct {
 	MCPServers []CodexMCPServer
 }
 
+// WindsurfMCP is the parsed form of ~/.codeium/windsurf/mcp_config.json.
+//
+// Shape:
+//   { "mcpServers": {
+//       "<name>": { "type": "http"|"stdio", "url": "...", "command": "...",
+//                   "args": [...], "env": {...}, "headers": {...},
+//                   "alwaysAllow": [...], "disabled": bool }
+//   } }
+type WindsurfMCP struct {
+	Servers []WindsurfMCPServer
+}
+
+// WindsurfMCPServer is a single MCP server entry in a Windsurf config.
+type WindsurfMCPServer struct {
+	Name        string
+	Type        string            // "http" | "stdio" | "sse"
+	URL         string            // for HTTP transports
+	Command     string            // for stdio transports
+	Args        []string
+	Env         map[string]string
+	Headers     map[string]string // remote auth headers — Windsurf's analog of Codex's http_headers
+	AlwaysAllow []string          // Windsurf-specific: tools auto-approved without prompt
+	Disabled    bool
+	Line        int
+}
+
+// NormalizedMCPServer is a uniform shape that rules iterate over regardless
+// of which harness config file the server came from. Populated by the
+// NormalizeMCPServers helper from MCPConfig (.mcp.json), CodexConfig, or
+// WindsurfMCP. The same risk shape (plaintext credential, unpinned npx,
+// unauth remote URL) shows up in all three with different serializations,
+// so rules walk this slice instead of three different typed fields.
+type NormalizedMCPServer struct {
+	Name        string
+	Source      Format            // which format produced this server
+	Command     string            // stdio command
+	Args        []string
+	Env         map[string]string // process env
+	URL         string            // remote transport URL
+	Headers     map[string]string // remote auth headers
+	AlwaysAllow []string          // Windsurf's per-server allowlist (empty for other sources)
+	Disabled    bool
+	Line        int
+}
+
 // CodexMCPServer is a single [mcp_servers.<name>] entry from config.toml.
 type CodexMCPServer struct {
 	Name        string
@@ -197,6 +244,12 @@ func DetectFormat(path string) Format {
 	// override at <project>/.codex/config.toml.
 	if base == "config.toml" && (strings.Contains(dir, "/.codex") || strings.HasSuffix(dir, "/.codex")) {
 		return FormatCodexConfig
+	}
+
+	// Windsurf MCP config (v0.2.0-alpha.3). Lives at ~/.codeium/windsurf/mcp_config.json
+	// on macOS/Linux. Same logical shape as Cursor's mcp.json, different path.
+	if base == "mcp_config.json" && strings.Contains(dir, "/.codeium/windsurf") {
+		return FormatWindsurfMCP
 	}
 
 	// Skill files: anything under .claude/skills/ ending in .md.
