@@ -1,6 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -120,5 +127,86 @@ func TestResolveOutput_NeverDisablesBrowser(t *testing.T) {
 	}
 	if plan.openBrowser {
 		t.Errorf("--open never should disable openBrowser, got true")
+	}
+}
+
+// TestVerifyCmd_TamperedExitsWithVerifyFailedSentinel exercises the
+// verify subcommand against a tarball whose recorded SHA-256 doesn't match.
+// The cobra RunE must return errVerifyFailed (not a generic error) so
+// main()'s sentinel check exits 1 without prefixing "agentguard:" on stderr.
+//
+// Without this test, a future refactor could quietly drop errVerifyFailed
+// from the sentinel branch and we'd only notice via the noisier stderr.
+func TestVerifyCmd_TamperedExitsWithVerifyFailedSentinel(t *testing.T) {
+	dir := t.TempDir()
+
+	tarball := filepath.Join(dir, "agentguard-vTEST-linux-arm64.tar.gz")
+	body := []byte("genuine release bytes")
+	if err := os.WriteFile(tarball, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sums file claims a hash that won't match — the verify subcommand
+	// must surface this as errVerifyFailed.
+	bogus := strings.Repeat("0", 64)
+	sums := filepath.Join(dir, "SHA256SUMS")
+	if err := os.WriteFile(sums, []byte(bogus+"  "+filepath.Base(tarball)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newVerifyCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{tarball})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected errVerifyFailed, got nil; output:\n%s", out.String())
+	}
+	if !errors.Is(err, errVerifyFailed) {
+		t.Fatalf("expected errVerifyFailed sentinel, got %v (type %T)", err, err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "FAIL") {
+		t.Errorf("expected output to contain a FAIL marker, got:\n%s", got)
+	}
+	if !strings.Contains(got, "verify: FAIL") {
+		t.Errorf("expected 'verify: FAIL' verdict line, got:\n%s", got)
+	}
+}
+
+// TestVerifyCmd_HappyPathExitsCleanly is the positive companion: when the
+// SHA-256 matches, the subcommand returns nil and prints PASS.
+func TestVerifyCmd_HappyPathExitsCleanly(t *testing.T) {
+	dir := t.TempDir()
+
+	tarball := filepath.Join(dir, "agentguard-vTEST-linux-arm64.tar.gz")
+	body := []byte("genuine release bytes")
+	if err := os.WriteFile(tarball, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := sha256.Sum256(body)
+	sum := hex.EncodeToString(h[:])
+
+	sums := filepath.Join(dir, "SHA256SUMS")
+	line := fmt.Sprintf("%s  %s\n", sum, filepath.Base(tarball))
+	if err := os.WriteFile(sums, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newVerifyCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{tarball})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v\noutput:\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "verify: PASS") {
+		t.Errorf("expected 'verify: PASS' verdict line, got:\n%s", got)
 	}
 }

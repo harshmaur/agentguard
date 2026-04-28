@@ -1,0 +1,11 @@
+# AgentGuard suppression file for self-scan in CI.
+#
+# Format:
+#   <rule-id>                  disable a rule globally
+#   <path-glob>                suppress ALL rules under that path
+#   <rule-id> <path-glob>      disable a rule under that path
+
+# testdata/ is fixture-by-design — every file there exists to exercise a
+# rule. Suppressing the entire tree is intentional. Real captured tokens
+# never live here per AGENTS.md; placeholders only.
+testdata/**

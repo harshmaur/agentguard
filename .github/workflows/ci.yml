@@ -58,6 +58,20 @@ jobs:
           ./agentguard scan -f json testdata/laptops/clean > /tmp/clean.json
           test "$(jq '.stats.total' /tmp/clean.json)" -eq 0
 
+      - name: self-scan — repo source must have zero findings
+        # Dogfood gate. Scans the repo with .agentguardignore (which
+        # excludes testdata/ — intentional fixtures). Anything that fires
+        # here is a real credential or risky config landed in source.
+        # See AGENTS.md for the placeholder convention test fixtures use.
+        run: |
+          ./agentguard scan -f json -o /tmp/self-scan.json .
+          findings=$(jq '.stats.total' /tmp/self-scan.json)
+          if [ "$findings" -ne 0 ]; then
+            echo "::error::agentguard self-scan found $findings issues in source — see /tmp/self-scan.json"
+            jq '.findings[] | "\(.severity) \(.rule_id) \(.path):\(.line)"' /tmp/self-scan.json
+            exit 1
+          fi
+
       - name: sarif must validate as JSON
         run: jq . /tmp/scan.sarif > /dev/null
 
