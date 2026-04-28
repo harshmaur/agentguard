@@ -3,6 +3,17 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.4] - 2026-04-28
+
+Repo went public; SLSA L2 attestation ships hard.
+
+### Changed
+- **`release.yml`: dropped `continue-on-error: true` from the SLSA L2 build-provenance step.** With `harshmaur/agentguard` now public, `actions/attest-build-provenance@v2` can persist attestations through the GitHub API. Releases starting from this tag fail if the attestation step fails — SLSA L2 is now a release gate, not best-effort.
+- **Repo visibility: PRIVATE → PUBLIC.** `gh repo edit harshmaur/agentguard --visibility public`. The curl install path documented in v0.1.0 (`install.sh`) now works without a `gh release download` fallback. The v0.2 design doc:547-551 prereq is met.
+
+### Why
+- Round-3 of the v0.2 design called repo-public + SLSA un-soft-fail a v0.2 prereq for the curl-install story to light up. v0.2.0–v0.2.3 shipped under private repo with soft-failed SLSA. v0.2.4 makes both real.
+
 ## [0.2.3] - 2026-04-28
 
 Forensic verdict + Attack-chain outcomes. Closes the design-doc loose ends from the v0.2 review. No new rules, no new format detectors — just sharper presentation of what's already there.

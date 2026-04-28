@@ -71,15 +71,9 @@ jobs:
           done
 
       # SLSA L2 build provenance via actions/attest-build-provenance.
-      #
-      # Note: this action requires the repo to be either public or
-      # organization-owned-private. User-owned private repos cannot persist
-      # attestations (GitHub API restriction). Until this repo moves under
-      # an org, we mark the step continue-on-error so cosign signatures +
-      # SHA-256 checksums still ship as the v0.1.0 trust artifacts.
-      # When migrated to an org, drop continue-on-error.
+      # Repo is public as of v0.2.4 — attestations persist to GitHub API,
+      # SLSA L2 ships hard (release fails if attestation cannot be written).
       - name: SLSA L2 build provenance attestation
-        continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
