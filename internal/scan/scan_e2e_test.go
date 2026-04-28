@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/agentguard/agentguard/internal/rules/builtin"
-	"github.com/agentguard/agentguard/internal/output"
-	"github.com/agentguard/agentguard/internal/scan"
+	_ "github.com/harshmaur/agentguard/internal/rules/builtin"
+	"github.com/harshmaur/agentguard/internal/output"
+	"github.com/harshmaur/agentguard/internal/scan"
 )
 
 // TestScan_DirtyFixture asserts the scanner finds the expected categories

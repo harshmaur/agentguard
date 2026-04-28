@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/output"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/output"
 )
 
 // scenarioFn is the signature each attack chain implements. Returns the
@@ -21,6 +21,28 @@ var scenarios = []scenarioFn{
 	chainTrustedHomePlusPlaintextKey,
 	chainPluginBundledMCPWithoutAuth,
 	chainSameSecretAcrossHarnesses,
+}
+
+// ChainMeta is a static description of a registered attack chain. Used by
+// `agentguard self-audit` to enumerate chains compiled into the binary
+// without having to fire them against synthetic findings.
+type ChainMeta struct {
+	ID       string
+	Title    string
+	Severity finding.Severity
+}
+
+// Manifest returns metadata for every registered attack chain. Keep this
+// slice in sync with the scenarios list above — a missing entry is a silent
+// gap in the self-audit output. Guarded by TestManifest_MatchesScenarios.
+func Manifest() []ChainMeta {
+	return []ChainMeta{
+		{ID: "repo-clone-hook-rce", Title: "Cloning a malicious repo can RCE this dev box", Severity: finding.SeverityCritical},
+		{ID: "agent-reads-prod-secrets", Title: "Permission-loose agent + reachable secret = exfil chain", Severity: finding.SeverityCritical},
+		{ID: "codex-trusted-home-plaintext-key", Title: "Codex: trusted $HOME + plaintext key = no-friction takeover", Severity: finding.SeverityCritical},
+		{ID: "plugin-bundled-mcp-no-auth", Title: "Third-party plugin ships an unauthenticated MCP server", Severity: finding.SeverityHigh},
+		{ID: "same-secret-across-harnesses", Title: "Same credential reused across N harnesses", Severity: finding.SeverityHigh},
+	}
 }
 
 // --- 1. Repo-clone hook RCE ------------------------------------------------

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/parse"
 )
 
 // helper to build a finding with given rule + path
@@ -188,6 +188,29 @@ func TestChain_SameSecretAcrossHarnesses(t *testing.T) {
 		if c.ID == "same-secret-across-harnesses" {
 			t.Errorf("chain fired with single harness")
 		}
+	}
+}
+
+// TestManifest_MatchesScenarios catches the silent-drift case where a new
+// chain is added to the scenarios slice but never registered in Manifest()
+// — self-audit's chain list would silently miss the new entry.
+func TestManifest_MatchesScenarios(t *testing.T) {
+	m := Manifest()
+	if got, want := len(m), len(scenarios); got != want {
+		t.Fatalf("Manifest has %d entries, scenarios slice has %d — keep them in sync", got, want)
+	}
+	seen := map[string]bool{}
+	for _, c := range m {
+		if c.ID == "" {
+			t.Errorf("Manifest entry has empty ID")
+		}
+		if c.Title == "" {
+			t.Errorf("Manifest entry %q has empty Title", c.ID)
+		}
+		if seen[c.ID] {
+			t.Errorf("Manifest contains duplicate chain ID %q", c.ID)
+		}
+		seen[c.ID] = true
 	}
 }
 

@@ -3,7 +3,7 @@ package builtin
 import (
 	"testing"
 
-	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/parse"
 )
 
 func TestRule_ShellrcSecretExport(t *testing.T) {
@@ -33,6 +33,10 @@ func TestRule_ShellrcSecretExport_v014ExtendedShapes(t *testing.T) {
 		want bool
 	}{
 		{
+			// Synthetic placeholder. The original v0.1.4 fixture was a real
+			// captured token; rotated 2026-04-28 and replaced with a value
+			// that matches the rule's regex without resembling any real
+			// GitLab PAT (no `.NN.<hash>` checksum suffix). See AGENTS.md.
 			name: "GitLab personal access token via glpat- prefix",
 			rc: `export SA_GITLAB_REGISTRY_TOKEN=glpat-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 `,

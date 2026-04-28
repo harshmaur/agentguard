@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/agentguard/agentguard/internal/redact"
+	"github.com/harshmaur/agentguard/internal/redact"
 )
 
 // Severity ranks findings P0 (release-blocking) through P3 (informational).

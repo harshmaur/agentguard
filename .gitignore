@@ -11,6 +11,8 @@
 !testdata/golden/*.json
 !testdata/golden/*.sarif
 !testdata/laptops/**/*.json
+!docs/*.html
+!docs/*.json
 
 # editor
 .vscode/
@@ -22,3 +24,7 @@ go.sum.bak
 *.test
 *.out
 coverage.txt
+
+# AI agent + tooling caches
+.context/
+.gstack/

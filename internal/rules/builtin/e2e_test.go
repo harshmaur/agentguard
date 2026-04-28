@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/parse"
 )
 
 // End-to-end tests that cross multiple harnesses in a single fixture.

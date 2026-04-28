@@ -31,10 +31,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/parse"
-	"github.com/agentguard/agentguard/internal/rules"
-	"github.com/agentguard/agentguard/internal/suppress"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/rules"
+	"github.com/harshmaur/agentguard/internal/suppress"
 )
 
 // Options configures a scan.

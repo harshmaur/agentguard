@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentguard/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/finding"
 )
 
 func TestMdInline(t *testing.T) {

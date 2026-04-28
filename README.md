@@ -23,23 +23,42 @@ Attack chains (5):
 Report: /tmp/agentguard-scan.html
 ```
 
+The HTML report renders as a forensic document — file by file, severity by
+severity, with a per-finding "what an attacker gets" callout. Hand it to a
+security reviewer and they read it like a court exhibit, not a scanner dump.
+
+![AgentGuard scan report](docs/img/report-preview.png)
+
+> Stdout summary above is from a real `$HOME` scan. Screenshot is the
+> corresponding HTML report from `testdata/laptops/dirty`. Live sample:
+> [`docs/sample-report.html`](docs/sample-report.html) — no external requests,
+> fonts embedded.
+
 ---
 
 ## Why
 
-AI coding agents — Claude Code, Cursor, Codex, Windsurf, OpenCode — and
-MCP servers are spreading across dev fleets faster than security teams can
-review them. Permissions are scattered across machines, repos, dotfiles,
-CI configs, IDE settings, and team docs. CISOs cannot answer:
+Your team installed Claude Code, Cursor, Codex, three MCP servers, and a
+couple of skills last week. Some of those configs let an attacker:
 
-- Which agents on our fleet can read production secrets?
-- Which MCP servers are running across the company?
-- Which configs were installed from unknown sources?
-- Which repos allow autonomous edits without review?
+- read your `.env`, SSH keys, and shell history through a single prompt
+  injection that triggers an over-permissioned agent;
+- run shell commands on your laptop the moment you `git clone` a repo,
+  because somebody committed a `.claude/settings.json` with a hook
+  ([CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536));
+- exfiltrate a production credential through a CI step that hands
+  `secrets.DEPLOY_TOKEN` to an autonomous agent.
 
-AgentGuard is the inventory + policy check designed for this gap. It cedes
-OSS-vuln scanning to Snyk and broad cloud posture to Wiz; the wedge is
-**AI-agent-config posture management**.
+AgentGuard finds these in 1 second per dev box, or in CI on every PR. It
+reads the same config files Claude / Cursor / Codex / Windsurf actually load
+(`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
+`.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), runs 20 rules
+plus 5 attack-chain correlations, and emits HTML for humans, SARIF for
+GitHub Code Scanning, JSON for everything else.
+
+It is not an OSS-vulnerability scanner (Snyk owns that) and it is not a
+cloud-posture tool (Wiz owns that). It scans the layer those tools don't:
+the agent's own config.
 
 ---
 
@@ -98,10 +117,10 @@ Exit code is `1` if any high or critical finding fires, else `0`. CI usage:
 
 ## Attack Chains
 
-Beyond per-finding rules, AgentGuard runs a correlation pass that fires
-**attacker-POV narratives** when specific findings co-occur. Each chain
-combines findings into an end-to-end story so a CISO sees the actual risk,
-not just rows in a table:
+After the per-rule pass, AgentGuard runs a correlation pass that fires
+when specific findings co-occur. Each chain combines findings into an
+end-to-end attacker walkthrough — what they touch, in what order, and what
+they walk away with:
 
 | Chain | Severity | Triggers |
 |---|---|---|
@@ -174,21 +193,24 @@ Always-skipped directories (defensive default): `node_modules`, `vendor`,
 **Shell rc (1)**
 - `shellrc-secret-export` — High — exported credential matching a known token shape
 
-**Total: 20 rules, 4 format families, 5 attack chains.** Every finding ships
-with a `taxonomy` label:
+**Total: 20 rules, 4 format families, 5 attack chains.** Every finding
+carries a `taxonomy` label, so you know exactly what AgentGuard can and
+cannot do for you:
 
-- **enforced** — failed scan can break CI / block commit
-- **detectable** — reliably found, but workflow (review/alert/education) must act
-- **advisory** — cannot reliably detect; documented as best practice
-
-The CISO sale depends on this label being trustworthy.
+- **enforced** — a failed scan can fail CI or block a commit. AgentGuard
+  prevents the violation from reaching production.
+- **detectable** — reliably found, but a workflow (review / alert /
+  education) has to act on it. AgentGuard tells you; it does not stop you.
+- **advisory** — cannot be reliably detected from config alone. Documented
+  as best practice so it is not silently missing.
 
 ---
 
-## Trust artifacts (verify before installing)
+## Verify before installing
 
-The trust paradox: a security tool from a stranger on LinkedIn is itself a
-supply-chain risk. AgentGuard takes that seriously.
+A security tool you install from the internet is itself part of your supply
+chain. Treat it that way. Every release artifact ships with the evidence
+needed to verify it before it runs on your laptop or in your CI:
 
 - **Source on GitHub.** Every rule, parser, and output formatter is
   inspectable. Read the code before installing.
@@ -201,6 +223,20 @@ supply-chain risk. AgentGuard takes that seriously.
 - **SBOM published.** SPDX + CycloneDX, every release.
 - **Zero telemetry.** Runs entirely offline; the rendered HTML report
   embeds its fonts as base64 data URIs and makes zero external requests.
+
+Two subcommands implement the verification path so you don't need cosign
+on a fresh machine to get most of the benefit:
+
+```sh
+# Verify a downloaded release tarball against SHA256SUMS (and against the
+# sigstore transparency log if cosign is on PATH).
+agentguard verify agentguard-v0.2.4-linux-arm64.tar.gz
+
+# Print the SHA-256 of the running binary, plus every rule and chain it
+# will fire. Diff this between two installs to confirm they are identical.
+agentguard self-audit
+agentguard self-audit --json | jq .binary.sha256
+```
 
 ### Manual verify (CISO security-team workflow)
 
@@ -262,22 +298,21 @@ Inline `# agentguard:disable=rule-id` is on the v0.3 list.
 - **v0.2 (shipped):** 4 format families (Claude / Codex / Cursor / Windsurf),
   20 rules, normalized MCP model, 5 attack chains, forensic-document HTML
   report, signed binary + cosign + SBOM + SLSA L2.
-- **v0.3:** more harness detectors (Cline / Continue / Roo / Kilo / Aider /
-  OpenClaw / Hermes / Goose), tool-description prompt-injection rules,
-  inline suppression syntax, fleet aggregation, Windows support.
-- **v0.4+ (paid SaaS):** fleet visibility, drift detection, central policy
-  distribution, approved registry, SOC 2 / ISO compliance reports, SSO,
-  SIEM integration, premium rule packs + threat intel.
+- **v0.3 (next):** more harness detectors (Cline / Continue / Roo / Kilo /
+  Aider / OpenClaw / Hermes / Goose), tool-description prompt-injection
+  rules, inline `# agentguard:disable=` suppression syntax, Windows support.
 
 ---
 
 ## License
 
-TBD — pending procurement-legal review with two design partners. Likely
-[BSL](https://mariadb.com/bsl11/) or [FSL](https://fsl.software/) so the
-source is fully readable but commercial reselling as a competing SaaS is
-restricted for 2-4 years before reverting to permissive. Track at
-[#1](https://github.com/harshmaur/agentguard/issues/1).
+[**FSL-1.1-MIT**](https://fsl.software/) — Functional Source License with MIT
+future grant. The source is fully readable, you can run it inside your company
+(internal use), modify it, and redistribute it. The one restriction is reselling
+it as a competing commercial product or service. Two years after each release,
+that release reverts to plain MIT.
+
+Same model used by Sentry, Convex, GitButler, Keygen.
 
 ---
 

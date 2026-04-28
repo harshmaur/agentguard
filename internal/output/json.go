@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/agentguard/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/finding"
 )
 
 // JSON is the structured machine-readable output. Use it for piping into

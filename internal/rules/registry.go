@@ -7,8 +7,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/parse"
 )
 
 // Rule is the unit of policy. One Rule may inspect many file formats and emit

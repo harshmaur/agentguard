@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentguard/agentguard/internal/parse"
-	"github.com/agentguard/agentguard/internal/rules"
+	"github.com/harshmaur/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/rules"
 )
 
 // --- mcp-unpinned-npx ------------------------------------------------------

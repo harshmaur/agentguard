@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/parse"
 )
 
 // --- skill-shell-hijack ---------------------------------------------------

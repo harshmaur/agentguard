@@ -23,12 +23,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/agentguard/agentguard/internal/correlate"
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/output"
-	_ "github.com/agentguard/agentguard/internal/rules/builtin"
-	"github.com/agentguard/agentguard/internal/scan"
-	"github.com/agentguard/agentguard/internal/suppress"
+	"github.com/harshmaur/agentguard/internal/correlate"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/output"
+	_ "github.com/harshmaur/agentguard/internal/rules/builtin"
+	"github.com/harshmaur/agentguard/internal/scan"
+	"github.com/harshmaur/agentguard/internal/suppress"
 	"github.com/spf13/cobra"
 )
 
@@ -41,10 +41,10 @@ func main() {
 	if err == nil {
 		return
 	}
-	// Findings-present is a successful run with non-zero exit. Don't print
-	// the sentinel error message — the scan summary already showed the user
-	// what was found.
-	if errors.Is(err, errFindingsPresent) {
+	// Findings-present and verify-failed are successful runs with non-zero
+	// exit. The subcommand already showed the user the verdict — printing
+	// "agentguard: findings present" on top would be noise.
+	if errors.Is(err, errFindingsPresent) || errors.Is(err, errVerifyFailed) {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "agentguard: %v\n", err)
@@ -61,6 +61,8 @@ func newRootCmd() *cobra.Command {
 		Version:       Version,
 	}
 	cmd.AddCommand(newScanCmd())
+	cmd.AddCommand(newVerifyCmd())
+	cmd.AddCommand(newSelfAuditCmd())
 	cmd.AddCommand(newVersionCmd())
 	return cmd
 }

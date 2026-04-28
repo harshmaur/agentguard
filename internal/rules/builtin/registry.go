@@ -10,7 +10,7 @@
 package builtin
 
 import (
-	"github.com/agentguard/agentguard/internal/rules"
+	"github.com/harshmaur/agentguard/internal/rules"
 )
 
 func init() {

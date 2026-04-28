@@ -1,25 +1,21 @@
 #!/usr/bin/env sh
 # AgentGuard install script.
 #
-# Usage (once the repo is public):
+# Usage:
 #   curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh -s -- --version v0.1.1
+#   curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh -s -- --version v0.2.4
 #
-# While the repo is private, use the gh CLI path documented in README.md instead:
-#   gh release download <version> -R harshmaur/agentguard ...
-#
-# This script:
-#   1. Detects OS + arch.
-#   2. Downloads the matching signed release tarball from GitHub Releases.
-#   3. Verifies the SHA-256 against the published SHA256SUMS.
-#   4. (If cosign is installed) verifies the tarball signature against the
+# Steps:
+#   1. Detect OS + arch.
+#   2. Download the matching signed release tarball from GitHub Releases.
+#   3. Verify the SHA-256 against the published SHA256SUMS.
+#   4. (If cosign is installed) verify the tarball signature against the
 #      sigstore transparency log.
-#   5. Extracts the binary to ${INSTALL_DIR:-$HOME/.local/bin}.
+#   5. Extract the binary to ${INSTALL_DIR:-$HOME/.local/bin}.
 #
-# Why no cosign required: a fresh machine often won't have cosign. The
-# embedded `agentguard verify` tool can do the same check after install.
-# See "verify before installing" in README.md for the manual path CISO
-# security teams should follow.
+# After install you can re-verify any downloaded tarball with
+# `agentguard verify <tarball>`, and confirm what is compiled into the
+# binary on a given machine with `agentguard self-audit`.
 
 set -eu
 

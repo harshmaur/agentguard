@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentguard/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/finding"
 )
 
 //go:embed report.html.tmpl

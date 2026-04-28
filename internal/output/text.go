@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentguard/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/finding"
 )
 
 // Text prints a human-readable summary of the report. Used for terminal

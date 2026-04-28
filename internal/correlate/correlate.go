@@ -20,9 +20,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/agentguard/agentguard/internal/finding"
-	"github.com/agentguard/agentguard/internal/output"
-	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/output"
+	"github.com/harshmaur/agentguard/internal/parse"
 )
 
 // Run produces attack chains given the full scan output. It does not modify

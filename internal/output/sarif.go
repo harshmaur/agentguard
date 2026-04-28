@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agentguard/agentguard/internal/finding"
+	"github.com/harshmaur/agentguard/internal/finding"
 )
 
 // SARIF emits SARIF v2.1.0. We hand-roll the minimal subset that GitHub
