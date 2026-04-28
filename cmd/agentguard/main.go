@@ -5,7 +5,7 @@
 // a repo. Compare findings against a built-in policy. Emit SARIF / HTML /
 // JSON reports.
 //
-// See https://agentguard.dev for the full design doc.
+// See https://github.com/harshmaur/agentguard for source + design doc.
 package main
 
 import (
@@ -23,8 +23,9 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/agentguard/agentguard/internal/rules/builtin"
+	"github.com/agentguard/agentguard/internal/finding"
 	"github.com/agentguard/agentguard/internal/output"
+	_ "github.com/agentguard/agentguard/internal/rules/builtin"
 	"github.com/agentguard/agentguard/internal/scan"
 	"github.com/agentguard/agentguard/internal/suppress"
 	"github.com/spf13/cobra"
@@ -35,9 +36,18 @@ var Version = "0.0.0-dev"
 
 func main() {
 	root := newRootCmd()
-	if err := root.Execute(); err != nil {
+	err := root.Execute()
+	if err == nil {
+		return
+	}
+	// Findings-present is a successful run with non-zero exit. Don't print
+	// the sentinel error message — the scan summary already showed the user
+	// what was found.
+	if errors.Is(err, errFindingsPresent) {
 		os.Exit(1)
 	}
+	fmt.Fprintf(os.Stderr, "agentguard: %v\n", err)
+	os.Exit(1)
 }
 
 func newRootCmd() *cobra.Command {
@@ -167,6 +177,14 @@ func resolveOutput(f scanFlags) (outPlan, error) {
 	if format != "html" && format != "sarif" && format != "json" {
 		return outPlan{}, fmt.Errorf("unknown format %q (want html | sarif | json)", f.format)
 	}
+	// Validate openMode up-front so a bad value can't influence routing
+	// in the switch below.
+	switch f.openMode {
+	case "auto", "always", "never":
+		// ok
+	default:
+		return outPlan{}, fmt.Errorf("--open must be auto | always | never (got %q)", f.openMode)
+	}
 
 	stdoutTTY := isTerminal(os.Stdout)
 
@@ -206,12 +224,6 @@ func resolveOutput(f scanFlags) (outPlan, error) {
 		plan.openBrowser = false
 	}
 
-	switch f.openMode {
-	case "auto", "always", "never":
-		// ok
-	default:
-		return outPlan{}, fmt.Errorf("--open must be auto | always | never (got %q)", f.openMode)
-	}
 	if f.openMode == "never" {
 		plan.openBrowser = false
 	}
@@ -319,14 +331,21 @@ func runScan(f scanFlags) error {
 		}
 	}
 
-	// Exit code: 1 if any high-or-critical finding fires.
+	// Exit code: 1 if any high-or-critical finding fires. Return the sentinel
+	// instead of os.Exit so deferred cleanup (signal-context cancel, output
+	// file Close on writeReport's defer) all run before the process exits.
 	for _, fnd := range res.Findings {
-		if fnd.Severity <= 1 { // SeverityCritical=0, SeverityHigh=1
-			os.Exit(1)
+		if fnd.Severity == finding.SeverityCritical || fnd.Severity == finding.SeverityHigh {
+			return errFindingsPresent
 		}
 	}
 	return nil
 }
+
+// errFindingsPresent signals a successful scan that found high-or-critical
+// findings. main() detects this and exits with code 1 instead of returning
+// an error message to stderr.
+var errFindingsPresent = errors.New("findings present")
 
 // writeReport emits the chosen format to either stdout or a file path.
 func writeReport(plan outPlan, report output.Report) error {
