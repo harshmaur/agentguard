@@ -58,6 +58,7 @@ func chainRepoCloneHookRCE(idx *findingIndex) (output.AttackChain, bool) {
 	return output.AttackChain{
 		ID:         "repo-clone-hook-rce",
 		Title:      "Cloning a malicious repo can RCE this dev box",
+		Outcome:    "RCE on first repo open, before any prompt, with full shell privileges",
 		Severity:   finding.SeverityCritical,
 		Narrative:  narrative,
 		Citations:  []string{"CVE-2025-59536 (CVSS 8.7)", "Check Point Research 2026"},
@@ -173,6 +174,7 @@ func chainAgentReadsProdSecrets(idx *findingIndex) (output.AttackChain, bool) {
 	return output.AttackChain{
 		ID:         "agent-reads-prod-secrets",
 		Title:      "Permission-loose agent + reachable secret = exfil chain",
+		Outcome:    "One prompt injection reads SSH keys, .env files, and plaintext API keys without prompting",
 		Severity:   finding.SeverityCritical,
 		Narrative:  b.String(),
 		Citations:  []string{"design doc Round 1 + Round 2 trim", "OWASP MCP Top 10 — MCP01 (Token Mismanagement)"},
@@ -225,6 +227,7 @@ func chainTrustedHomePlusPlaintextKey(idx *findingIndex) (output.AttackChain, bo
 	return output.AttackChain{
 		ID:         "codex-trusted-home-plaintext-key",
 		Title:      "Codex: trusted $HOME + plaintext key = no-friction takeover",
+		Outcome:    "Codex sandbox bypassed and an upstream credential exposed in the same config file",
 		Severity:   finding.SeverityCritical,
 		Narrative:  b.String(),
 		Citations:  []string{"OpenAI Codex Security docs", "OWASP MCP Top 10 — MCP01 + MCP07"},
@@ -270,6 +273,7 @@ func chainPluginBundledMCPWithoutAuth(idx *findingIndex) (output.AttackChain, bo
 	return output.AttackChain{
 		ID:         "plugin-bundled-mcp-no-auth",
 		Title:      "Third-party plugin ships an unauthenticated MCP server",
+		Outcome:    "Plugin's bundled MCP returns attacker-controlled tool output to a fully-trusted agent",
 		Severity:   finding.SeverityHigh,
 		Narrative:  b.String(),
 		Citations:  []string{"OWASP MCP Top 10 — MCP04 (Supply Chain) + MCP07 (Auth)", "Trend Micro 2026 — 492 unauth MCP servers"},
@@ -337,6 +341,7 @@ func chainSameSecretAcrossHarnesses(idx *findingIndex) (output.AttackChain, bool
 		return output.AttackChain{
 			ID:         "same-secret-across-harnesses",
 			Title:      fmt.Sprintf("Same credential `%s` reused across %d harnesses", name, len(harnesses)),
+			Outcome:    "One leaked credential burns multiple agent surfaces; rotation requires touching every harness",
 			Severity:   finding.SeverityHigh,
 			Narrative:  b.String(),
 			Citations:  []string{"OWASP MCP Top 10 — MCP01 (Token Mismanagement)"},

@@ -301,6 +301,30 @@
     margin: 0;
     letter-spacing: -0.005em;
   }
+  .chain-outcome {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+    background: var(--card-tint);
+    border-left: 3px solid currentColor;
+    padding: 8px 12px;
+    margin: 0 0 14px;
+    line-height: 1.5;
+    letter-spacing: 0.01em;
+  }
+  .chain-outcome .k {
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 9.5px;
+    color: var(--ink-muted);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .chain.critical .chain-outcome { color: var(--critical); }
+  .chain.high     .chain-outcome { color: var(--high); }
+  .chain.medium   .chain-outcome { color: var(--medium); }
+  .chain.low      .chain-outcome { color: var(--low); }
+  .chain-outcome .text { color: var(--ink); }
   .chain-lede {
     color: var(--ink);
     font-size: 15px;
@@ -626,6 +650,12 @@
       <h3 class="chain-title">{{md .Title}}</h3>
       <span class="pill {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
     </div>
+    {{if .Outcome}}
+    <div class="chain-outcome">
+      <span class="k">Attacker gets</span>
+      <span class="text">{{md .Outcome}}</span>
+    </div>
+    {{end}}
     <p class="chain-lede">{{narrativeLede .Narrative}}</p>
     {{ $rest := narrativeRest .Narrative }}
     {{if $rest}}

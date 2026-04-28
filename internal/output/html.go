@@ -76,6 +76,7 @@ type Report struct {
 type AttackChain struct {
 	ID         string           // stable ID, e.g. "repo-clone-hook-rce"
 	Title      string           // one-line title
+	Outcome    string           // one-line "what an attacker gets" — rendered as a forensic call-out above the narrative
 	Severity   finding.Severity // chain severity
 	Narrative  string           // attacker-POV story, plain prose (multi-paragraph allowed)
 	Citations  []string         // CVE IDs, research firm refs
@@ -183,7 +184,7 @@ func HTML(w io.Writer, r Report) error {
 		},
 		"join":            strings.Join,
 		"duration":        func(start, end time.Time) string { return end.Sub(start).Round(time.Millisecond).String() },
-		"verdict":         buildVerdict,
+		"verdict":         func(r Report) Verdict { return r.Verdict() },
 		"narrativeLede":   func(s string) template.HTML { l, _ := narrativeParts(s); return l },
 		"narrativeRest":   func(s string) template.HTML { _, r := narrativeParts(s); return r },
 		"md":              func(s string) template.HTML { return template.HTML(mdInline(s)) },
@@ -253,7 +254,10 @@ func HTML(w io.Writer, r Report) error {
 	return tmpl.Execute(w, r)
 }
 
-func buildVerdict(r Report) Verdict {
+// Verdict returns the headline sentence for this Report. Used by both the
+// HTML renderer (verdict block above the metric strip) and the CLI text
+// renderer (the one-line summary printed under the scan-stats header).
+func (r Report) Verdict() Verdict {
 	c := map[finding.Severity]int{}
 	for _, f := range r.Findings {
 		c[f.Severity]++

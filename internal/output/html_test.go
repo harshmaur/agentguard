@@ -54,7 +54,7 @@ func TestNarrativeParts_NoBreakReturnsEmptyRest(t *testing.T) {
 
 func TestBuildVerdict_Clean(t *testing.T) {
 	r := Report{Findings: nil, FilesParsed: 12, Roots: []string{"/tmp"}}
-	v := buildVerdict(r)
+	v := r.Verdict()
 	if v.Severity != "clean" {
 		t.Errorf("severity = %q, want clean", v.Severity)
 	}
@@ -74,7 +74,7 @@ func TestBuildVerdict_LeadsWithCriticalChainTitle(t *testing.T) {
 			{ID: "c", Severity: finding.SeverityCritical, Title: "Permission-loose agent"},
 		},
 	}
-	v := buildVerdict(r)
+	v := r.Verdict()
 	if v.Severity != "critical" {
 		t.Errorf("severity = %q", v.Severity)
 	}
@@ -90,7 +90,7 @@ func TestBuildVerdict_NoChainsFallsBackToCounts(t *testing.T) {
 			{RuleID: "y", Severity: finding.SeverityHigh, Path: "/b"},
 		},
 	}
-	v := buildVerdict(r)
+	v := r.Verdict()
 	if v.Severity != "high" {
 		t.Errorf("severity = %q", v.Severity)
 	}
@@ -213,7 +213,7 @@ func TestHTML_RendersFontsAndChainStructure(t *testing.T) {
 			{RuleID: "claude-hook-shell-rce", Severity: finding.SeverityCritical, Taxonomy: finding.TaxEnforced, Title: "Hook RCE", Description: "`hooks.X` runs shell.", Path: "/etc/settings.json", Line: 7},
 		},
 		AttackChains: []AttackChain{
-			{ID: "c1", Title: "Repo-clone hook RCE", Severity: finding.SeverityCritical, Narrative: "Lede sentence here.\n\nDeeper attacker prose continues here with **bold** and `code`.", FindingIDs: []string{"claude-hook-shell-rce"}, Paths: []string{"/etc/settings.json"}, Citations: []string{"CVE-2025-59536"}},
+			{ID: "c1", Title: "Repo-clone hook RCE", Outcome: "RCE on first repo open, before any prompt", Severity: finding.SeverityCritical, Narrative: "Lede sentence here.\n\nDeeper attacker prose continues here with **bold** and `code`.", FindingIDs: []string{"claude-hook-shell-rce"}, Paths: []string{"/etc/settings.json"}, Citations: []string{"CVE-2025-59536"}},
 		},
 	}
 	var buf bytes.Buffer
@@ -261,6 +261,46 @@ func TestHTML_RendersFontsAndChainStructure(t *testing.T) {
 	// File-grouped findings: one path group section.
 	if c := strings.Count(out, `class="path-group"`); c != 1 {
 		t.Errorf("path-group count = %d, want 1", c)
+	}
+
+	// Per-chain "Attacker gets" outcome callout.
+	if !strings.Contains(out, `class="chain-outcome"`) {
+		t.Errorf("chain-outcome callout missing")
+	}
+	if !strings.Contains(out, "RCE on first repo open") {
+		t.Errorf("outcome string missing from rendered HTML")
+	}
+}
+
+func TestText_VerdictAndChains(t *testing.T) {
+	now := time.Now()
+	r := Report{
+		Version:     "v0.2.3-test",
+		Roots:       []string{"/tmp"},
+		FilesParsed: 1,
+		FilesSeen:   1,
+		StartedAt:   now,
+		FinishedAt:  now.Add(time.Second),
+		Findings: []finding.Finding{
+			{RuleID: "claude-hook-shell-rce", Severity: finding.SeverityCritical, Taxonomy: finding.TaxEnforced, Title: "Hook RCE", Description: "X.", Path: "/etc/settings.json", Line: 7},
+		},
+		AttackChains: []AttackChain{
+			{ID: "c1", Title: "Repo-clone hook RCE", Outcome: "RCE on first repo open, before any prompt", Severity: finding.SeverityCritical, Narrative: "y", Paths: []string{"/etc/settings.json"}, FindingIDs: []string{"claude-hook-shell-rce"}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := Text(&buf, r, "/tmp/x.html"); err != nil {
+		t.Fatalf("Text render: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "==> Repo-clone hook RCE") {
+		t.Errorf("verdict line missing or wrong format: %q", out)
+	}
+	if !strings.Contains(out, "Attack chains (1)") {
+		t.Errorf("attack-chain summary missing")
+	}
+	if !strings.Contains(out, "Attacker gets: RCE on first repo open") {
+		t.Errorf("outcome line missing in CLI output")
 	}
 }
 

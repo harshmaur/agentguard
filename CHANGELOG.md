@@ -3,6 +3,22 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.3] - 2026-04-28
+
+Forensic verdict + Attack-chain outcomes. Closes the design-doc loose ends from the v0.2 review. No new rules, no new format detectors — just sharper presentation of what's already there.
+
+### Added
+- **Per-chain "Attacker gets" outcome.** Each Attack Chain now carries a one-line `Outcome` field summarizing what an attacker actually gets if the chain fires. Renders as a forensic call-out box above the lede paragraph in the HTML report (mono, severity-tinted left border) and as the `Attacker gets:` line under each chain in the CLI summary. Five outcomes hand-written for the five existing chains; the schema is extensible.
+- **CLI verdict line.** `agentguard scan` stdout now prints the same one-sentence forensic verdict that leads the HTML report, as `==> {verdict}` followed by the supporting clause. Followed by an `Attack chains (N):` block with severity tag, title, and Attacker-gets outcome per chain. The terminal output now reads as forensic summary, not row-counts.
+- **Tests.** Per-chain outcome rendering in HTML; CLI verdict line + chain summary block in `Text()`.
+
+### Changed
+- **`buildVerdict` is now `Report.Verdict()`.** Public method so the HTML and CLI renderers share one source of truth for the lead sentence. Behaviour unchanged — leads with the most-severe Critical chain title when one fires, falls back to severity-count prose otherwise.
+- **`agent-capability-meets-readable-secret` line item closed.** Round-3 of the v0.2 design listed it as a separate Advisory cross-rule; it shipped subsumed in the `agent-reads-prod-secrets` Attack Chain (which combines six capability rules with three secret-rules and a readable-private-key heuristic). Decision: leave subsumed. Factoring it out as a standalone rule would duplicate detection logic already covered by the chain, and the chain's narrative + outcome carry the same advisory weight.
+
+### Pending — repo migration
+- **SLSA L2 attestation still soft-fails.** `release.yml` sets `continue-on-error: true` on the `actions/attest-build-provenance@v2` step because user-owned private repos cannot persist attestations (GitHub API restriction). The repo (`harshmaur/agentguard`) is currently `PRIVATE`. To un-soft-fail: make the repo public (or move under an org), then drop `continue-on-error` from `release.yml:82`. One command: `gh repo edit harshmaur/agentguard --visibility public --accept-visibility-change-consequences`.
+
 ## [0.2.2] - 2026-04-28
 
 HTML report redesign. Same findings, same chains, same JSON/SARIF output — only the HTML view changed. Built for the CISO who reads the report as a forensic document, not the developer who scans a flat list of severities.

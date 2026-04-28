@@ -10,8 +10,8 @@ import (
 )
 
 // Text prints a human-readable summary of the report. Used for terminal
-// output: counts by severity, top findings grouped by severity, and the
-// path to the full HTML report (if one was written).
+// output: a one-line verdict, severity counts, attack-chain summaries,
+// top findings grouped by severity, and the path to the full HTML report.
 //
 // Output is plain ASCII; no color codes (terminals without color support
 // shouldn't see escape junk, and CI logs stay grep-friendly). Real terminals
@@ -23,6 +23,14 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 		r.FilesSeen, r.FilesParsed, r.Skipped,
 		r.FinishedAt.Sub(r.StartedAt).Round(time.Millisecond))
 
+	// Verdict line — same one-sentence headline shown at the top of the HTML
+	// report. Reads as forensic summary; CISO can paste straight into Slack.
+	v := r.Verdict()
+	bw.printf("\n==> %s\n", v.Lead)
+	if v.Supporting != "" {
+		bw.printf("    %s\n", v.Supporting)
+	}
+
 	if r.SelfAudit != "" && r.SelfAudit != "skipped" {
 		bw.printf("self-audit: %s\n", r.SelfAudit)
 	}
@@ -32,16 +40,30 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 		counts[f.Severity]++
 	}
 
-	bw.printf("\n")
 	if len(r.Findings) == 0 {
-		bw.printf("✓ No findings. Your AI-agent configs look clean.\n")
+		bw.printf("\n✓ No findings. Your AI-agent configs look clean.\n")
 		if htmlPath != "" {
 			bw.printf("\n  Report: %s\n", htmlPath)
 		}
 		return bw.err
 	}
 
-	bw.printf("Findings: %d total  ─  %d critical / %d high / %d medium / %d low\n",
+	// Attack-chain summary block: one line per chain with severity tag and
+	// the chain's "Attacker gets" outcome (or title fallback). This is what
+	// makes the CLI output read as forensic instead of as a row count.
+	if len(r.AttackChains) > 0 {
+		bw.printf("\nAttack chains (%d):\n", len(r.AttackChains))
+		for _, ch := range r.AttackChains {
+			outcome := ch.Outcome
+			if outcome == "" {
+				outcome = ch.Title
+			}
+			bw.printf("  - [%s] %s\n", strings.ToUpper(ch.Severity.String()), ch.Title)
+			bw.printf("    Attacker gets: %s\n", outcome)
+		}
+	}
+
+	bw.printf("\nFindings: %d total  ─  %d critical / %d high / %d medium / %d low\n",
 		len(r.Findings),
 		counts[finding.SeverityCritical],
 		counts[finding.SeverityHigh],
