@@ -3,6 +3,25 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.2] - 2026-04-28
+
+HTML report redesign. Same findings, same chains, same JSON/SARIF output — only the HTML view changed. Built for the CISO who reads the report as a forensic document, not the developer who scans a flat list of severities.
+
+### Changed
+- **Report layout: forensic document, not SaaS dashboard.** The first viewport now shows a serif headline pulled from the most-severe Attack Chain title (e.g. "Permission-loose agent + reachable secret = exfil chain") with a small metric strip below. The 28px "Critical: 5" tile is gone. CISOs can paste the headline into Slack.
+- **Findings grouped by file path, not by severity.** Each `<details>` group lists the findings that live in one config file, with severity counts on the section header. On the Mac scan that turns 48 flat rows into 36 file-anchored sections. Files with the most severe findings sort to the top.
+- **Progressive disclosure for prose-heavy sections.** Chain narratives now show a one-paragraph lede always; the rest collapses behind "Read full attacker walkthrough". Findings collapse to a one-line summary (title + line + severity pill); body (description, match, fix, rule) expands on click. Reading the report no longer requires scrolling past 25 paragraphs of attacker prose to reach the evidence.
+- **Inline markdown is rendered.** Backtick `code` and `**bold**` in chain titles, finding titles, descriptions, suggested fixes, and chain narratives now render as `<code>` and `<strong>` instead of printing literal asterisks and backticks. The rule-side `Description` strings already used this convention; the v0.2.0/0.2.1 template had been printing them raw.
+- **Forensic palette.** Severity colours moved off Tailwind defaults (`#b91c1c`/`#c2410c`) to a quieter document-feel palette (oxblood, burnt amber, dark mustard). Severity tints on cards are barely-tinted rather than pastel; left-border bars carry the colour.
+- **Anchor links.** Each Attack Chain footer's Files list links to the corresponding file's path-group section (`#path-{slug}`), so a CISO reading a chain narrative can jump directly to the evidence.
+
+### Added
+- **Embedded fonts (`go:embed`).** Three woff2 files inline as base64 data URIs in the rendered HTML: Instrument Serif (display), Geist (body, variable 400–600), Geist Mono (mono). The rendered report still makes zero external network requests — the offline-single-binary guarantee from v0.1 holds. Adds ~85KB to the binary and ~95KB to each rendered HTML report.
+- **`internal/output/html_test.go`.** Unit tests for the new helpers: `mdInline` (escape + bold + code + newline → br), `narrativeParts` (paragraph split), `buildVerdict` (clean / chain-led / count-fallback paths), `groupByPath` (per-file grouping + severity-weighted sort within and across groups). End-to-end render asserts include "exactly 3 @font-face, exactly 3 data URIs, zero external `fonts.gstatic.com`/`fonts.googleapis.com` references".
+
+### Why
+- The v0.2 design doc set out to make the report read as forensic evidence, not a row-grid. v0.2.0-alpha.5 added the Attack Chains layer; v0.2.2 finishes the job by fixing the visual treatment that surrounds them. The qualitative claim from the design doc — *"a CISO sees end-to-end risk, not just a row in a table"* — required both the chain content and a layout that puts the chain content in the first viewport. v0.2.0–v0.2.1 had the content; v0.2.2 has the layout.
+
 ## [0.2.1] - 2026-04-28
 
 Pure file reorganization. Zero behavior change.

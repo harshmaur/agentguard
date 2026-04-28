@@ -5,339 +5,716 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AgentGuard Report</title>
 <style>
-  :root {
-    --bg: #fafaf7;
-    --fg: #1a1a1a;
-    --muted: #6b7280;
-    --card: #ffffff;
-    --border: #e5e5e5;
-    --accent: #1a1a1a;
-    --critical: #b91c1c;
-    --critical-bg: #fef2f2;
-    --high: #c2410c;
-    --high-bg: #fff7ed;
-    --medium: #b45309;
-    --medium-bg: #fffbeb;
-    --low: #525252;
-    --low-bg: #f5f5f5;
-    --tax-enforced: #16a34a;
-    --tax-detectable: #2563eb;
-    --tax-advisory: #6b7280;
+  /* --- Embedded fonts (latin subset, base64 woff2) --------------------- */
+  /* Embedded via go:embed at build time; rendered HTML makes zero external
+     requests. Instrument Serif (display), Geist (body, variable 400-600),
+     Geist Mono (mono). Total ~64KB woff2 / ~85KB after base64 inflate.   */
+  @font-face {
+    font-family: 'Instrument Serif';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url({{fontURI "instrument_serif"}}) format('woff2');
   }
+  @font-face {
+    font-family: 'Geist';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url({{fontURI "geist"}}) format('woff2');
+  }
+  @font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url({{fontURI "geist_mono"}}) format('woff2');
+  }
+
+  /* --- Type system ------------------------------------------------------ */
+  :root {
+    --font-display: "Instrument Serif", ui-serif, "Iowan Old Style", Charter, Cambria, Georgia, serif;
+    --font-body: "Geist", -apple-system, "SF Pro Text", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace;
+  }
+
+  /* --- Forensic palette (light) ---------------------------------------- */
+  :root {
+    --paper:        #FAFAF8;   /* slightly warm off-white, document feel */
+    --ink:          #14141A;   /* near-black, warmer than #000           */
+    --ink-soft:     #4A4A52;   /* secondary text                         */
+    --ink-muted:    #80808A;   /* tertiary, captions                     */
+    --rule:         #1A1A22;   /* hairlines on light bg, document-strong */
+    --rule-soft:    #E4E2DA;   /* dividers between cards                 */
+    --card:         #FFFFFF;
+    --card-tint:    #F4F1E8;   /* aged-paper tint for callouts           */
+
+    --critical:     #6F0A12;   /* deep oxblood, not Tailwind red-700     */
+    --critical-bg:  #FBF6F5;
+    --high:         #8A3A0B;   /* burnt amber                            */
+    --high-bg:      #FBF7F1;
+    --medium:       #6B5A0E;   /* dark mustard                           */
+    --medium-bg:    #FAF7EA;
+    --low:          #3F3F46;
+    --low-bg:       #F1EFE8;
+    --clean:        #2F5D3A;   /* deep forest, not Tailwind green-600    */
+    --clean-bg:     #F1F4EE;
+
+    --tax-enforced:   #2F5D3A;
+    --tax-detectable: #1F3D5C;
+    --tax-advisory:   #5A574A;
+
+    --accent:       #0B2545;   /* deep navy for interactive               */
+  }
+
+  /* --- Forensic palette (dark) ----------------------------------------- */
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0a0a0a;
-      --fg: #e5e5e5;
-      --muted: #9ca3af;
-      --card: #1a1a1a;
-      --border: #262626;
-      --accent: #e5e5e5;
-      --critical: #ef4444;
-      --critical-bg: #2c1010;
-      --high: #f97316;
-      --high-bg: #2a1808;
-      --medium: #eab308;
-      --medium-bg: #28200a;
-      --low: #a3a3a3;
-      --low-bg: #1f1f1f;
-      --tax-enforced: #4ade80;
-      --tax-detectable: #60a5fa;
-      --tax-advisory: #9ca3af;
+      --paper:        #0B0B0E;
+      --ink:          #E8E4D6;
+      --ink-soft:     #B8B4A6;
+      --ink-muted:    #707070;
+      --rule:         #C8C4B6;
+      --rule-soft:    #232328;
+      --card:         #14141A;
+      --card-tint:    #1B1B22;
+
+      --critical:     #E07A5F;
+      --critical-bg:  #1F1414;
+      --high:         #D29A4A;
+      --high-bg:      #1F1A12;
+      --medium:       #C8B85A;
+      --medium-bg:    #1C1A12;
+      --low:          #B0B0B0;
+      --low-bg:       #18181C;
+      --clean:        #7AB58A;
+      --clean-bg:     #131A14;
+
+      --tax-enforced:   #7AB58A;
+      --tax-detectable: #7AA8D2;
+      --tax-advisory:   #A8A496;
+
+      --accent:       #BFD2EA;
     }
   }
+
+  /* --- Reset / base ---------------------------------------------------- */
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--fg);
-    font-size: 14px;
-    line-height: 1.5;
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: var(--paper);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
   }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
-  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; font-weight: 600; }
-  header .ver { font-size: 12px; color: var(--muted); }
+  ::selection { background: var(--ink); color: var(--paper); }
 
-  .summary {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 24px;
+  .doc {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
   }
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-  }
-  .stat .num { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
-  .stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
-  .stat.critical .num { color: var(--critical); }
-  .stat.high .num { color: var(--high); }
-  .stat.medium .num { color: var(--medium); }
-  .stat.low .num { color: var(--low); }
 
-  .self-audit {
-    margin-top: 18px;
-    padding: 10px 14px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  /* --- Document chrome ------------------------------------------------- */
+  .eyebrow {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-soft);
   }
-  .self-audit.clean { background: rgba(34,197,94,0.1); color: var(--tax-enforced); border: 1px solid rgba(34,197,94,0.3); }
-  .self-audit.tampered { background: var(--critical-bg); color: var(--critical); border: 1px solid var(--critical); }
-  .self-audit.skipped { background: var(--low-bg); color: var(--muted); border: 1px solid var(--border); }
+  .eyebrow strong { color: var(--ink); font-weight: 600; }
+  .eyebrow .tag-version { color: var(--ink-muted); }
 
-  .meta {
-    margin-top: 14px;
-    font-size: 12px;
-    color: var(--muted);
+  /* --- Verdict (the lead) --------------------------------------------- */
+  .verdict {
+    margin: 36px 0 32px;
+  }
+  .verdict-bar {
+    width: 56px;
+    height: 4px;
+    background: var(--ink);
+    margin-bottom: 28px;
+  }
+  .verdict-bar.critical { background: var(--critical); }
+  .verdict-bar.high     { background: var(--high); }
+  .verdict-bar.medium   { background: var(--medium); }
+  .verdict-bar.low      { background: var(--low); }
+  .verdict-bar.clean    { background: var(--clean); }
+
+  .verdict-lead {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 36px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0 0 14px;
+  }
+  .verdict-supporting {
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+
+  /* --- Metric strip (small, under verdict) ----------------------------- */
+  .metrics {
     display: flex;
     flex-wrap: wrap;
-    gap: 18px;
+    gap: 0;
+    border-top: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+    margin: 28px 0 36px;
+    padding: 16px 0;
   }
-  .meta span { display: inline-flex; align-items: center; gap: 5px; }
-
-  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 28px 0 12px; font-weight: 600; }
-
-  .findings { list-style: none; padding: 0; margin: 0; }
-  .finding {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 18px 20px;
-    margin-bottom: 12px;
+  .metric {
+    flex: 1 1 0;
+    min-width: 96px;
+    padding: 0 8px;
+    border-right: 1px solid var(--rule-soft);
   }
-  .finding-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
-  .finding-title { font-size: 15px; font-weight: 600; margin: 0; line-height: 1.3; }
-  .badges { display: flex; gap: 6px; flex-shrink: 0; }
-  .badge {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 4px;
-    letter-spacing: 0.02em;
+  .metric:last-child { border-right: 0; }
+  .metric-num {
+    font-family: var(--font-display);
+    font-size: 26px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .metric.critical .metric-num { color: var(--critical); }
+  .metric.high     .metric-num { color: var(--high); }
+  .metric.medium   .metric-num { color: var(--medium); }
+  .metric.low      .metric-num { color: var(--low); }
+  .metric-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
     text-transform: uppercase;
-    white-space: nowrap;
+    letter-spacing: 0.14em;
+    color: var(--ink-muted);
+    margin-top: 8px;
   }
-  .badge.critical { background: var(--critical-bg); color: var(--critical); }
-  .badge.high { background: var(--high-bg); color: var(--high); }
-  .badge.medium { background: var(--medium-bg); color: var(--medium); }
-  .badge.low { background: var(--low-bg); color: var(--low); }
-  .badge.tax {
-    background: transparent;
+
+  /* --- Audit / scan-meta line ----------------------------------------- */
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 28px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin: 0 0 32px;
+  }
+  .meta-grid > div { display: flex; gap: 8px; }
+  .meta-grid .k { color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.1em; min-width: 90px; }
+  .meta-grid .v { color: var(--ink); word-break: break-all; }
+
+  .self-audit {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 10px 14px;
     border: 1px solid currentColor;
+    margin-bottom: 28px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
   }
-  .badge.tax.enforced { color: var(--tax-enforced); }
-  .badge.tax.detectable { color: var(--tax-detectable); }
-  .badge.tax.advisory { color: var(--tax-advisory); }
+  .self-audit.clean    { color: var(--clean); }
+  .self-audit.tampered { color: var(--critical); border-width: 2px; }
+  .self-audit.skipped  { color: var(--ink-muted); }
+  .self-audit .k { text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; }
 
-  .path {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 8px;
-    word-break: break-all;
+  /* --- Section heading (small caps eyebrow) ---------------------------- */
+  h2.section {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--ink-muted);
+    font-weight: 600;
+    margin: 48px 0 18px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
   }
-  .description { color: var(--fg); margin-bottom: 10px; }
-  .match {
-    background: var(--low-bg);
-    border-left: 3px solid var(--border);
-    padding: 8px 12px;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 12px;
-    border-radius: 0 4px 4px 0;
-    margin-bottom: 8px;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
+  h2.section .count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
   }
-  .fix {
-    font-size: 13px;
-    color: var(--fg);
-    border-top: 1px solid var(--border);
-    padding-top: 10px;
-    margin-top: 10px;
-  }
-  .fix b { font-weight: 600; }
-  .rule-id { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
 
-  footer {
-    margin-top: 48px;
-    padding-top: 18px;
-    border-top: 1px solid var(--border);
-    color: var(--muted);
-    font-size: 12px;
-    text-align: center;
+  /* --- Disclosure plumbing -------------------------------------------- */
+  details > summary {
+    cursor: pointer;
+    list-style: none;
   }
-  footer a { color: var(--accent); text-decoration: none; }
-  footer a:hover { text-decoration: underline; }
+  details > summary::-webkit-details-marker { display: none; }
+  .disclose-toggle {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    user-select: none;
+  }
+  .disclose-toggle::before { content: "▸ "; display: inline-block; transition: transform 0.12s ease; }
+  details[open] > summary .disclose-toggle::before { transform: rotate(90deg); }
 
-  .empty {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 48px 24px;
-    text-align: center;
-    color: var(--muted);
-  }
-  .empty .check { font-size: 48px; color: var(--tax-enforced); margin-bottom: 8px; }
-
-  /* Attack Chains (v0.2.0-alpha.5) */
-  .chains {
-    margin: 32px 0;
-  }
-  .chains-intro {
-    color: var(--muted);
-    font-size: 13px;
-    margin-bottom: 12px;
-    line-height: 1.5;
-  }
+  /* --- Attack chains (threat briefs) ---------------------------------- */
   .chain {
     background: var(--card);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--critical);
-    border-radius: 8px;
-    padding: 18px 22px;
-    margin-bottom: 14px;
+    border: 1px solid var(--rule-soft);
+    border-left: 4px solid var(--ink);
+    padding: 24px 28px;
+    margin-bottom: 18px;
+    position: relative;
   }
-  .chain.high { border-left-color: var(--high); }
-  .chain.medium { border-left-color: var(--medium); }
+  .chain.critical { border-left-color: var(--critical); }
+  .chain.high     { border-left-color: var(--high); }
+  .chain.medium   { border-left-color: var(--medium); }
+  .chain.low      { border-left-color: var(--low); }
+
   .chain-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 12px;
-    margin-bottom: 10px;
+    gap: 16px;
+    margin-bottom: 14px;
   }
   .chain-title {
-    font-size: 16px;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.25;
+    color: var(--ink);
     margin: 0;
-    line-height: 1.3;
+    letter-spacing: -0.005em;
   }
-  .chain-narrative {
-    color: var(--fg);
+  .chain-lede {
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0 0 8px;
+  }
+  .chain-rest {
+    color: var(--ink-soft);
     font-size: 14px;
+    line-height: 1.65;
+    margin: 12px 0 0;
+    padding-top: 12px;
+    border-top: 1px dashed var(--rule-soft);
+  }
+  .chain-lede strong, .chain-rest strong, .finding-desc strong { font-weight: 600; color: var(--ink); }
+  .chain-lede code, .chain-rest code, .finding-desc code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--card-tint);
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+  .chain-disclose {
+    margin: 8px 0 0;
+  }
+  .chain-disclose > summary {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0;
+  }
+  .chain-foot {
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 12px;
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 6px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .chain-foot .k {
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .chain-foot a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid currentColor;
+  }
+  .chain-foot a:hover { color: var(--ink); }
+
+  /* --- Severity pill --------------------------------------------------- */
+  .pill {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border: 1px solid currentColor;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .pill.critical { color: var(--critical); }
+  .pill.high     { color: var(--high); }
+  .pill.medium   { color: var(--medium); }
+  .pill.low      { color: var(--low); }
+  .pill.tax-enforced   { color: var(--tax-enforced); }
+  .pill.tax-detectable { color: var(--tax-detectable); }
+  .pill.tax-advisory   { color: var(--tax-advisory); }
+
+  /* --- Findings grouped by file path ----------------------------------- */
+  .path-group {
+    margin-bottom: 32px;
+  }
+  .path-group-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    border-top: 1px solid var(--rule);
+    padding: 18px 0 6px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    list-style: none;
+  }
+  .path-group-head::-webkit-details-marker { display: none; }
+  .path-group-head:hover .path-name { text-decoration: underline; text-decoration-color: var(--ink-muted); text-underline-offset: 4px; }
+  .path-name {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--ink);
+    word-break: break-all;
+  }
+  .path-name .basename { color: var(--ink); font-weight: 600; }
+  .path-name .dir { color: var(--ink-muted); }
+  .path-counts {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .path-count {
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    color: var(--ink-muted);
+  }
+  .path-count.critical { color: var(--critical); }
+  .path-count.high     { color: var(--high); }
+  .path-count.medium   { color: var(--medium); }
+  .path-count.low      { color: var(--low); }
+
+  .findings { list-style: none; padding: 0; margin: 0; }
+  .finding {
+    border-left: 2px solid var(--rule-soft);
+    margin: 4px 0;
+    position: relative;
+    background: transparent;
+  }
+  .finding.critical { border-left-color: var(--critical); }
+  .finding.high     { border-left-color: var(--high); }
+  .finding.medium   { border-left-color: var(--medium); }
+  .finding.low      { border-left-color: var(--low); }
+
+  .finding > summary {
+    padding: 10px 14px 10px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 14px;
+    align-items: baseline;
+  }
+  .finding > summary:hover { background: var(--card-tint); }
+  details[open] > .finding-summary { background: var(--card-tint); }
+  .finding-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: baseline;
+    grid-column: 1 / -1;
+  }
+  .finding-title {
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.4;
+    font-weight: 500;
+    color: var(--ink);
+    margin: 0;
+    letter-spacing: 0;
+  }
+  .finding-pills { display: flex; gap: 6px; flex-shrink: 0; }
+  .finding-line {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    margin-left: 8px;
+  }
+  .finding-body {
+    padding: 4px 14px 16px 18px;
+    border-top: 1px dashed var(--rule-soft);
+  }
+  .finding-desc {
+    font-size: 13.5px;
+    color: var(--ink);
     line-height: 1.6;
-    margin: 12px 0;
+    margin: 12px 0 10px;
+  }
+  .finding-match {
+    background: var(--card-tint);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    overflow-x: auto;
     white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--ink);
+    border-left: 2px solid var(--rule);
   }
-  .chain-citations {
+  .finding-fix {
+    font-size: 13px;
+    color: var(--ink);
+    margin: 10px 0 0;
+    padding: 10px 14px;
+    background: var(--card-tint);
+    border-left: 2px solid var(--clean);
+  }
+  .finding-fix-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--clean);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .finding-rule {
+    font-family: var(--font-mono);
     font-size: 11px;
-    color: var(--muted);
-    border-top: 1px solid var(--border);
-    padding-top: 8px;
+    color: var(--ink-muted);
     margin-top: 12px;
+    letter-spacing: 0.04em;
   }
-  .chain-paths {
+  .finding-rule .k {
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 10px;
+    margin-right: 6px;
+  }
+
+  /* --- Empty state ----------------------------------------------------- */
+  .empty {
+    border: 1px solid var(--clean);
+    background: var(--clean-bg);
+    padding: 48px 32px;
+    text-align: center;
+    margin: 32px 0;
+  }
+  .empty-mark {
+    font-family: var(--font-display);
+    font-size: 56px;
+    color: var(--clean);
+    line-height: 1;
+    margin-bottom: 14px;
+  }
+  .empty-title {
+    font-family: var(--font-display);
+    font-size: 24px;
+    color: var(--ink);
+    margin: 0 0 6px;
+  }
+  .empty-body {
+    font-size: 14px;
+    color: var(--ink-soft);
+  }
+
+  /* --- Footer ---------------------------------------------------------- */
+  footer {
+    margin-top: 64px;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-mono);
     font-size: 11px;
-    color: var(--muted);
-    font-family: ui-monospace, monospace;
-    margin-top: 4px;
+    color: var(--ink-muted);
+    letter-spacing: 0.04em;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  footer a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  footer a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+  /* --- Print ----------------------------------------------------------- */
+  @media print {
+    body { background: white; }
+    .doc { max-width: 100%; padding: 0; }
+    .chain, .finding-match, .finding-fix { break-inside: avoid; }
+    a { color: inherit; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>AgentGuard Report</h1>
-    <span class="ver">{{.Version}}</span>
-  </header>
+<div class="doc">
 
   {{ $c := counts .Findings }}
+  {{ $v := verdict . }}
 
-  <section class="summary">
-    <div class="summary-grid">
-      <div class="stat critical">
-        <div class="num">{{index $c "critical"}}</div>
-        <div class="label">Critical</div>
-      </div>
-      <div class="stat high">
-        <div class="num">{{index $c "high"}}</div>
-        <div class="label">High</div>
-      </div>
-      <div class="stat medium">
-        <div class="num">{{index $c "medium"}}</div>
-        <div class="label">Medium</div>
-      </div>
-      <div class="stat low">
-        <div class="num">{{index $c "low"}}</div>
-        <div class="label">Low / Advisory</div>
-      </div>
-    </div>
+  <div class="eyebrow">
+    <span><strong>AGENTGUARD</strong> · scan report</span>
+    <span class="tag-version">{{.Version}}</span>
+  </div>
 
-    {{if .SelfAudit}}
-    <div class="self-audit {{if eq .SelfAudit "TAMPERED"}}tampered{{else if eq .SelfAudit "skipped"}}skipped{{else}}clean{{end}}">
-      <span>self-audit:</span>
-      <strong>{{.SelfAudit}}</strong>
-    </div>
-    {{end}}
-
-    <div class="meta">
-      <span>roots: <code>{{join .Roots " "}}</code></span>
-      <span>files seen: {{.FilesSeen}}</span>
-      <span>parsed: {{.FilesParsed}}</span>
-      {{if gt .Suppressed 0}}<span>suppressed: {{.Suppressed}}</span>{{end}}
-      {{if gt .Skipped 0}}<span>skipped: {{.Skipped}}</span>{{end}}
-      <span>scan time: {{duration .StartedAt .FinishedAt}}</span>
-    </div>
+  <section class="verdict">
+    <div class="verdict-bar {{$v.Severity}}"></div>
+    <h1 class="verdict-lead">{{$v.Lead}}</h1>
+    <p class="verdict-supporting">{{$v.Supporting}}</p>
   </section>
+
+  <div class="metrics">
+    <div class="metric critical"><div class="metric-num">{{index $c "critical"}}</div><div class="metric-label">Critical</div></div>
+    <div class="metric high"><div class="metric-num">{{index $c "high"}}</div><div class="metric-label">High</div></div>
+    <div class="metric medium"><div class="metric-num">{{index $c "medium"}}</div><div class="metric-label">Medium</div></div>
+    <div class="metric low"><div class="metric-num">{{index $c "low"}}</div><div class="metric-label">Advisory</div></div>
+    <div class="metric"><div class="metric-num">{{len .AttackChains}}</div><div class="metric-label">Chains</div></div>
+  </div>
+
+  <div class="meta-grid">
+    <div><span class="k">Roots</span><span class="v">{{join .Roots " · "}}</span></div>
+    <div><span class="k">Files</span><span class="v">{{.FilesParsed}} parsed / {{.FilesSeen}} seen{{if gt .Skipped 0}} · {{.Skipped}} skipped{{end}}{{if gt .Suppressed 0}} · {{.Suppressed}} suppressed{{end}}</span></div>
+    <div><span class="k">Time</span><span class="v">{{duration .StartedAt .FinishedAt}}</span></div>
+    <div><span class="k">Started</span><span class="v">{{.StartedAt.Format "2006-01-02 15:04:05 MST"}}</span></div>
+  </div>
+
+  {{if .SelfAudit}}
+  <div class="self-audit {{if eq .SelfAudit "TAMPERED"}}tampered{{else if eq .SelfAudit "skipped"}}skipped{{else}}clean{{end}}">
+    <span class="k">Self-audit</span>
+    <strong>{{.SelfAudit}}</strong>
+  </div>
+  {{end}}
 
   {{if .AttackChains}}
-  <section class="chains">
-    <h2>Attack Chains</h2>
-    <p class="chains-intro">Narrative scenarios that fire when specific findings co-occur. Each chain combines findings into an attacker-POV story so a CISO sees the end-to-end risk, not just a row in a table.</p>
-    {{range .AttackChains}}
-    <div class="chain {{sevClass .Severity}}">
-      <div class="chain-head">
-        <h3 class="chain-title">{{.Title}}</h3>
-        <span class="badge {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
-      </div>
-      <div class="chain-narrative">{{.Narrative}}</div>
-      {{if .Paths}}<div class="chain-paths">paths: {{join .Paths " · "}}</div>{{end}}
-      {{if .Citations}}<div class="chain-citations">citations: {{join .Citations " · "}}</div>{{end}}
+  <h2 class="section">
+    <span>Attack Chains</span>
+    <span class="count">{{len .AttackChains}} fired</span>
+  </h2>
+
+  {{range .AttackChains}}
+  <article class="chain {{sevClass .Severity}}">
+    <div class="chain-head">
+      <h3 class="chain-title">{{md .Title}}</h3>
+      <span class="pill {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
     </div>
+    <p class="chain-lede">{{narrativeLede .Narrative}}</p>
+    {{ $rest := narrativeRest .Narrative }}
+    {{if $rest}}
+    <details class="chain-disclose">
+      <summary><span class="disclose-toggle">Read full attacker walkthrough</span></summary>
+      <div class="chain-rest">{{$rest}}</div>
+    </details>
     {{end}}
-  </section>
+    <div class="chain-foot">
+      {{if .Paths}}
+        <span class="k">Files</span>
+        <span>
+          {{range $i, $p := .Paths}}{{if $i}} · {{end}}<a href="#path-{{slug $p}}">{{basename $p}}</a>{{end}}
+        </span>
+      {{end}}
+      {{if .FindingIDs}}
+        <span class="k">Rules</span>
+        <span>{{join .FindingIDs " · "}}</span>
+      {{end}}
+      {{if .Citations}}
+        <span class="k">Citations</span>
+        <span>{{join .Citations " · "}}</span>
+      {{end}}
+    </div>
+  </article>
+  {{end}}
   {{end}}
 
   {{if eq (index $c "total") 0}}
-    <div class="empty">
-      <div class="check">✓</div>
-      <div><strong>No findings</strong></div>
-      <div>AgentGuard scanned {{.FilesParsed}} agent-config files and didn't find any policy violations.</div>
-    </div>
+    <section class="empty">
+      <div class="empty-mark">✓</div>
+      <h2 class="empty-title">No findings</h2>
+      <p class="empty-body">AgentGuard scanned {{.FilesParsed}} agent-config files and didn't find any policy violations.</p>
+    </section>
   {{else}}
-    <h2>Findings</h2>
-    <ul class="findings">
-      {{range .Findings}}
-      <li class="finding">
-        <div class="finding-head">
-          <h3 class="finding-title">{{.Title}}</h3>
-          <div class="badges">
-            <span class="badge {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
-            <span class="badge tax {{taxClass .Taxonomy}}">{{.Taxonomy}}</span>
-          </div>
-        </div>
-        <div class="path">{{.Path}}{{if gt .Line 0}}:{{.Line}}{{end}}</div>
-        <div class="description">{{.Description}}</div>
-        {{if .Match}}<div class="match">{{.Match}}</div>{{end}}
-        {{if .SuggestedFix}}<div class="fix"><b>Fix:</b> {{.SuggestedFix}}</div>{{end}}
-        <div class="rule-id">rule: {{.RuleID}}</div>
-      </li>
-      {{end}}
-    </ul>
+    <h2 class="section">
+      <span>Findings by file</span>
+      <span class="count">{{index $c "total"}} across {{len (groupByPath .Findings)}} files</span>
+    </h2>
+
+    {{range groupByPath .Findings}}
+    <details class="path-group" open id="path-{{slug .Path}}">
+      <summary class="path-group-head">
+        <span class="path-name">{{.Path}}</span>
+        <span class="path-counts">
+          {{if gt .Crit 0}}<span class="path-count critical">{{.Crit}} crit</span>{{end}}
+          {{if gt .High 0}}<span class="path-count high">{{.High}} high</span>{{end}}
+          {{if gt .Med 0}}<span class="path-count medium">{{.Med}} med</span>{{end}}
+          {{if gt .Low 0}}<span class="path-count low">{{.Low}} adv</span>{{end}}
+        </span>
+      </summary>
+
+      <ul class="findings">
+        {{range .Findings}}
+        <li>
+          <details class="finding {{sevClass .Severity}}">
+            <summary class="finding-summary">
+              <div class="finding-summary-row">
+                <span>
+                  <span class="finding-title">{{md .Title}}</span>
+                  {{if gt .Line 0}}<span class="finding-line">line {{.Line}}</span>{{end}}
+                </span>
+                <span class="finding-pills">
+                  <span class="pill {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
+                </span>
+              </div>
+            </summary>
+            <div class="finding-body">
+              <div class="finding-desc">{{md .Description}}</div>
+              {{if .Match}}<pre class="finding-match">{{.Match}}</pre>{{end}}
+              {{if .SuggestedFix}}
+                <div class="finding-fix">
+                  <span class="finding-fix-label">Fix</span>
+                  {{md .SuggestedFix}}
+                </div>
+              {{end}}
+              <div class="finding-rule"><span class="k">Rule</span>{{.RuleID}} · <span class="k">Class</span>{{.Taxonomy}}</div>
+            </div>
+          </details>
+        </li>
+        {{end}}
+      </ul>
+    </details>
+    {{end}}
   {{end}}
 
   <footer>
-    Generated by <a href="https://agentguard.dev">AgentGuard</a> {{.Version}} ·
-    Found {{index $c "total"}} {{if eq (index $c "total") 1}}finding{{else}}findings{{end}} in {{.FilesParsed}} files
+    <span>Generated by <a href="https://agentguard.dev">AgentGuard</a> {{.Version}}</span>
+    <span>{{index $c "total"}} {{if eq (index $c "total") 1}}finding{{else}}findings{{end}} · {{len .AttackChains}} {{if eq (len .AttackChains) 1}}chain{{else}}chains{{end}} · {{.FilesParsed}} files</span>
   </footer>
 </div>
 </body>
