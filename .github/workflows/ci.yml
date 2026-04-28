@@ -31,17 +31,29 @@ jobs:
       - name: build
         run: go build -v ./cmd/agentguard
 
-      - name: smoke scan
+      - name: smoke scan (dirty fixture — exit 1 expected with findings)
         run: |
           ./agentguard version
+          # Dirty fixture has critical/high findings, so the scanner exits 1.
+          # That IS the behavior we want for CI integration. Capture the
+          # non-zero exit, then assert on the report content.
+          set +e
           ./agentguard scan -f sarif testdata/laptops/dirty > /tmp/scan.sarif
+          dirty_exit_sarif=$?
           ./agentguard scan -f json testdata/laptops/dirty > /tmp/scan.json
+          dirty_exit_json=$?
           ./agentguard scan -f html -o /tmp/scan.html testdata/laptops/dirty
-          # The dirty fixture must produce >= 8 findings.
+          dirty_exit_html=$?
+          set -e
+          # Each scan must exit 1 (findings present).
+          test "$dirty_exit_sarif" -eq 1 || { echo "expected exit 1 from sarif scan, got $dirty_exit_sarif"; exit 1; }
+          test "$dirty_exit_json"  -eq 1 || { echo "expected exit 1 from json scan, got $dirty_exit_json"; exit 1; }
+          test "$dirty_exit_html"  -eq 1 || { echo "expected exit 1 from html scan, got $dirty_exit_html"; exit 1; }
+          # And the dirty fixture must produce >= 8 findings.
           jq '.stats.total' /tmp/scan.json
           test "$(jq '.stats.total' /tmp/scan.json)" -ge 8
 
-      - name: clean fixture must have zero findings
+      - name: clean fixture must have zero findings (exit 0)
         run: |
           ./agentguard scan -f json testdata/laptops/clean > /tmp/clean.json
           test "$(jq '.stats.total' /tmp/clean.json)" -eq 0
