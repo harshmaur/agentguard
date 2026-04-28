@@ -12,13 +12,14 @@ import (
 // JSON is the structured machine-readable output. Use it for piping into
 // jq, custom tooling, or the SaaS aggregation layer.
 type jsonReport struct {
-	Schema      string             `json:"schema"`
-	Version     string             `json:"version"`
-	GeneratedAt time.Time          `json:"generated_at"`
-	Roots       []string           `json:"roots,omitempty"`
-	SelfAudit   string             `json:"self_audit,omitempty"`
-	Stats       jsonStats          `json:"stats"`
-	Findings    []finding.Finding  `json:"findings"`
+	Schema       string            `json:"schema"`
+	Version      string            `json:"version"`
+	GeneratedAt  time.Time         `json:"generated_at"`
+	Roots        []string          `json:"roots,omitempty"`
+	SelfAudit    string            `json:"self_audit,omitempty"`
+	Stats        jsonStats         `json:"stats"`
+	AttackChains []AttackChain     `json:"attack_chains,omitempty"` // v0.2.0-alpha.5
+	Findings     []finding.Finding `json:"findings"`
 }
 
 type jsonStats struct {
@@ -36,12 +37,13 @@ type jsonStats struct {
 // JSON writes the report as pretty-printed JSON.
 func JSON(w io.Writer, r Report) error {
 	jr := jsonReport{
-		Schema:      "https://agentguard.dev/schema/report.v1.json",
-		Version:     nonEmpty(r.Version, "0.0.0-dev"),
-		GeneratedAt: r.FinishedAt,
-		Roots:       r.Roots,
-		SelfAudit:   r.SelfAudit,
-		Findings:    r.Findings,
+		Schema:       "https://agentguard.dev/schema/report.v1.json",
+		Version:      nonEmpty(r.Version, "0.0.0-dev"),
+		GeneratedAt:  r.FinishedAt,
+		Roots:        r.Roots,
+		SelfAudit:    r.SelfAudit,
+		AttackChains: r.AttackChains,
+		Findings:     r.Findings,
 	}
 	jr.Stats.FilesSeen = r.FilesSeen
 	jr.Stats.FilesParsed = r.FilesParsed

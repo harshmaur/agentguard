@@ -21,16 +21,34 @@ var htmlTemplate string
 
 // Report is the input to all formatters.
 type Report struct {
-	Findings    []finding.Finding
-	Roots       []string
-	StartedAt   time.Time
-	FinishedAt  time.Time
-	FilesSeen   int
-	FilesParsed int
-	Suppressed  int
-	Skipped     int
-	Version     string
-	SelfAudit   string // "clean (cosign-verified)" / "clean (unverified)" / "TAMPERED" / "skipped"
+	Findings     []finding.Finding
+	AttackChains []AttackChain // v0.2.0-alpha.5 — narrative scenarios across multiple findings
+	Roots        []string
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	FilesSeen    int
+	FilesParsed  int
+	Suppressed   int
+	Skipped      int
+	Version      string
+	SelfAudit    string // "clean (cosign-verified)" / "clean (unverified)" / "TAMPERED" / "skipped"
+}
+
+// AttackChain is an attacker-POV narrative that fires when a specific
+// combination of findings is present. Renders at the top of the HTML
+// report and in the JSON output. SARIF skips it (no narrative concept).
+//
+// Severity is the chain's own severity, NOT the max of its underlying
+// findings: some chains take 3 Highs and combine into a Critical because
+// the combination is qualitatively worse than any single finding.
+type AttackChain struct {
+	ID         string           // stable ID, e.g. "repo-clone-hook-rce"
+	Title      string           // one-line title
+	Severity   finding.Severity // chain severity
+	Narrative  string           // attacker-POV story, plain prose (multi-paragraph allowed)
+	Citations  []string         // CVE IDs, research firm refs
+	FindingIDs []string         // rule IDs of the underlying findings that triggered this chain
+	Paths      []string         // file paths involved
 }
 
 // HTML renders an HTML report optimized for screenshots and offline viewing.

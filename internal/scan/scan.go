@@ -70,12 +70,32 @@ type Options struct {
 // Result is what a scan produces.
 type Result struct {
 	Findings   []finding.Finding
+	// Documents retained for cross-finding correlation (Attack Chains).
+	// Only documents whose Format is in the correlate-relevant set are
+	// kept here; skill files and agent-doc markdown are dropped to bound
+	// memory. Raw bytes are nil'd before retention.
+	Documents  []*parse.Document
 	StartedAt  time.Time
 	FinishedAt time.Time
 	FilesSeen  int
 	FilesParsed int
 	Suppressed int
 	Skipped    int
+}
+
+// correlateRelevantFormats are the formats whose parsed Documents we retain
+// in the Result for the correlate package to walk after the scan completes.
+// Skill files and AgentDoc (huge gstack corpus) are excluded — they're not
+// referenced by any current scenario.
+var correlateRelevantFormats = map[parse.Format]bool{
+	parse.FormatMCPConfig:         true,
+	parse.FormatClaudeSettings:    true,
+	parse.FormatCodexConfig:       true,
+	parse.FormatWindsurfMCP:       true,
+	parse.FormatCursorPermissions: true,
+	parse.FormatShellRC:           true,
+	parse.FormatEnv:               true,
+	parse.FormatGHAWorkflow:       true,
 }
 
 // Run scans the configured roots and returns a Result. Returns the partial
@@ -95,6 +115,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	pathCh := make(chan string, opts.Workers*2)
 	findCh := make(chan finding.Finding, opts.Workers*4)
 	statCh := make(chan workerStat, opts.Workers)
+	docCh := make(chan *parse.Document, opts.Workers*2) // v0.2.0-alpha.5: retained for correlate
 
 	// Walker
 	walkerDone := make(chan struct{})
@@ -110,7 +131,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			worker(scanCtx, id, opts, pathCh, findCh, statCh, logger)
+			worker(scanCtx, id, opts, pathCh, findCh, statCh, docCh, logger)
 		}(i)
 	}
 
@@ -138,11 +159,29 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}()
 
+	// Document retainer (correlate-relevant docs only, Raw nil'd to bound memory).
+	docDone := make(chan struct{})
+	go func() {
+		defer close(docDone)
+		for d := range docCh {
+			if d == nil {
+				continue
+			}
+			if !correlateRelevantFormats[d.Format] {
+				continue
+			}
+			d.Raw = nil // drop the raw bytes; structured fields are sufficient for correlate.
+			res.Documents = append(res.Documents, d)
+		}
+	}()
+
 	wg.Wait()
 	close(findCh)
 	close(statCh)
+	close(docCh)
 	<-collectorDone
 	<-statDone
+	<-docDone
 
 	res.FinishedAt = time.Now()
 
@@ -197,6 +236,7 @@ func worker(
 	in <-chan string,
 	out chan<- finding.Finding,
 	stat chan<- workerStat,
+	docOut chan<- *parse.Document,
 	logger *slog.Logger,
 ) {
 	for {
@@ -250,6 +290,13 @@ func worker(
 						case <-ctx.Done():
 							return
 						}
+					}
+					// v0.2.0-alpha.5: retain the parsed Document for the
+					// correlate pass after scan completes.
+					select {
+					case docOut <- doc:
+					case <-ctx.Done():
+						return
 					}
 				}
 			}

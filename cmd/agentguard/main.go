@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agentguard/agentguard/internal/correlate"
 	"github.com/agentguard/agentguard/internal/finding"
 	"github.com/agentguard/agentguard/internal/output"
 	_ "github.com/agentguard/agentguard/internal/rules/builtin"
@@ -293,17 +294,22 @@ func runScan(f scanFlags) error {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", scanErr)
 	}
 
+	// v0.2.0-alpha.5: cross-finding correlation pass produces Attack Chain
+	// narratives that render at the top of the report.
+	chains := correlate.Run(res.Findings, res.Documents)
+
 	report := output.Report{
-		Findings:    res.Findings,
-		Roots:       roots,
-		StartedAt:   res.StartedAt,
-		FinishedAt:  res.FinishedAt,
-		FilesSeen:   res.FilesSeen,
-		FilesParsed: res.FilesParsed,
-		Suppressed:  res.Suppressed,
-		Skipped:     res.Skipped,
-		Version:     Version,
-		SelfAudit:   "skipped",
+		Findings:     res.Findings,
+		AttackChains: chains,
+		Roots:        roots,
+		StartedAt:    res.StartedAt,
+		FinishedAt:   res.FinishedAt,
+		FilesSeen:    res.FilesSeen,
+		FilesParsed:  res.FilesParsed,
+		Suppressed:   res.Suppressed,
+		Skipped:      res.Skipped,
+		Version:      Version,
+		SelfAudit:    "skipped",
 	}
 
 	// Write the format output to its destination.

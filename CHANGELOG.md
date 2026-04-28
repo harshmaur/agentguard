@@ -3,6 +3,36 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.0-alpha.5] - 2026-04-28
+
+The Attack Chains layer. Cross-finding correlation that produces
+attacker-POV narratives at the top of the HTML report. Each chain combines
+multiple findings into an end-to-end story so a CISO sees the actual risk,
+not just rows in a table.
+
+**Five attack chains fire on the Mac.** Three Critical, two High. Together
+with the 22 underlying findings from alphas 1-4, this is the qualitative
+report shape the design doc set out to ship.
+
+### Added
+- New package `internal/correlate` with five hand-written attack chain scenarios:
+  - **`repo-clone-hook-rce`** (Critical) — fires on `claude-hook-shell-rce`. Narrates the CVE-2025-59536 attack: clone a malicious repo, hook fires, RCE on dev machine. Quotes the actual command that would run.
+  - **`agent-reads-prod-secrets`** (Critical) — fires when any consent-removed capability finding co-occurs with any secret-shape finding (or a readable `~/.ssh/id_*`). The user's stated worry from the design doc made into a single narrative.
+  - **`codex-trusted-home-plaintext-key`** (Critical) — fires when `codex-trust-home-or-broad` AND `mcp-plaintext-api-key` both fire on the same Codex config. No sandbox + no secret = takeover with no friction.
+  - **`plugin-bundled-mcp-no-auth`** (High) — fires when `mcp-unauth-remote-url` fires on a path under a plugin cache (`~/.claude/plugins/cache/...`, `~/.codex/.tmp/plugins/...`). Vercel and Cloudflare plugins both ship bundled MCPs without auth headers; this chain narrates the supply-chain risk.
+  - **`same-secret-across-harnesses`** (High) — fires when the same credential name appears in plaintext across 2+ different harness configs. Single rotation requires touching every config; the duplication itself is a posture finding.
+- New type `output.AttackChain` with ID, Title, Severity, Narrative (multi-paragraph), Citations (CVEs + research firm refs), FindingIDs, Paths.
+- HTML report extended with **`Attack Chains` section** above the findings table. Severity-colored left border, multi-paragraph narrative rendering, citation footer.
+- JSON output extended with `attack_chains` field.
+- `internal/scan` retains parsed Documents (correlate-relevant formats only, Raw bytes nil'd) so the post-scan correlate pass can walk them.
+
+### Design choice: hand-written scenarios, not a template engine
+The Round 2 codex review flagged "scenario template format frozen" as undecided. Choice for v0.2: 5 hand-written Go functions (`scenarioFn`). Reasoning: the total set is small, each scenario has its own combine logic, and Go functions are easier to test than a templated DSL. A template engine would buy nothing at this scale.
+
+### Found in the wild
+- **All 5 chains fire on the Mac.** Three are Critical (`repo-clone-hook-rce`, `agent-reads-prod-secrets`, `codex-trusted-home-plaintext-key`); two are High (`plugin-bundled-mcp-no-auth` from Vercel's cached plugin MCP, `same-secret-across-harnesses` for CONTEXT7_API_KEY across Codex + Windsurf).
+- The `agent-reads-prod-secrets` chain spans 5 paths across 4 harnesses on this single dev machine — a clean visualization of the user's design-doc complaint.
+
 ## [0.2.0-alpha.4] - 2026-04-28
 
 Adds Cursor's global permissions file. Doesn't fire new findings on the Mac
