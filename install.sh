@@ -20,7 +20,7 @@
 
 set -eu
 
-REPO="agentguard/agentguard"
+REPO="harshmaur/agentguard"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
 
@@ -102,7 +102,7 @@ if command -v cosign >/dev/null 2>&1; then
   if cosign verify-blob \
       --certificate "${tmp}/${artifact}.crt" \
       --signature   "${tmp}/${artifact}.sig" \
-      --certificate-identity-regexp 'https://github.com/agentguard/agentguard/.+' \
+      --certificate-identity-regexp 'https://github.com/harshmaur/agentguard/.+' \
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
       "${tmp}/${artifact}" 2>/dev/null; then
     echo "agentguard: cosign signature verified"

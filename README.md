@@ -128,7 +128,7 @@ supply-chain risk. AgentGuard takes that seriously.
 # Download release artifacts.
 VERSION=v0.1.0
 ARCH=darwin-arm64
-BASE="https://github.com/agentguard/agentguard/releases/download/${VERSION}"
+BASE="https://github.com/harshmaur/agentguard/releases/download/${VERSION}"
 curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz"
 curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz.sig"
 curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz.crt"
@@ -141,12 +141,12 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 cosign verify-blob \
   --certificate "agentguard-${VERSION}-${ARCH}.tar.gz.crt" \
   --signature   "agentguard-${VERSION}-${ARCH}.tar.gz.sig" \
-  --certificate-identity-regexp 'https://github.com/agentguard/agentguard/.+' \
+  --certificate-identity-regexp 'https://github.com/harshmaur/agentguard/.+' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   "agentguard-${VERSION}-${ARCH}.tar.gz"
 
 # Optional: build from source and compare hashes.
-git clone --depth 1 --branch "${VERSION}" https://github.com/agentguard/agentguard
+git clone --depth 1 --branch "${VERSION}" https://github.com/harshmaur/agentguard
 cd agentguard && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=${VERSION}" -o agentguard ./cmd/agentguard
 shasum -a 256 agentguard
 ```
@@ -198,7 +198,7 @@ TBD — pending procurement-legal review with two design partners. Likely
 [BSL](https://mariadb.com/bsl11/) or [FSL](https://fsl.software/) so the
 source is fully readable but commercial reselling as a competing SaaS is
 restricted for 2-4 years before reverting to permissive. Track at
-[#1](https://github.com/agentguard/agentguard/issues/1).
+[#1](https://github.com/harshmaur/agentguard/issues/1).
 
 ---
 
