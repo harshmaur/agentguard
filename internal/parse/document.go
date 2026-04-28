@@ -14,12 +14,13 @@ type Format string
 
 const (
 	FormatMCPConfig    Format = "mcp-config"     // .mcp.json, .cursor/mcp.json
-	FormatClaudeSettings Format = "claude-settings" // .claude/settings.json
+	FormatClaudeSettings Format = "claude-settings" // .claude/settings.json, settings.local.json
 	FormatSkill        Format = "skill"          // .claude/skills/**/*.md
 	FormatAgentDoc     Format = "agent-doc"      // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
 	FormatGHAWorkflow  Format = "gha-workflow"   // .github/workflows/*.yml
 	FormatShellRC      Format = "shellrc"        // .bashrc, .zshrc, .profile, etc.
 	FormatEnv          Format = "env"            // .env, .env.local, .env.example
+	FormatCodexConfig  Format = "codex-config"   // ~/.codex/config.toml, .codex/config.toml (v0.2)
 	FormatUnknown      Format = ""
 )
 
@@ -37,6 +38,7 @@ type Document struct {
 	Workflow       *Workflow
 	ShellRC        *ShellRC
 	Env            *EnvFile
+	CodexConfig    *CodexConfig // v0.2
 
 	// ParseError is set if parsing failed; rules treat this as an advisory
 	// finding, the scan continues.
@@ -61,12 +63,19 @@ type MCPConfig struct {
 }
 
 // ClaudeSettings represents user/repo-level Claude Code configuration.
+//
+// Raw is the full top-level decoded JSON. Rules added in v0.2 (hook-shell-rce,
+// skip-permission-prompt, third-party-plugin) walk Raw directly because the
+// keys they need (statusLine, enabledPlugins, skipDangerousModePermissionPrompt,
+// extraKnownMarketplaces) shift across Claude Code versions and don't
+// warrant per-key struct fields.
 type ClaudeSettings struct {
-	Permissions    map[string]any
-	AllowedTools   []string
-	Env            map[string]string
-	Hooks          map[string]any
-	OtherKeys      []string
+	Raw          map[string]any
+	Permissions  map[string]any
+	AllowedTools []string
+	Env          map[string]string
+	Hooks        map[string]any
+	OtherKeys    []string
 }
 
 // Skill represents a parsed agent skill (Markdown with optional frontmatter).
@@ -123,6 +132,46 @@ type EnvFile struct {
 	Lines map[string]int // line per key
 }
 
+// CodexConfig is the parsed form of `~/.codex/config.toml`.
+//
+// Captures only the fields the v0.2 ruleset needs to make a decision. Other
+// fields exist in the file (model, personality, features, etc.) but are
+// not security-relevant for static analysis.
+type CodexConfig struct {
+	// ApprovalPolicy is the top-level `approval_policy` setting.
+	// Known values: "untrusted", "on-request", "never", "granular".
+	ApprovalPolicy string
+
+	// SandboxMode is the top-level `sandbox_mode` setting.
+	// Known values: "read-only", "workspace-write", "danger-full-access".
+	SandboxMode string
+
+	// TrustedProjects maps a project path to its trust_level. Codex uses this
+	// to decide whether to load a project's .codex/ layer (hooks, rules,
+	// project-local config). `[projects."<path>"]` table with
+	// `trust_level = "trusted"` is the risk shape: trust_level=trusted on
+	// $HOME or a broad path disables sandboxing for everything inside it.
+	TrustedProjects map[string]string
+
+	// MCPServers are the [mcp_servers.<name>] tables. The v0.2 design treats
+	// these as part of a normalized MCP model (added in a later iteration);
+	// for now we keep them as a typed list specific to Codex.
+	MCPServers []CodexMCPServer
+}
+
+// CodexMCPServer is a single [mcp_servers.<name>] entry from config.toml.
+type CodexMCPServer struct {
+	Name        string
+	Command     string            // for stdio transports
+	Args        []string          // command args
+	Env         map[string]string // process env (rare in Codex)
+	URL         string            // for HTTP/SSE transports
+	HTTPHeaders map[string]string // [mcp_servers.<name>.http_headers] table — Codex's place for plaintext API keys
+	Enabled     *bool             // optional `enabled = true|false`
+	// Line is the line number in the source file where this server was defined.
+	Line int
+}
+
 // DetectFormat picks a Format based on the file path. Returns FormatUnknown
 // for files that aren't AgentGuard-relevant.
 func DetectFormat(path string) Format {
@@ -139,8 +188,15 @@ func DetectFormat(path string) Format {
 	}
 
 	// Claude settings.
-	if base == "settings.json" && (strings.Contains(dir, ".claude") || strings.Contains(dir, "/.config/Claude")) {
+	if (base == "settings.json" || base == "settings.local.json") &&
+		(strings.Contains(dir, ".claude") || strings.Contains(dir, "/.config/Claude")) {
 		return FormatClaudeSettings
+	}
+
+	// Codex CLI config (v0.2). User config at ~/.codex/config.toml; project-local
+	// override at <project>/.codex/config.toml.
+	if base == "config.toml" && (strings.Contains(dir, "/.codex") || strings.HasSuffix(dir, "/.codex")) {
+		return FormatCodexConfig
 	}
 
 	// Skill files: anything under .claude/skills/ ending in .md.

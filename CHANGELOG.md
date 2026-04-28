@@ -3,6 +3,34 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.0-alpha.1] - 2026-04-28
+
+First v0.2 milestone. Adds Codex CLI configuration scanning + 5 high-impact
+rules drawn directly from the published 2026 CVE corpus. Validated against
+a real Mac dev-machine: **4 Critical findings** that v0.1 missed are now
+caught.
+
+### Added
+- New format detector: **Codex CLI** (`~/.codex/config.toml`, `.codex/config.toml`). Parses approval policy, sandbox mode, `[projects."<path>"]` trust tables, and `[mcp_servers.<name>]` tables including the `[mcp_servers.<name>.http_headers]` sub-table where Codex stores plaintext API keys.
+- New rule: **`claude-hook-shell-rce`** (Critical / Enforced). Catches CVE-2025-59536 (CVSS 8.7) — `.claude/settings.json` `hooks.*` entries that run shell commands on lifecycle events (SessionStart, PreToolUse, PostToolUse, Stop, Notification). Repo-controlled hooks = clone-time RCE. The same rule extends to `statusLine.command` when the field contains a complex shell pipeline (>50 chars + pipes/eval/`$()`/backticks, or curl-pipe-sh patterns).
+- New rule: **`claude-skip-permission-prompt`** (Critical / Enforced). Matches `skipAutoPermissionPrompt`, `skipDangerousModePermissionPrompt`, and `dangerouslySkipPermissionPrompt` set to true — the consent-bypass shape from CVE-2025-59536.
+- New rule: **`codex-approval-disabled`** (Critical when both, High when one). Flags `approval_policy = "never"` and/or `sandbox_mode = "danger-full-access"`.
+- New rule: **`codex-trust-home-or-broad`** (Critical / Enforced). Flags `[projects."<path>"] trust_level = "trusted"` where the path is `$HOME`, `/`, or a single-segment-from-root parent (`/Users`, `/home`). Disables Codex's project-trust gate for everything underneath.
+- New rule: **`codex-mcp-plaintext-header-key`** (Critical / Detectable). Plaintext credential in `[mcp_servers.<name>.http_headers]`. Reuses the v0.1.4 `matchesCredential` helper so all the GitLab/HF/npm/UUID-name-suffix shapes are detected here too.
+- 30+ new test cases covering each rule plus an end-to-end test that asserts all 5 v0.2 rules fire on the real Mac configuration.
+- New dependency: `github.com/BurntSushi/toml v1.6.0` for Codex TOML parsing. Single transitive-dep-free package; binary growth is ~140KB.
+
+### Changed
+- `ClaudeSettings` now retains the full top-level decoded JSON in a `Raw` field. Required because v0.2 rules walk fields (`statusLine`, `enabledPlugins`, `extraKnownMarketplaces`) whose shapes shift across Claude Code versions and don't warrant per-key struct fields.
+- `FormatClaudeSettings` path detection extended to also pick up `settings.local.json` (project-local overrides; previously was settings.json only).
+
+### Deferred to later v0.2 alphas
+- `claude-mcp-auto-approve`, `claude-bash-allowlist-too-broad`, `claude-third-party-plugin-enabled` — claude-side rules that depend on the same `Raw` field; ship in alpha.2.
+- Cursor `permissions.json` + Windsurf MCP detector + the 3 generalized MCP rules over a normalized model — alpha.3.
+- Attack Chains report layer + `agent-capability-meets-readable-secret` cross-rule — alpha.4.
+
+The v0.2.0 final ships when all alphas are merged.
+
 ## [0.1.4] - 2026-04-28
 
 ### Added

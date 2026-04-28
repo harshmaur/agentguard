@@ -35,6 +35,13 @@ func builtins() []rules.Rule {
 		ghaWriteAllPermissions{},
 		ghaSecretsInAgentStep{},
 		shellrcSecretExport{},
+		// v0.2 rules. Stable IDs added at the bottom of the list per the
+		// CHANGELOG contract: existing IDs do not get renumbered.
+		claudeHookShellRCE{},
+		claudeSkipPermissionPrompt{},
+		codexApprovalDisabled{},
+		codexTrustHomeOrBroad{},
+		codexMCPPlaintextHeaderKey{},
 	}
 }
 

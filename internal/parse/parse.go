@@ -43,6 +43,10 @@ func Parse(path string, raw []byte) *Document {
 		doc.ShellRC = parseShellRC(raw)
 	case FormatEnv:
 		doc.Env = parseEnvFile(raw)
+	case FormatCodexConfig:
+		c, err := parseCodexConfig(raw)
+		doc.CodexConfig = c
+		doc.ParseError = err
 	}
 	return doc
 }
@@ -118,6 +122,7 @@ func parseClaudeSettings(raw []byte) (*ClaudeSettings, error) {
 		return nil, fmt.Errorf("claude-settings parse: %w", err)
 	}
 	cs := &ClaudeSettings{
+		Raw:         top,
 		Permissions: map[string]any{},
 		Env:         map[string]string{},
 		Hooks:       map[string]any{},
