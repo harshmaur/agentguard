@@ -1,5 +1,9 @@
-// Package builtin v0.2.0-alpha.4 rules. Operate on Cursor's global
-// permissions.json file.
+// Rules over Cursor's global ~/.cursor/permissions.json. Two rules:
+//   - cursor-allowlist-too-broad  (terminalAllowlist with broad/dangerous entries)
+//   - cursor-mcp-wildcard         (mcpAllowlist with *:* / *:<tool> / <server>:*)
+//
+// Cursor's .cursor/mcp.json (project-level MCP config) is detected as
+// FormatMCPConfig and covered by the generalized MCP rules in mcp.go.
 package builtin
 
 import (
@@ -10,22 +14,13 @@ import (
 	"github.com/agentguard/agentguard/internal/parse"
 )
 
-// --- cursor-allowlist-too-broad ---------------------------------------------
+// --- cursor-allowlist-too-broad --------------------------------------------
 //
 // Cursor's terminalAllowlist controls which terminal commands auto-run
-// without prompting. Entries are command prefixes with optional `:<args-glob>`,
-// e.g. "git", "npm:install*", "cargo build", "*". The dangerous shapes:
-//
-//   - "*" or "" (the empty array case is handled separately - it's the
-//     "explicitly disabled" shape)
-//   - bare "bash", "sh", "zsh", "fish", "eval", "exec" - any shell escape
-//   - bare "curl", "wget", "nc", "scp", "sftp" - exfil verbs
-//   - bare "sudo", "doas", "su" - privilege escalation
-//   - "<verb>:*" where verb is in the danger list (same shape as Claude's
-//     allowlist rule, ported to Cursor's `:`-separated format).
-//
-// Backslash Security and Pillar Security both showed multiple bypass paths
-// when terminalAllowlist contains broad shell verbs.
+// without prompting. Reuses the dangerousBashVerbs map from helpers.go so
+// the same risks fire whether they appear in Claude's allowlist or Cursor's.
+// Backslash Security and Pillar Security demonstrated multiple bypass paths
+// when broad shell verbs are present.
 
 type cursorAllowlistTooBroad struct{}
 
@@ -75,10 +70,10 @@ func (cursorAllowlistTooBroad) Apply(doc *parse.Document) []finding.Finding {
 			continue
 		}
 		out = append(out, finding.New(finding.Args{
-			RuleID:       "cursor-allowlist-too-broad",
-			Severity:     finding.SeverityHigh,
-			Taxonomy:     finding.TaxDetectable,
-			Title:        fmt.Sprintf("Cursor terminalAllowlist permits %s", verb),
+			RuleID:   "cursor-allowlist-too-broad",
+			Severity: finding.SeverityHigh,
+			Taxonomy: finding.TaxDetectable,
+			Title:    fmt.Sprintf("Cursor terminalAllowlist permits %s", verb),
 			Description: fmt.Sprintf(
 				"`terminalAllowlist` contains `%s`. Risk: %s. Any prompt-injected `%s ...` command in Cursor's auto-run mode is whitelisted.",
 				entry, reason, verb,
@@ -94,10 +89,10 @@ func (cursorAllowlistTooBroad) Apply(doc *parse.Document) []finding.Finding {
 
 // --- cursor-mcp-wildcard ---------------------------------------------------
 //
-// Cursor's mcpAllowlist uses the shape `<server>:<tool>` (or `*:*` /
-// `*:<tool>` / `<server>:*`). Wildcards on the server side mean "any
-// installed MCP server's tools auto-run without prompting" - including
-// servers added later, including malicious servers added later.
+// Three wildcard shapes from the Cursor permissions reference:
+//   - `*:*`           Critical (every tool from every server)
+//   - `*:<tool>`      High     (any server claims this tool name)
+//   - `<server>:*`    Medium   (all current+future tools from a server)
 
 type cursorMCPWildcard struct{}
 
@@ -134,14 +129,13 @@ func (cursorMCPWildcard) Apply(doc *parse.Document) []finding.Finding {
 			continue
 		}
 
-		// `*:<tool>` - any server can claim that tool name. Also dangerous
-		// (lets a malicious server hijack a known-tool name).
+		// `*:<tool>` — any server can claim that tool name.
 		if strings.HasPrefix(entry, "*:") {
 			out = append(out, finding.New(finding.Args{
-				RuleID:       "cursor-mcp-wildcard",
-				Severity:     finding.SeverityHigh,
-				Taxonomy:     finding.TaxDetectable,
-				Title:        "Cursor mcpAllowlist auto-approves tool name from any server",
+				RuleID:   "cursor-mcp-wildcard",
+				Severity: finding.SeverityHigh,
+				Taxonomy: finding.TaxDetectable,
+				Title:    "Cursor mcpAllowlist auto-approves tool name from any server",
 				Description: fmt.Sprintf(
 					"`%s` lets any MCP server claim tool name `%s` and have it auto-run. A malicious server can register the same tool name and inherit the allowlist.",
 					entry, strings.TrimPrefix(entry, "*:"),
@@ -154,16 +148,15 @@ func (cursorMCPWildcard) Apply(doc *parse.Document) []finding.Finding {
 			continue
 		}
 
-		// `<server>:*` - all tools from a specific server. Less broad than
-		// the above but still a finding worth surfacing - new tools added
-		// to that server inherit auto-approval. We grade Medium not High.
+		// `<server>:*` — all tools from a specific server. Less broad but
+		// still surface as Medium inventory.
 		if strings.HasSuffix(entry, ":*") {
 			server := strings.TrimSuffix(entry, ":*")
 			out = append(out, finding.New(finding.Args{
-				RuleID:       "cursor-mcp-wildcard",
-				Severity:     finding.SeverityMedium,
-				Taxonomy:     finding.TaxAdvisory,
-				Title:        fmt.Sprintf("Cursor mcpAllowlist permits all tools from %s", server),
+				RuleID:   "cursor-mcp-wildcard",
+				Severity: finding.SeverityMedium,
+				Taxonomy: finding.TaxAdvisory,
+				Title:    fmt.Sprintf("Cursor mcpAllowlist permits all tools from %s", server),
 				Description: fmt.Sprintf(
 					"`%s` auto-approves every tool from server `%s`, including tools added in future server updates. Acceptable for fully-trusted servers; surface as inventory.",
 					entry, server,

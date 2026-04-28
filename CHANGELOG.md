@@ -3,6 +3,34 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.1] - 2026-04-28
+
+Pure file reorganization. Zero behavior change.
+
+### Changed
+- `internal/rules/builtin/` files now mirror `internal/parse/`: one file per format-family. The version-stamped names from the alpha cycle (`v02.go`, `v02_alpha2.go`, `v02_alpha3.go`, `v02_alpha4.go`) are gone. New layout:
+  - `registry.go` — the rule registry list.
+  - `helpers.go` — shared helpers (`matchesCredential`, `valueLooksLikeSecret`, `dangerousBashVerbs`, line-finder helpers, etc.).
+  - `claude.go` / `codex.go` / `cursor.go` / `mcp.go` / `skill.go` / `shellrc.go` / `gha.go` — one file per format-family.
+  - Tests follow the same naming. `e2e_test.go` consolidates the cross-format end-to-end tests.
+- All rule IDs unchanged. All test names unchanged. All findings byte-identical to v0.2.0 on the same scan inputs.
+
+### Why
+- The alpha-stamped names (`v02_alpha2`) age badly. Future v0.3 work would either pile more `v03_alpha*` files or break the pattern.
+- Pairing rule files with their parser counterparts in `internal/parse/` makes "where do I add a rule for harness X?" a one-look question.
+
+## [0.2.0] - 2026-04-28
+
+The v0.2 stability marker. Same code as v0.2.0-alpha.5; the tag marks the
+end of the alpha cycle, not a new build.
+
+### Highlights vs v0.1
+- 4 new format detectors: Codex CLI TOML, Cursor permissions.json, Windsurf MCP, deeper Claude hooks.
+- 13 new rules across 5 categories: hook RCE, consent bypass, broad allowlists, plaintext credentials, unauth remote MCPs.
+- Normalized MCP model: existing rules (`mcp-unpinned-npx`, `mcp-plaintext-api-key`) now fire across Cursor + Codex + Windsurf via a single helper.
+- 5 Attack Chain narratives: attacker-POV stories that combine multiple findings into end-to-end risk explanations.
+- 3 Critical + 9 High findings on a real Mac dev-machine that v0.1 reported as 0 Critical / 1 actionable High.
+
 ## [0.2.0-alpha.5] - 2026-04-28
 
 The Attack Chains layer. Cross-finding correlation that produces

@@ -1,16 +1,60 @@
 package builtin
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/agentguard/agentguard/internal/parse"
+	"github.com/agentguard/agentguard/internal/rules"
 )
 
-// alpha.3 generalized rules: existing rule IDs (mcp-unpinned-npx,
-// mcp-plaintext-api-key) keep working on .mcp.json (Cursor) but ALSO fire
-// on Codex TOML and Windsurf JSON. New rule mcp-unauth-remote-url fires
-// across all three.
+// --- mcp-unpinned-npx ------------------------------------------------------
 
+func TestRule_MCPUnpinnedNPX(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       string
+		wantFires int
+	}{
+		{
+			name:      "unpinned npx triggers",
+			raw:       `{"mcpServers":{"foo":{"command":"npx","args":["@modelcontextprotocol/server-foo"]}}}`,
+			wantFires: 1,
+		},
+		{
+			name:      "pinned @version does not trigger",
+			raw:       `{"mcpServers":{"foo":{"command":"npx","args":["@modelcontextprotocol/server-foo@1.2.3"]}}}`,
+			wantFires: 0,
+		},
+		{
+			name:      "non-npx command does not trigger",
+			raw:       `{"mcpServers":{"foo":{"command":"node","args":["server.js"]}}}`,
+			wantFires: 0,
+		},
+		{
+			name:      "npx with -y flag and pinned version OK",
+			raw:       `{"mcpServers":{"foo":{"command":"npx","args":["-y","my-pkg@2.0.0"]}}}`,
+			wantFires: 0,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := parse.Parse("/test/.mcp.json", []byte(tt.raw))
+			fires := 0
+			for _, id := range applyRule(doc) {
+				if id == "mcp-unpinned-npx" {
+					fires++
+				}
+			}
+			if fires != tt.wantFires {
+				t.Errorf("got %d fires, want %d", fires, tt.wantFires)
+			}
+		})
+	}
+}
+
+// Generalized: same rule fires across .mcp.json, Codex TOML, Windsurf JSON
+// via the normalized MCP model.
 func TestRule_MCPUnpinnedNPX_GeneralizedAcrossSources(t *testing.T) {
 	cases := []struct {
 		name string
@@ -25,10 +69,10 @@ func TestRule_MCPUnpinnedNPX_GeneralizedAcrossSources(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Codex TOML with unpinned @latest (Mac scan case)",
+			name: "Codex TOML with @latest (counts as pinned per existing rule semantics)",
 			path: "/test/.codex/config.toml",
 			body: `[mcp_servers.playwright]` + "\n" + `command = "npx"` + "\n" + `args = ["@playwright/mcp@latest"]`,
-			want: false, // @latest is technically pinned by our rule (any @ counts) - documented quirk
+			want: false,
 		},
 		{
 			name: "Codex TOML with truly unpinned package",
@@ -37,10 +81,10 @@ func TestRule_MCPUnpinnedNPX_GeneralizedAcrossSources(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Windsurf JSON with unpinned npx (Mac scan case: mastra/sequential-thinking)",
+			name: "Windsurf JSON with unpinned npx (Mac scan: mastra/sequential-thinking)",
 			path: "/test/.codeium/windsurf/mcp_config.json",
 			body: `{"mcpServers":{"mastra":{"command":"npx","args":["-y","@mastra/mcp-docs-server"]}}}`,
-			want: true, // @mastra/mcp-docs-server with no @version
+			want: true,
 		},
 		{
 			name: "Windsurf JSON with pinned package",
@@ -59,6 +103,120 @@ func TestRule_MCPUnpinnedNPX_GeneralizedAcrossSources(t *testing.T) {
 	}
 }
 
+// --- mcp-prod-secret-env --------------------------------------------------
+
+func TestRule_MCPProdSecretEnv(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       string
+		wantFires int
+	}{
+		{
+			name:      "PROD_ env var fires",
+			raw:       `{"mcpServers":{"foo":{"command":"x","env":{"PROD_DB_URL":"postgres://..."}}}}`,
+			wantFires: 1,
+		},
+		{
+			name:      "STRIPE_LIVE_ env var fires",
+			raw:       `{"mcpServers":{"foo":{"command":"x","env":{"STRIPE_LIVE_KEY":"sk_live_xxx"}}}}`,
+			wantFires: 1,
+		},
+		{
+			name:      "staging env does not fire",
+			raw:       `{"mcpServers":{"foo":{"command":"x","env":{"STAGING_DB_URL":"postgres://..."}}}}`,
+			wantFires: 0,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := parse.Parse("/test/.mcp.json", []byte(tt.raw))
+			fires := 0
+			for _, id := range applyRule(doc) {
+				if id == "mcp-prod-secret-env" {
+					fires++
+				}
+			}
+			if fires != tt.wantFires {
+				t.Errorf("got %d fires, want %d", fires, tt.wantFires)
+			}
+		})
+	}
+}
+
+// --- mcp-plaintext-api-key (existing) -------------------------------------
+
+func TestRule_MCPPlaintextAPIKey(t *testing.T) {
+	doc := parse.Parse("/test/.mcp.json", []byte(`{"mcpServers":{"github":{"command":"x","env":{"GITHUB_TOKEN":"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`))
+	fires := 0
+	var fr []string
+	for _, id := range applyRule(doc) {
+		if id == "mcp-plaintext-api-key" {
+			fires++
+		}
+		fr = append(fr, id)
+	}
+	if fires == 0 {
+		t.Errorf("plaintext github token should fire; rules fired: %v", fr)
+	}
+
+	// Verify redaction in finding output.
+	for _, r := range rules.All() {
+		if r.ID() != "mcp-plaintext-api-key" {
+			continue
+		}
+		findings := r.Apply(doc)
+		for _, f := range findings {
+			if strings.Contains(f.Match, "ghp_aaa") {
+				t.Errorf("finding match leaked secret: %q", f.Match)
+			}
+		}
+	}
+}
+
+// alpha.1 → alpha.3 transition: codex-mcp-plaintext-header-key was removed,
+// the generalized mcp-plaintext-api-key now covers Codex headers too.
+func TestRule_MCPPlaintextAPIKey_CodexHeaders(t *testing.T) {
+	cases := []struct {
+		name string
+		toml string
+		want bool
+	}{
+		{
+			name: "ctx7sk- prefix in header (Mac scan case)",
+			toml: `[mcp_servers.context7]` + "\n" +
+				`url = "https://mcp.context7.com/mcp"` + "\n" +
+				`[mcp_servers.context7.http_headers]` + "\n" +
+				`CONTEXT7_API_KEY = "ctx7sk-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"`,
+			want: true,
+		},
+		{
+			name: "github token in header (well-known prefix)",
+			toml: `[mcp_servers.gh.http_headers]` + "\n" +
+				`Authorization = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`,
+			want: true,
+		},
+		{
+			name: "no headers at all",
+			toml: `[mcp_servers.simple]` + "\n" + `url = "https://example.com"`,
+			want: false,
+		},
+		{
+			name: "header value too short to be a credential",
+			toml: `[mcp_servers.s.http_headers]` + "\n" + `X-Foo = "bar"`,
+			want: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc := parse.Parse("/u/.codex/config.toml", []byte(c.toml))
+			if got := fired(doc, "mcp-plaintext-api-key"); got != c.want {
+				t.Errorf("fired = %v, want %v (full apply: %v)", got, c.want, applyRule(doc))
+			}
+		})
+	}
+}
+
+// alpha.3 generalization: same rule fires on Codex + Windsurf headers.
 func TestRule_MCPPlaintextAPIKey_GeneralizedAcrossSources(t *testing.T) {
 	cases := []struct {
 		name string
@@ -73,7 +231,7 @@ func TestRule_MCPPlaintextAPIKey_GeneralizedAcrossSources(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Codex headers (subsumes deleted codex-mcp-plaintext-header-key from alpha.1)",
+			name: "Codex headers (subsumes deleted codex-mcp-plaintext-header-key)",
 			path: "/test/.codex/config.toml",
 			body: `[mcp_servers.context7.http_headers]` + "\n" + `CONTEXT7_API_KEY = "ctx7sk-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"`,
 			want: true,
@@ -100,6 +258,8 @@ func TestRule_MCPPlaintextAPIKey_GeneralizedAcrossSources(t *testing.T) {
 		})
 	}
 }
+
+// --- mcp-unauth-remote-url -------------------------------------------------
 
 func TestRule_MCPUnauthRemoteURL(t *testing.T) {
 	cases := []struct {
@@ -162,7 +322,7 @@ func TestRule_MCPUnauthRemoteURL(t *testing.T) {
 			path: "/test/.codex/config.toml",
 			body: `[mcp_servers.x]` + "\n" + `url = "https://example.com"` + "\n" +
 				`[mcp_servers.x.http_headers]` + "\n" + `CONTEXT7_API_KEY = "ctx7sk-aaa"`,
-			want: false, // header has API_KEY suffix → counts as auth-configured
+			want: false,
 		},
 	}
 	for _, c := range cases {
@@ -172,52 +332,5 @@ func TestRule_MCPUnauthRemoteURL(t *testing.T) {
 				t.Errorf("fired = %v, want %v (rules: %v)", got, c.want, applyRule(doc))
 			}
 		})
-	}
-}
-
-// End-to-end: alpha.3 generalized rules fire on Windsurf, Codex, AND Cursor
-// from a single config-corpus traversal. This is the architectural validation
-// of the normalized model: same rules, different sources.
-func TestV02Alpha3_GeneralizedRulesAcrossThreeHarnesses(t *testing.T) {
-	codexTOML := `
-[mcp_servers.GitLab]
-url = "https://gitlab.com/api/v4/mcp"
-
-[mcp_servers.context7]
-url = "https://mcp.context7.com/mcp"
-
-[mcp_servers.context7.http_headers]
-CONTEXT7_API_KEY = "ctx7sk-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-`
-	windsurfJSON := `{"mcpServers":{
-		"GitLab":{"type":"http","url":"https://gitlab.com/api/v4/mcp"},
-		"context7":{"serverUrl":"https://mcp.context7.com/mcp","headers":{"CONTEXT7_API_KEY":"ctx7sk-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}},
-		"mastra":{"command":"npx","args":["-y","@mastra/mcp-docs-server"]}
-	}}`
-
-	codexDoc := parse.Parse("/u/.codex/config.toml", []byte(codexTOML))
-	windsurfDoc := parse.Parse("/u/.codeium/windsurf/mcp_config.json", []byte(windsurfJSON))
-
-	// Each rule should fire across both docs:
-	count := map[string]int{}
-	for _, id := range applyRule(codexDoc) {
-		count[id]++
-	}
-	for _, id := range applyRule(windsurfDoc) {
-		count[id]++
-	}
-
-	// mcp-plaintext-api-key: 1 in Codex (CONTEXT7) + 1 in Windsurf (CONTEXT7) = 2
-	if count["mcp-plaintext-api-key"] < 2 {
-		t.Errorf("mcp-plaintext-api-key fires=%d, want >=2 (Codex + Windsurf)", count["mcp-plaintext-api-key"])
-	}
-	// mcp-unauth-remote-url: 1 in Codex (GitLab) + 1 in Windsurf (GitLab) = 2
-	// (context7 has API_KEY header, counts as authed; mastra is stdio, no URL)
-	if count["mcp-unauth-remote-url"] < 2 {
-		t.Errorf("mcp-unauth-remote-url fires=%d, want >=2", count["mcp-unauth-remote-url"])
-	}
-	// mcp-unpinned-npx: 0 in Codex (no npx servers in this fixture) + 1 in Windsurf (mastra)
-	if count["mcp-unpinned-npx"] < 1 {
-		t.Errorf("mcp-unpinned-npx fires=%d, want >=1", count["mcp-unpinned-npx"])
 	}
 }
