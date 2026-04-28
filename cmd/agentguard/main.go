@@ -10,10 +10,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -54,28 +56,39 @@ func newRootCmd() *cobra.Command {
 
 func newScanCmd() *cobra.Command {
 	var (
-		flagOutput     string
-		flagFormat     string
-		flagJobs       int
+		flagOutput      string
+		flagFormat      string
+		flagJobs        int
 		flagFileTimeout time.Duration
 		flagScanTimeout time.Duration
-		flagSizeLimit  int64
-		flagIgnore     string
-		flagVerbose    bool
-		flagDebug      bool
-		flagLogJSON    bool
+		flagSizeLimit   int64
+		flagIgnore      string
+		flagVerbose     bool
+		flagDebug       bool
+		flagLogJSON     bool
+		flagOpen        string // "auto" | "always" | "never"
+		flagQuiet       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
 		Short: "Scan paths for risky AI-agent configurations",
 		Long: `Scan one or more paths (default: $HOME) for risky AI-agent configurations.
 
-Without arguments, agentguard scans your machine: $HOME for MCP configs,
-skill files, shell rc files, etc. Pass a directory to scan a single repo.
+By default agentguard writes an HTML report to a temp file, opens it in your
+default browser, and prints a readable summary to stdout.
 
-The exit code is 0 when no findings of severity higher than 'low' are
-emitted, 1 otherwise. Use --output to write the report to a file instead
-of stdout.`,
+Use -o to write the report to a specific file (browser auto-open is then off
+by default; use --open=always to override). Use -f sarif|json to emit
+machine-readable formats. Use -o - to stream the format output to stdout
+(useful for piping into jq).
+
+Exit code is 0 when no findings of severity higher than 'low' are emitted,
+1 otherwise.`,
+		Example: `  agentguard scan                              # scan $HOME, open HTML in browser
+  agentguard scan ~/code/my-repo               # scan a single repo
+  agentguard scan -o report.html               # write to a specific file
+  agentguard scan -f sarif -o results.sarif    # SARIF for GitHub Code Scanning
+  agentguard scan -f json -o - | jq            # pipe JSON to jq`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(scanFlags{
 				roots:       args,
@@ -89,11 +102,15 @@ of stdout.`,
 				verbose:     flagVerbose,
 				debug:       flagDebug,
 				logJSON:     flagLogJSON,
+				openMode:    flagOpen,
+				quiet:       flagQuiet,
 			})
 		},
 	}
-	cmd.Flags().StringVarP(&flagOutput, "output", "o", "", "write report to file (default: stdout)")
+	cmd.Flags().StringVarP(&flagOutput, "output", "o", "", "write report to file (default: HTML to temp file + browser; sarif/json to stdout). Use '-' to force stdout.")
 	cmd.Flags().StringVarP(&flagFormat, "format", "f", "html", "report format: html | sarif | json")
+	cmd.Flags().StringVar(&flagOpen, "open", "auto", "open HTML report in browser: auto | always | never")
+	cmd.Flags().BoolVarP(&flagQuiet, "quiet", "q", false, "suppress the readable summary on stdout")
 	cmd.Flags().IntVar(&flagJobs, "jobs", 0, "worker pool size (default: GOMAXPROCS)")
 	cmd.Flags().DurationVar(&flagFileTimeout, "file-timeout", 5*time.Second, "per-file parse + rule timeout")
 	cmd.Flags().DurationVar(&flagScanTimeout, "scan-timeout", 60*time.Second, "total scan timeout")
@@ -127,10 +144,88 @@ type scanFlags struct {
 	verbose     bool
 	debug       bool
 	logJSON     bool
+	openMode    string // "auto" | "always" | "never"
+	quiet       bool
+}
+
+// outPlan captures the resolved output decisions: where the report goes,
+// where the human-readable summary goes, and whether to open a browser.
+type outPlan struct {
+	format        string // "html" | "sarif" | "json"
+	reportPath    string // file path; "" if writing to stdout
+	reportToStdout bool
+	printSummary  bool
+	summaryDest   io.Writer // os.Stdout or os.Stderr
+	openBrowser   bool
+}
+
+func resolveOutput(f scanFlags) (outPlan, error) {
+	format := strings.ToLower(strings.TrimSpace(f.format))
+	if format == "" {
+		format = "html"
+	}
+	if format != "html" && format != "sarif" && format != "json" {
+		return outPlan{}, fmt.Errorf("unknown format %q (want html | sarif | json)", f.format)
+	}
+
+	stdoutTTY := isTerminal(os.Stdout)
+
+	plan := outPlan{format: format}
+
+	switch {
+	case f.output == "-":
+		// Explicit pipe-to-stdout escape hatch.
+		plan.reportToStdout = true
+		plan.printSummary = false
+		plan.openBrowser = false
+
+	case f.output != "":
+		// User picked a path. Write the report there. Summary goes to stdout.
+		plan.reportPath = f.output
+		plan.printSummary = !f.quiet
+		plan.summaryDest = os.Stdout
+		plan.openBrowser = format == "html" && f.openMode == "always" && stdoutTTY
+
+	case format == "html":
+		// HTML format never auto-dumps to stdout — that ruins terminals.
+		// Always write to a temp file. Use `-o -` for the explicit pipe
+		// escape hatch. Browser auto-opens if stdout is a TTY (i.e., a
+		// human is watching) and --open isn't set to never.
+		tmp := filepath.Join(os.TempDir(), fmt.Sprintf("agentguard-%s.html", time.Now().Format("20060102-150405")))
+		plan.reportPath = tmp
+		plan.printSummary = !f.quiet
+		plan.summaryDest = os.Stdout
+		plan.openBrowser = stdoutTTY && f.openMode != "never"
+
+	default:
+		// sarif/json without -o: write the format to stdout (data IS the
+		// output). Summary goes to stderr so a pipe still gets clean data.
+		plan.reportToStdout = true
+		plan.printSummary = !f.quiet && stdoutTTY
+		plan.summaryDest = os.Stderr
+		plan.openBrowser = false
+	}
+
+	switch f.openMode {
+	case "auto", "always", "never":
+		// ok
+	default:
+		return outPlan{}, fmt.Errorf("--open must be auto | always | never (got %q)", f.openMode)
+	}
+	if f.openMode == "never" {
+		plan.openBrowser = false
+	}
+
+	return plan, nil
 }
 
 func runScan(f scanFlags) error {
 	logger := buildLogger(f)
+
+	plan, err := resolveOutput(f)
+	if err != nil {
+		return err
+	}
 
 	roots := f.roots
 	if len(roots) == 0 {
@@ -196,72 +291,117 @@ func runScan(f scanFlags) error {
 		Suppressed:  res.Suppressed,
 		Skipped:     res.Skipped,
 		Version:     Version,
-		SelfAudit:   "skipped", // populated when self-audit subcommand lands
+		SelfAudit:   "skipped",
 	}
 
-	out := io.Writer(os.Stdout)
-	if f.output != "" {
-		of, err := os.Create(f.output)
-		if err != nil {
-			return fmt.Errorf("create output: %w", err)
-		}
-		defer of.Close()
-		out = of
+	// Write the format output to its destination.
+	if err := writeReport(plan, report); err != nil {
+		return err
 	}
 
-	switch strings.ToLower(f.format) {
-	case "", "html":
-		if err := output.HTML(out, report); err != nil {
+	// Print readable summary.
+	if plan.printSummary {
+		htmlPath := ""
+		if plan.format == "html" && plan.reportPath != "" {
+			htmlPath = plan.reportPath
+		}
+		if err := output.Text(plan.summaryDest, report, htmlPath); err != nil {
 			return err
 		}
-	case "sarif":
-		if err := output.SARIF(out, report); err != nil {
-			return err
-		}
-	case "json":
-		if err := output.JSON(out, report); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unknown format %q (want html | sarif | json)", f.format)
 	}
 
-	// Summary to stderr regardless of format.
-	summarize(res, logger, f.output)
+	// Open browser if applicable.
+	if plan.openBrowser && plan.reportPath != "" {
+		if err := openBrowser(plan.reportPath); err != nil {
+			// Non-fatal; user can open manually.
+			fmt.Fprintf(os.Stderr, "agentguard: could not open browser (%v); open %s manually\n",
+				err, plan.reportPath)
+		}
+	}
 
-	// Exit code: 0 if zero high-or-critical findings, else 1.
+	// Exit code: 1 if any high-or-critical finding fires.
 	for _, fnd := range res.Findings {
-		if fnd.Severity <= 1 { // Critical=0, High=1
+		if fnd.Severity <= 1 { // SeverityCritical=0, SeverityHigh=1
 			os.Exit(1)
 		}
 	}
 	return nil
 }
 
-func summarize(res *scan.Result, logger *slog.Logger, outPath string) {
-	by := map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0}
-	for _, f := range res.Findings {
-		by[f.Severity.String()]++
+// writeReport emits the chosen format to either stdout or a file path.
+func writeReport(plan outPlan, report output.Report) error {
+	var w io.Writer
+	if plan.reportToStdout {
+		w = os.Stdout
+	} else if plan.reportPath != "" {
+		f, err := os.Create(plan.reportPath)
+		if err != nil {
+			return fmt.Errorf("create %s: %w", plan.reportPath, err)
+		}
+		defer f.Close()
+		w = f
+	} else {
+		// Both empty — nothing to write. Should not happen.
+		return errors.New("no report destination resolved")
 	}
-	dest := "stdout"
-	if outPath != "" {
-		dest = outPath
+
+	switch plan.format {
+	case "html":
+		return output.HTML(w, report)
+	case "sarif":
+		return output.SARIF(w, report)
+	case "json":
+		return output.JSON(w, report)
 	}
-	fmt.Fprintf(os.Stderr,
-		"agentguard: %d findings (%d critical, %d high, %d medium, %d low) in %d files (%s) → %s\n",
-		len(res.Findings),
-		by["critical"], by["high"], by["medium"], by["low"],
-		res.FilesParsed,
-		res.FinishedAt.Sub(res.StartedAt).Round(time.Millisecond),
-		dest,
-	)
-	logger.Debug("scan complete",
-		"findings", len(res.Findings),
-		"files_parsed", res.FilesParsed,
-		"files_seen", res.FilesSeen,
-		"suppressed", res.Suppressed,
-		"skipped", res.Skipped,
-	)
+	return fmt.Errorf("unknown format %q", plan.format)
+}
+
+// isTerminal returns true if f is connected to a terminal (vs. a pipe/file).
+// We avoid pulling in golang.org/x/term to keep the binary's dependency
+// surface minimal; the os.Stat trick works on Unix and Windows.
+func isTerminal(f *os.File) bool {
+	stat, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+// openBrowser launches the platform's default opener with the file URL.
+// We deliberately do NOT block on the opener — terminals shouldn't hang
+// waiting for the browser.
+func openBrowser(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	url := "file://" + abs
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		// Prefer xdg-open. WSL has wslview. Fall back to xdg-open and let
+		// it error.
+		opener := "xdg-open"
+		if _, err := exec.LookPath("wslview"); err == nil {
+			opener = "wslview"
+		}
+		cmd = exec.Command(opener, url)
+	default:
+		return fmt.Errorf("auto-open not supported on %s", runtime.GOOS)
+	}
+	// Detach: don't block, don't tie stdio.
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// Reap the process in the background so it doesn't become a zombie.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 func buildLogger(f scanFlags) *slog.Logger {
