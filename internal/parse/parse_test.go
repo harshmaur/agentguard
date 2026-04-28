@@ -2,6 +2,7 @@ package parse
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -119,6 +120,38 @@ It also mentions WebFetch and Glob inline.
 			t.Errorf("Tools missing %q: %v", w, doc.Skill.Tools)
 		}
 	}
+}
+
+// TestParseSkill_ConcurrentSafe is a regression test for the v0.1.3 fix:
+// parseSkill used to lazy-init a package-level map of compiled regexes on
+// first call, which two scan-worker goroutines could race on. With -race
+// this test would panic before the fix.
+func TestParseSkill_ConcurrentSafe(t *testing.T) {
+	bodies := [][]byte{
+		[]byte("---\nname: a\nallowed-tools: Bash\n---\nbody mentions `Bash` here.\n"),
+		[]byte("---\nname: b\nallowed-tools: WebFetch\n---\nbody uses `WebFetch`.\n"),
+		[]byte("---\nname: c\n---\n- Bash\n- Edit\nstructured list.\n"),
+		[]byte("---\nname: d\n---\nTool: Write\nthat's a write tool.\n"),
+		[]byte("---\nname: e\n---\nplain prose with `Grep` mentioned.\n"),
+	}
+	const goroutines = 16
+	const iterations = 50
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(seed int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				body := bodies[(seed+j)%len(bodies)]
+				doc := Parse("/test/.claude/skills/x/SKILL.md", body)
+				if doc.Skill == nil {
+					t.Errorf("nil Skill on iter %d/%d", seed, j)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestParseWorkflow(t *testing.T) {

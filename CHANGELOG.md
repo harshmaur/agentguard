@@ -3,6 +3,15 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.1.3] - 2026-04-28
+
+### Fixed
+- `internal/parse/skill.go` no longer races on its tool-invocation regex map. The previous code lazy-initialized regexes on first call from inside `parseSkill`; under the scanner's worker pool, concurrent workers parsing skills at the same time triggered `fatal error: concurrent map writes` and crashed the scan. All 11 regexes are now compiled once at package init via a `func() {...}()` initializer, so the runtime path is read-only — no synchronization needed.
+- Added `TestParseSkill_ConcurrentSafe` regression test that runs 16 goroutines × 50 iterations through `parseSkill` under the race detector. Catches future reintroductions of the bug.
+
+### Found in the wild
+- The race fired on a real Mac dev-machine scan when the worker pool simultaneously parsed skills from a vendored gstack repo containing 75+ skill files spread across 8 harness folders. Stack trace pointed at `internal/parse/skill.go:41`. v0.1.0–0.1.2 are all affected.
+
 ## [0.1.2] - 2026-04-28
 
 ### Changed

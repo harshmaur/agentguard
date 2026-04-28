@@ -35,19 +35,7 @@ func parseSkill(path string, raw []byte) (*Skill, error) {
 	//   - structured: `Tool: Bash` or `Tools:\n  - Bash`
 	//   - JSON/YAML tool references: `"tool": "Bash"`
 	for _, tool := range knownToolNames {
-		key := tool + ":invocation"
-		if toolReferences[key] == nil {
-			pat := regexp.QuoteMeta(tool)
-			toolReferences[key] = regexp.MustCompile(
-				"(?m)" +
-					"(?:^\\s*-\\s*" + pat + "\\b)" + // YAML list bullet
-					"|(?:`" + pat + "`)" + // inline code
-					"|(?:\"" + pat + "\")" + // JSON/YAML string
-					"|(?:\\bTool:\\s*" + pat + "\\b)" + // explicit Tool: label
-					"|(?:\\bTools?:\\s*\\[[^\\]]*\\b" + pat + "\\b)", // tools: [Bash]
-			)
-		}
-		if toolReferences[key].MatchString(s.Body) {
+		if toolInvocationPatterns[tool].MatchString(s.Body) {
 			if !contains(s.Tools, tool) {
 				s.Tools = append(s.Tools, tool)
 			}
@@ -123,4 +111,22 @@ var knownToolNames = []string{
 	"NotebookEdit", "Task", "Agent", "Glob", "Grep",
 }
 
-var toolReferences = make(map[string]*regexp.Regexp)
+// toolInvocationPatterns is built once at init time. The runtime parse path
+// reads it concurrently from many goroutines; building it lazily inside
+// parseSkill caused a "concurrent map writes" panic when two workers parsed
+// skills at the same time.
+var toolInvocationPatterns = func() map[string]*regexp.Regexp {
+	m := make(map[string]*regexp.Regexp, len(knownToolNames))
+	for _, tool := range knownToolNames {
+		pat := regexp.QuoteMeta(tool)
+		m[tool] = regexp.MustCompile(
+			"(?m)" +
+				"(?:^\\s*-\\s*" + pat + "\\b)" + // YAML list bullet
+				"|(?:`" + pat + "`)" + // inline code
+				"|(?:\"" + pat + "\")" + // JSON/YAML string
+				"|(?:\\bTool:\\s*" + pat + "\\b)" + // explicit Tool: label
+				"|(?:\\bTools?:\\s*\\[[^\\]]*\\b" + pat + "\\b)", // tools: [Bash]
+		)
+	}
+	return m
+}()
