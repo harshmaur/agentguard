@@ -3,6 +3,33 @@
 All notable changes to AgentGuard.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.2.5] - 2026-04-28
+
+License + verification surface. Two new subcommands, one license, one self-scan gate. No new rules.
+
+### Added
+- **License: FSL-1.1-MIT.** Functional Source License with MIT future grant. Source is fully readable, internal use OK, redistribution OK; the only restriction is reselling AgentGuard as a competing commercial service. Two years after each release, that release reverts to plain MIT. Same model as Sentry, Convex, GitButler, Keygen.
+- **`agentguard verify <tarball>`.** Verify a downloaded release tarball against `SHA256SUMS`. If `cosign` is on PATH and the `.sig` and `.crt` files are alongside, also runs `cosign verify-blob` against the sigstore transparency log. The no-cosign-required path the install.sh comments have promised since v0.1 — now it actually exists. Flags: `--sums`, `--cert-identity-regexp`, `--cert-oidc-issuer`.
+- **`agentguard self-audit`.** Prints the SHA-256 of the running binary plus its full rule + chain manifest. `--json` for diffing between machines or feeding a CMDB. Trust-artifact companion to `verify`: where `verify` proves the tarball matches the publisher, `self-audit` proves the binary loaded right now contains exactly the rules and chains its hash claims. Diff the JSON output between two installs to confirm they're identical.
+- **`AGENTS.md`.** Cross-tool instructions for Claude Code, Cursor, Codex, OpenCode, Aider. Tiny on purpose. Headline rule: never commit real credentials to test fixtures — use repeated-character placeholders that match the format's prefix and length so the regex still fires. Pairs with the CI self-scan gate below.
+- **`docs/sample-report.html` + `docs/img/report-preview.png`.** A bundled sample HTML report (generated from `testdata/laptops/dirty`) plus a preview screenshot, both linked from the README. Visitors see what the forensic-document layout actually looks like before they install.
+- **CI self-scan step.** `.github/workflows/ci.yml` now runs `./agentguard scan .` on every PR and fails the build on any finding. `.agentguardignore` excludes `testdata/` (intentional fixtures). The scanner now gates its own source.
+- **`correlate.Manifest()` + `correlate.ChainMeta`.** Public manifest of every registered attack chain — used by self-audit to enumerate chains compiled into the binary without firing them against synthetic findings.
+- **Tests.** `TestManifest_MatchesScenarios` (correlate drift guard); `TestBuild_BinaryFieldsPopulated` / `TestBuild_RuleCountMatchesRegistry` / `TestBuild_ChainCountMatchesManifest` / `TestBuild_StableJSONShape` (selfaudit); `TestVerifyCmd_TamperedExitsWithVerifyFailedSentinel` / `TestVerifyCmd_HappyPathExitsCleanly` (verify subcommand exit semantics).
+
+### Changed
+- **Module path: `github.com/agentguard/agentguard` → `github.com/harshmaur/agentguard`.** The repo lives at `harshmaur`; the module name now matches. Anyone vendoring this as a library stops getting an import-path mismatch.
+- **README rewrite.** "Why" section leads with concrete user-job scenarios (CVE-2025-59536 link, exfil-chain example, GHA secrets in agent steps) instead of CISO-question bullets. "Trust artifacts" → "Verify before installing", with the new `verify` / `self-audit` commands shown inline. Taxonomy section is now operator-facing (what the tool can prevent vs only detect) instead of positioning copy. Roadmap trimmed to v0.2 + v0.3 only. Sample-report screenshot added above the install instructions.
+- **`internal/verify` API: `Verify(path, sumsPath)` → `Verify(path, Options{...})`.** The new `Options` struct carries `SumsPath`, `CertIdentityRegexp`, `CertOIDCIssuer`. Fixes a real bug where the `--cert-identity-regexp` and `--cert-oidc-issuer` flags appeared to work but the override happened after cosign already ran with defaults — the cosign call was using the wrong identity.
+- **`runCosign` uses the absolute path from `lookupCosign`.** Avoids a redundant second PATH resolution and makes the intent obvious in code review.
+- **`printVerifyResult`: `interface{ Write(p []byte) (int, error) }` → `io.Writer`.** Cosmetic, but the anonymous-interface form was the one part of `verify.go` that read like a placeholder.
+- **`install.sh` header.** Cleaned up the now-stale "while the repo is private" comments. Added pointers to `agentguard verify` and `agentguard self-audit` for post-install checks.
+
+### Why
+- Every CTO who picked up v0.2.4 and looked at the GitHub sidebar saw `license: null` and stopped. License blocks every other procurement conversation. Picking FSL-1.1-MIT today unblocks every future one.
+- The `verify` and `self-audit` subcommands close a gap between what the README sold and what the binary did. Trust artifacts that are documented but missing are worse than not promising them.
+- The CI self-scan gate is AgentGuard eating its own dog food. If the scanner can't catch credential-shaped strings in the project that builds it, why should anyone else trust it on theirs?
+
 ## [0.2.4] - 2026-04-28
 
 Repo went public; SLSA L2 attestation ships hard.
