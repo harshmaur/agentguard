@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/harshmaur/agentguard/internal/rules/builtin"
-	"github.com/harshmaur/agentguard/internal/output"
-	"github.com/harshmaur/agentguard/internal/scan"
+	_ "github.com/harshmaur/audr/internal/rules/builtin"
+	"github.com/harshmaur/audr/internal/output"
+	"github.com/harshmaur/audr/internal/scan"
 )
 
 // TestScan_DirtyFixture asserts the scanner finds the expected categories
@@ -134,7 +134,7 @@ func TestScan_TimeoutHonored(t *testing.T) {
 	_ = err
 }
 
-// repoRoot returns the agentguard module root by walking up from the test's
+// repoRoot returns the audr module root by walking up from the test's
 // working directory until go.mod is found.
 func repoRoot(t *testing.T) string {
 	t.Helper()

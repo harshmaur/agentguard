@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/harshmaur/agentguard/internal/correlate"
-	"github.com/harshmaur/agentguard/internal/rules"
-	_ "github.com/harshmaur/agentguard/internal/rules/builtin"
+	"github.com/harshmaur/audr/internal/correlate"
+	"github.com/harshmaur/audr/internal/rules"
+	_ "github.com/harshmaur/audr/internal/rules/builtin"
 )
 
 // TestBuild_BinaryFieldsPopulated asserts the per-binary fields look right.

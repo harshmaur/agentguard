@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harshmaur/agentguard/internal/finding"
-	"github.com/harshmaur/agentguard/internal/output"
+	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/output"
 )
 
 // scenarioFn is the signature each attack chain implements. Returns the
@@ -24,7 +24,7 @@ var scenarios = []scenarioFn{
 }
 
 // ChainMeta is a static description of a registered attack chain. Used by
-// `agentguard self-audit` to enumerate chains compiled into the binary
+// `audr self-audit` to enumerate chains compiled into the binary
 // without having to fire them against synthetic findings.
 type ChainMeta struct {
 	ID       string
@@ -103,7 +103,7 @@ func buildRepoCloneNarrative(hookFindings []finding.Finding, projectPaths []stri
 		match := truncate(hookFindings[0].Match, 120)
 		b.WriteString(fmt.Sprintf("**The actual command that would run:** `%s`\n\n", match))
 	}
-	b.WriteString("**Patch path:** Claude Code 2.1.75+ adds a trust dialog before loading repo-shipped hooks. Mitigation in agentguard: remove or restrict the hook entry to user-level settings only.")
+	b.WriteString("**Patch path:** Claude Code 2.1.75+ adds a trust dialog before loading repo-shipped hooks. Mitigation in audr: remove or restrict the hook entry to user-level settings only.")
 	return b.String()
 }
 

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harshmaur/agentguard/internal/finding"
-	"github.com/harshmaur/agentguard/internal/parse"
+	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/parse"
 )
 
 // helper to build a finding with given rule + path

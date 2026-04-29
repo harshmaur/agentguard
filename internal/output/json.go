@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/audr/internal/finding"
 )
 
 // JSON is the structured machine-readable output. Use it for piping into
@@ -37,7 +37,7 @@ type jsonStats struct {
 // JSON writes the report as pretty-printed JSON.
 func JSON(w io.Writer, r Report) error {
 	jr := jsonReport{
-		Schema:       "https://agentguard.dev/schema/report.v1.json",
+		Schema:       "https://audr.dev/schema/report.v1.json",
 		Version:      nonEmpty(r.Version, "0.0.0-dev"),
 		GeneratedAt:  r.FinishedAt,
 		Roots:        r.Roots,

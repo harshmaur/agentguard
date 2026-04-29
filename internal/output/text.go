@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/audr/internal/finding"
 )
 
 // Text prints a human-readable summary of the report. Used for terminal
@@ -18,7 +18,7 @@ import (
 // can color via shell wrappers if they want.
 func Text(w io.Writer, r Report, htmlPath string) error {
 	bw := &bufErrWriter{w: w}
-	bw.printf("AgentGuard %s\n", r.Version)
+	bw.printf("Audr %s\n", r.Version)
 	bw.printf("scanned %d files (parsed %d, skipped %d) in %s\n",
 		r.FilesSeen, r.FilesParsed, r.Skipped,
 		r.FinishedAt.Sub(r.StartedAt).Round(time.Millisecond))
@@ -71,7 +71,7 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 		counts[finding.SeverityLow],
 	)
 	if r.Suppressed > 0 {
-		bw.printf("  (%d suppressed by .agentguardignore)\n", r.Suppressed)
+		bw.printf("  (%d suppressed by .audrignore)\n", r.Suppressed)
 	}
 
 	// Group printable findings: show all critical + high + medium, cap at 12 per

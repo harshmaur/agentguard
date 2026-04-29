@@ -1,4 +1,4 @@
-// Package builtin registers AgentGuard's built-in rule corpus.
+// Package builtin registers Audr's built-in rule corpus.
 //
 // Import this package for side effects (`_ "...internal/rules/builtin"`)
 // so init() registers every rule with the global registry.
@@ -10,7 +10,7 @@
 package builtin
 
 import (
-	"github.com/harshmaur/agentguard/internal/rules"
+	"github.com/harshmaur/audr/internal/rules"
 )
 
 func init() {

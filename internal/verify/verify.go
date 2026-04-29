@@ -1,4 +1,4 @@
-// Package verify provides release-artifact verification for AgentGuard
+// Package verify provides release-artifact verification for Audr
 // tarballs published to GitHub Releases.
 //
 // Two layers, both optional but progressively stronger:
@@ -7,7 +7,7 @@
 //  2. cosign verify-blob against the sigstore transparency log. Runs only if
 //     a `cosign` binary is on PATH and the .sig/.crt files exist next to the
 //     tarball. We shell out instead of linking sigstore — keeps the
-//     agentguard binary small and avoids pulling 100+ MB of indirect deps
+//     audr binary small and avoids pulling 100+ MB of indirect deps
 //     into a security tool.
 //
 // The intent: a fresh machine that does not yet have cosign can still get the
@@ -45,20 +45,20 @@ type Result struct {
 	CertPath        string
 
 	// Identity used for cosign verification. The default is the keyless
-	// GitHub Actions OIDC issuer matching the harshmaur/agentguard repo.
+	// GitHub Actions OIDC issuer matching the harshmaur/audr repo.
 	CertIdentityRegexp string
 	CertOIDCIssuer     string
 }
 
 // Defaults wired into the CLI. Overridable for tests / forks.
 const (
-	DefaultCertIdentityRegexp = `https://github.com/harshmaur/agentguard/.+`
+	DefaultCertIdentityRegexp = `https://github.com/harshmaur/audr/.+`
 	DefaultCertOIDCIssuer     = `https://token.actions.githubusercontent.com`
 )
 
 // Options tunes a Verify call. All fields are optional; an empty Options is
 // the default install path (look for SHA256SUMS next to the tarball, expect
-// the harshmaur/agentguard release identity).
+// the harshmaur/audr release identity).
 type Options struct {
 	// SumsPath is the SHA256SUMS file to check against. Empty = look next
 	// to the tarball.

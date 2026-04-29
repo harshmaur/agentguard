@@ -1,4 +1,4 @@
-# AgentGuard suppression file for self-scan in CI.
+# Audr suppression file for self-scan in CI.
 #
 # Format:
 #   <rule-id>                  disable a rule globally

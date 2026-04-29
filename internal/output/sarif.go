@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harshmaur/agentguard/internal/finding"
+	"github.com/harshmaur/audr/internal/finding"
 )
 
 // SARIF emits SARIF v2.1.0. We hand-roll the minimal subset that GitHub
@@ -24,9 +24,9 @@ func SARIF(w io.Writer, r Report) error {
 			{
 				Tool: sarifTool{
 					Driver: sarifDriver{
-						Name:           "AgentGuard",
+						Name:           "Audr",
 						Version:        nonEmpty(r.Version, "0.0.0-dev"),
-						InformationURI: "https://agentguard.dev",
+						InformationURI: "https://audr.dev",
 						Rules:          []sarifRuleDef{},
 					},
 				},

@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/harshmaur/agentguard/internal/selfaudit"
+	"github.com/harshmaur/audr/internal/selfaudit"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ func newSelfAuditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "self-audit",
 		Short: "Print the SHA-256 of the running binary plus its full rule + chain manifest",
-		Long: `self-audit produces a structured trust report of the running agentguard
+		Long: `self-audit produces a structured trust report of the running audr
 binary: SHA-256 of the executable, version, build VCS revision, every rule
 the binary will fire on a scan, and every attack chain in the correlation
 engine.
@@ -26,10 +26,10 @@ Use cases:
   - feed --json into a CMDB / asset-inventory ingestor
 
 self-audit does NOT verify the binary against a published SHA256SUMS file.
-For that, use 'agentguard verify' on the downloaded tarball.`,
-		Example: `  agentguard self-audit
-  agentguard self-audit --json | jq .binary.sha256
-  diff <(ssh dev1 agentguard self-audit --json) <(ssh dev2 agentguard self-audit --json)`,
+For that, use 'audr verify' on the downloaded tarball.`,
+		Example: `  audr self-audit
+  audr self-audit --json | jq .binary.sha256
+  diff <(ssh dev1 audr self-audit --json) <(ssh dev2 audr self-audit --json)`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := selfaudit.Build(Version)
@@ -51,7 +51,7 @@ For that, use 'agentguard verify' on the downloaded tarball.`,
 }
 
 func printSelfAuditText(w io.Writer, r selfaudit.Report) {
-	fmt.Fprintln(w, "AgentGuard self-audit")
+	fmt.Fprintln(w, "Audr self-audit")
 	fmt.Fprintln(w, strings.Repeat("=", 60))
 	fmt.Fprintf(w, "binary:       %s\n", r.Binary.Path)
 	fmt.Fprintf(w, "sha256:       %s\n", r.Binary.Sha256)

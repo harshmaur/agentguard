@@ -23,7 +23,7 @@ func TestResolveOutput(t *testing.T) {
 		// - reportPath emptiness ("non-empty" when expecting a temp file)
 		wantFormat         string
 		wantReportToStdout bool
-		wantReportPath     string // "" = don't care, "tmp" = expects /tmp/agentguard-...
+		wantReportPath     string // "" = don't care, "tmp" = expects /tmp/audr-...
 		wantErr            bool
 	}{
 		{
@@ -106,9 +106,9 @@ func TestResolveOutput(t *testing.T) {
 			case "":
 				// don't care
 			case "tmp":
-				if !strings.HasPrefix(got.reportPath, "/tmp/agentguard-") &&
-					!strings.Contains(got.reportPath, "agentguard-") {
-					t.Errorf("reportPath = %q, expected temp path containing 'agentguard-'", got.reportPath)
+				if !strings.HasPrefix(got.reportPath, "/tmp/audr-") &&
+					!strings.Contains(got.reportPath, "audr-") {
+					t.Errorf("reportPath = %q, expected temp path containing 'audr-'", got.reportPath)
 				}
 			default:
 				if got.reportPath != tt.wantReportPath {
@@ -133,14 +133,14 @@ func TestResolveOutput_NeverDisablesBrowser(t *testing.T) {
 // TestVerifyCmd_TamperedExitsWithVerifyFailedSentinel exercises the
 // verify subcommand against a tarball whose recorded SHA-256 doesn't match.
 // The cobra RunE must return errVerifyFailed (not a generic error) so
-// main()'s sentinel check exits 1 without prefixing "agentguard:" on stderr.
+// main()'s sentinel check exits 1 without prefixing "audr:" on stderr.
 //
 // Without this test, a future refactor could quietly drop errVerifyFailed
 // from the sentinel branch and we'd only notice via the noisier stderr.
 func TestVerifyCmd_TamperedExitsWithVerifyFailedSentinel(t *testing.T) {
 	dir := t.TempDir()
 
-	tarball := filepath.Join(dir, "agentguard-vTEST-linux-arm64.tar.gz")
+	tarball := filepath.Join(dir, "audr-vTEST-linux-arm64.tar.gz")
 	body := []byte("genuine release bytes")
 	if err := os.WriteFile(tarball, body, 0o644); err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestVerifyCmd_TamperedExitsWithVerifyFailedSentinel(t *testing.T) {
 func TestVerifyCmd_HappyPathExitsCleanly(t *testing.T) {
 	dir := t.TempDir()
 
-	tarball := filepath.Join(dir, "agentguard-vTEST-linux-arm64.tar.gz")
+	tarball := filepath.Join(dir, "audr-vTEST-linux-arm64.tar.gz")
 	body := []byte("genuine release bytes")
 	if err := os.WriteFile(tarball, body, 0o644); err != nil {
 		t.Fatal(err)

@@ -16,12 +16,12 @@ For credential-shaped test fixtures, use repeated-character placeholders that ma
 
 **If you capture a fixture from a real machine, redact in the same edit.** Not "later." Not "before commit." The same edit.
 
-Before every commit, run `./agentguard scan .` against the working tree. Anything that fires must be redacted before the commit lands. Trust this tool — it is literally what we're building.
+Before every commit, run `./audr scan .` against the working tree. Anything that fires must be redacted before the commit lands. Trust this tool — it is literally what we're building.
 
 ## Build & test
 
 ```sh
-go build -o agentguard ./cmd/agentguard && go test -race -count=1 ./...
+go build -o audr ./cmd/audr && go test -race -count=1 ./...
 ```
 
 ## Style

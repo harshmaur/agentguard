@@ -1,14 +1,14 @@
 // Package selfaudit produces a structured report of what is compiled into
-// the running agentguard binary: its SHA-256, version, and the full list of
+// the running audr binary: its SHA-256, version, and the full list of
 // rules and attack chains that will fire on a scan.
 //
 // The use case is procurement-grade trust. A CISO asking "what does the
 // binary on this developer's laptop actually do?" can run
-// `agentguard self-audit --json`, diff it against the same command run on a
+// `audr self-audit --json`, diff it against the same command run on a
 // known-good machine, and prove the two binaries are identical.
 //
 // Self-audit does not verify the binary against a published SHA256SUMS —
-// that is what `agentguard verify` is for. The two commands are
+// that is what `audr verify` is for. The two commands are
 // complementary: verify proves the tarball you downloaded matches what the
 // publisher signed; self-audit proves the binary you have right now
 // behaves the way its hash claims.
@@ -25,10 +25,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/harshmaur/agentguard/internal/correlate"
-	"github.com/harshmaur/agentguard/internal/finding"
-	"github.com/harshmaur/agentguard/internal/parse"
-	"github.com/harshmaur/agentguard/internal/rules"
+	"github.com/harshmaur/audr/internal/correlate"
+	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/parse"
+	"github.com/harshmaur/audr/internal/rules"
 )
 
 // Report is the structured self-audit output. Stable JSON shape — downstream
@@ -70,7 +70,7 @@ type ChainEntry struct {
 }
 
 // Build assembles the full report. Pass the version string from the cobra
-// layer (it lives in cmd/agentguard/main.go and we don't want to import
+// layer (it lives in cmd/audr/main.go and we don't want to import
 // main from a library).
 func Build(version string) (Report, error) {
 	binPath, err := os.Executable()
