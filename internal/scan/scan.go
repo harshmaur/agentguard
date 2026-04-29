@@ -31,10 +31,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harshmaur/agentguard/internal/finding"
-	"github.com/harshmaur/agentguard/internal/parse"
-	"github.com/harshmaur/agentguard/internal/rules"
-	"github.com/harshmaur/agentguard/internal/suppress"
+	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/parse"
+	"github.com/harshmaur/audr/internal/rules"
+	"github.com/harshmaur/audr/internal/suppress"
 )
 
 // Options configures a scan.
@@ -55,7 +55,7 @@ type Options struct {
 	// ScanTimeout is the total scan deadline. Zero = 60s.
 	ScanTimeout time.Duration
 
-	// Suppress is the loaded .agentguardignore set (may be nil).
+	// Suppress is the loaded .audrignore set (may be nil).
 	Suppress *suppress.Set
 
 	// SkipDirs are basenames of directories the walker should never descend

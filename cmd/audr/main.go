@@ -1,11 +1,11 @@
-// agentguard is a static-analysis scanner for AI-agent configurations.
+// audr is a static-analysis scanner for AI-agent configurations.
 //
 // Wedge: discover MCP servers, Claude Code skills, Cursor configs, agent
 // instruction docs, and GitHub Actions workflows on a developer machine or in
 // a repo. Compare findings against a built-in policy. Emit SARIF / HTML /
 // JSON reports.
 //
-// See https://github.com/harshmaur/agentguard for source + design doc.
+// See https://github.com/harshmaur/audr for source + design doc.
 package main
 
 import (
@@ -23,12 +23,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harshmaur/agentguard/internal/correlate"
-	"github.com/harshmaur/agentguard/internal/finding"
-	"github.com/harshmaur/agentguard/internal/output"
-	_ "github.com/harshmaur/agentguard/internal/rules/builtin"
-	"github.com/harshmaur/agentguard/internal/scan"
-	"github.com/harshmaur/agentguard/internal/suppress"
+	"github.com/harshmaur/audr/internal/correlate"
+	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/output"
+	_ "github.com/harshmaur/audr/internal/rules/builtin"
+	"github.com/harshmaur/audr/internal/scan"
+	"github.com/harshmaur/audr/internal/suppress"
 	"github.com/spf13/cobra"
 )
 
@@ -43,19 +43,19 @@ func main() {
 	}
 	// Findings-present and verify-failed are successful runs with non-zero
 	// exit. The subcommand already showed the user the verdict — printing
-	// "agentguard: findings present" on top would be noise.
+	// "audr: findings present" on top would be noise.
 	if errors.Is(err, errFindingsPresent) || errors.Is(err, errVerifyFailed) {
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "agentguard: %v\n", err)
+	fmt.Fprintf(os.Stderr, "audr: %v\n", err)
 	os.Exit(1)
 }
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "agentguard",
+		Use:           "audr",
 		Short:         "Static-analysis scanner for AI-agent configurations",
-		Long:          `agentguard scans MCP servers, agent skills, Claude/Cursor configs, agent instruction docs, and GitHub Actions workflows for risky configuration. It is offline-by-default and emits HTML, SARIF, and JSON reports.`,
+		Long:          `audr scans MCP servers, agent skills, Claude/Cursor configs, agent instruction docs, and GitHub Actions workflows for risky configuration. It is offline-by-default and emits HTML, SARIF, and JSON reports.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       Version,
@@ -87,7 +87,7 @@ func newScanCmd() *cobra.Command {
 		Short: "Scan paths for risky AI-agent configurations",
 		Long: `Scan one or more paths (default: $HOME) for risky AI-agent configurations.
 
-By default agentguard writes an HTML report to a temp file, opens it in your
+By default audr writes an HTML report to a temp file, opens it in your
 default browser, and prints a readable summary to stdout.
 
 Use -o to write the report to a specific file (browser auto-open is then off
@@ -97,11 +97,11 @@ machine-readable formats. Use -o - to stream the format output to stdout
 
 Exit code is 0 when no findings of severity higher than 'low' are emitted,
 1 otherwise.`,
-		Example: `  agentguard scan                              # scan $HOME, open HTML in browser
-  agentguard scan ~/code/my-repo               # scan a single repo
-  agentguard scan -o report.html               # write to a specific file
-  agentguard scan -f sarif -o results.sarif    # SARIF for GitHub Code Scanning
-  agentguard scan -f json -o - | jq            # pipe JSON to jq`,
+		Example: `  audr scan                              # scan $HOME, open HTML in browser
+  audr scan ~/code/my-repo               # scan a single repo
+  audr scan -o report.html               # write to a specific file
+  audr scan -f sarif -o results.sarif    # SARIF for GitHub Code Scanning
+  audr scan -f json -o - | jq            # pipe JSON to jq`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(scanFlags{
 				roots:       args,
@@ -128,7 +128,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().DurationVar(&flagFileTimeout, "file-timeout", 5*time.Second, "per-file parse + rule timeout")
 	cmd.Flags().DurationVar(&flagScanTimeout, "scan-timeout", 60*time.Second, "total scan timeout")
 	cmd.Flags().Int64Var(&flagSizeLimit, "file-size-limit", 10<<20, "skip files larger than this byte size")
-	cmd.Flags().StringVar(&flagIgnore, "ignore-file", "", "path to .agentguardignore (default: ./.agentguardignore if present)")
+	cmd.Flags().StringVar(&flagIgnore, "ignore-file", "", "path to .audrignore (default: ./.audrignore if present)")
 	cmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "log INFO messages to stderr")
 	cmd.Flags().BoolVar(&flagDebug, "debug", false, "log DEBUG messages to stderr")
 	cmd.Flags().BoolVar(&flagLogJSON, "log-json", false, "emit logs as JSON instead of text")
@@ -140,7 +140,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "agentguard %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
+			fmt.Fprintf(cmd.OutOrStdout(), "audr %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
 		},
 	}
 }
@@ -212,7 +212,7 @@ func resolveOutput(f scanFlags) (outPlan, error) {
 		// Always write to a temp file. Use `-o -` for the explicit pipe
 		// escape hatch. Browser auto-opens if stdout is a TTY (i.e., a
 		// human is watching) and --open isn't set to never.
-		tmp := filepath.Join(os.TempDir(), fmt.Sprintf("agentguard-%s.html", time.Now().Format("20060102-150405")))
+		tmp := filepath.Join(os.TempDir(), fmt.Sprintf("audr-%s.html", time.Now().Format("20060102-150405")))
 		plan.reportPath = tmp
 		plan.printSummary = !f.quiet
 		plan.summaryDest = os.Stdout
@@ -263,8 +263,8 @@ func runScan(f scanFlags) error {
 	// Load suppression file.
 	ignorePath := f.ignore
 	if ignorePath == "" {
-		// Default: look for .agentguardignore in the first root if it's a dir.
-		candidate := filepath.Join(roots[0], ".agentguardignore")
+		// Default: look for .audrignore in the first root if it's a dir.
+		candidate := filepath.Join(roots[0], ".audrignore")
 		if _, err := os.Stat(candidate); err == nil {
 			ignorePath = candidate
 		}
@@ -334,7 +334,7 @@ func runScan(f scanFlags) error {
 	if plan.openBrowser && plan.reportPath != "" {
 		if err := openBrowser(plan.reportPath); err != nil {
 			// Non-fatal; user can open manually.
-			fmt.Fprintf(os.Stderr, "agentguard: could not open browser (%v); open %s manually\n",
+			fmt.Fprintf(os.Stderr, "audr: could not open browser (%v); open %s manually\n",
 				err, plan.reportPath)
 		}
 	}

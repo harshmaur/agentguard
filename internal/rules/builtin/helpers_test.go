@@ -1,8 +1,8 @@
 package builtin
 
 import (
-	"github.com/harshmaur/agentguard/internal/parse"
-	"github.com/harshmaur/agentguard/internal/rules"
+	"github.com/harshmaur/audr/internal/parse"
+	"github.com/harshmaur/audr/internal/rules"
 )
 
 // applyRule runs every rule applicable to doc.Format and returns the IDs

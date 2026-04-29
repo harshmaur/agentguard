@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harshmaur/agentguard/internal/finding"
-	"github.com/harshmaur/agentguard/internal/parse"
+	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/parse"
 )
 
 // --- cursor-allowlist-too-broad --------------------------------------------

@@ -41,7 +41,7 @@ func TestNew_PreservesNonSecretFields(t *testing.T) {
 		Description:  "Description that should not be redacted even if it mentions API_KEY",
 		Path:         "/path/to/file",
 		Line:         42,
-		SuggestedFix: "Run agentguard --help for fix guidance",
+		SuggestedFix: "Run audr --help for fix guidance",
 		Tags:         []string{"mcp", "config"},
 	})
 	if f.Title != "Title with normal text" {

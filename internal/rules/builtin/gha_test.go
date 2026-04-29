@@ -3,7 +3,7 @@ package builtin
 import (
 	"testing"
 
-	"github.com/harshmaur/agentguard/internal/parse"
+	"github.com/harshmaur/audr/internal/parse"
 )
 
 func TestRule_GHAWriteAllPermissions(t *testing.T) {

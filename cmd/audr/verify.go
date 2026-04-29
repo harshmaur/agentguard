@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/harshmaur/agentguard/internal/verify"
+	"github.com/harshmaur/audr/internal/verify"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +23,7 @@ func newVerifyCmd() *cobra.Command {
 		Short: "Verify a downloaded release tarball against SHA256SUMS (and cosign if installed)",
 		Long: `Verify a downloaded release tarball.
 
-agentguard verify hashes the tarball, compares it against a SHA256SUMS file
+audr verify hashes the tarball, compares it against a SHA256SUMS file
 (by default, the SHA256SUMS file in the same directory), and if the
 'cosign' binary is on PATH plus the .sig and .crt files are alongside the
 tarball, runs 'cosign verify-blob' against the sigstore transparency log.
@@ -31,11 +31,11 @@ tarball, runs 'cosign verify-blob' against the sigstore transparency log.
 This is the no-cosign-required path documented in README.md. The SHA-256
 check alone proves the tarball matches the publisher's recorded hash; the
 cosign check (when present) additionally proves the hash was signed by the
-GitHub Actions release workflow at github.com/harshmaur/agentguard.
+GitHub Actions release workflow at github.com/harshmaur/audr.
 
 Exit code is 0 if all attempted checks pass, 1 otherwise.`,
-		Example: `  agentguard verify agentguard-v0.2.4-linux-arm64.tar.gz
-  agentguard verify --sums ./SHA256SUMS ./agentguard-v0.2.4-linux-arm64.tar.gz`,
+		Example: `  audr verify audr-v0.2.4-linux-arm64.tar.gz
+  audr verify --sums ./SHA256SUMS ./audr-v0.2.4-linux-arm64.tar.gz`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tarball := args[0]

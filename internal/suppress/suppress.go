@@ -1,4 +1,4 @@
-// Package suppress reads .agentguardignore files and matches finding paths
+// Package suppress reads .audrignore files and matches finding paths
 // against the configured rules.
 //
 // Syntax (kept intentionally simple):
@@ -7,8 +7,8 @@
 //   - `rule-id` alone disables that rule globally.
 //   - `path/glob` (supports * and **) suppresses ALL findings under that path.
 //   - `rule-id path/glob` suppresses that rule under that path.
-//   - Inline form for source files: `# agentguard:disable=rule-id` (handled
-//     elsewhere — this package handles only .agentguardignore).
+//   - Inline form for source files: `# audr:disable=rule-id` (handled
+//     elsewhere — this package handles only .audrignore).
 package suppress
 
 import (
@@ -19,19 +19,19 @@ import (
 	"strings"
 )
 
-// Rule is one parsed line from a .agentguardignore.
+// Rule is one parsed line from a .audrignore.
 type Rule struct {
 	RuleID  string // empty = applies to all rules
 	Glob    string // empty = applies everywhere
 	rawLine string
 }
 
-// Set is a parsed .agentguardignore.
+// Set is a parsed .audrignore.
 type Set struct {
 	rules []Rule
 }
 
-// LoadFile reads a .agentguardignore from disk. Returns an empty Set if the
+// LoadFile reads a .audrignore from disk. Returns an empty Set if the
 // file does not exist (suppression is opt-in).
 func LoadFile(path string) (*Set, error) {
 	f, err := os.Open(path)

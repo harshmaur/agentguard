@@ -12,7 +12,7 @@ import (
 func TestMatchInSumsFile(t *testing.T) {
 	dir := t.TempDir()
 
-	tarball := filepath.Join(dir, "agentguard-v0.2.4-linux-arm64.tar.gz")
+	tarball := filepath.Join(dir, "audr-v0.2.4-linux-arm64.tar.gz")
 	if err := os.WriteFile(tarball, []byte("hello world"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestMatchInSumsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	other := filepath.Join(dir, "agentguard-v0.2.4-linux-amd64.tar.gz")
+	other := filepath.Join(dir, "audr-v0.2.4-linux-amd64.tar.gz")
 	if err := os.WriteFile(other, []byte("different bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestMatchInSumsFile(t *testing.T) {
 		},
 		{
 			name: "right hash wrong filename",
-			sums: fmt.Sprintf("%s  agentguard-v0.2.4-darwin-arm64.tar.gz\n", sum),
+			sums: fmt.Sprintf("%s  audr-v0.2.4-darwin-arm64.tar.gz\n", sum),
 			hash: sum,
 			base: filepath.Base(tarball),
 			want: false,
@@ -97,8 +97,8 @@ func TestMatchInSumsFile(t *testing.T) {
 
 func TestVerify_HashOnlyHappyPath(t *testing.T) {
 	dir := t.TempDir()
-	tarball := filepath.Join(dir, "agentguard-vX.Y.Z-linux-arm64.tar.gz")
-	body := []byte("agentguard release artifact bytes")
+	tarball := filepath.Join(dir, "audr-vX.Y.Z-linux-arm64.tar.gz")
+	body := []byte("audr release artifact bytes")
 	if err := os.WriteFile(tarball, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestVerify_HashOnlyHappyPath(t *testing.T) {
 
 func TestVerify_TamperedTarballFails(t *testing.T) {
 	dir := t.TempDir()
-	tarball := filepath.Join(dir, "agentguard.tar.gz")
+	tarball := filepath.Join(dir, "audr.tar.gz")
 	if err := os.WriteFile(tarball, []byte("genuine body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestVerify_TamperedTarballFails(t *testing.T) {
 
 func TestVerify_MissingSumsFileIsHardError(t *testing.T) {
 	dir := t.TempDir()
-	tarball := filepath.Join(dir, "agentguard.tar.gz")
+	tarball := filepath.Join(dir, "audr.tar.gz")
 	if err := os.WriteFile(tarball, []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}

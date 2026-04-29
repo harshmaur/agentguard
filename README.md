@@ -1,4 +1,4 @@
-# AgentGuard
+# Audr
 
 **Static-analysis scanner for AI-agent configurations.**
 
@@ -20,14 +20,14 @@ Attack chains (5):
   - [HIGH]     Third-party plugin ships an unauthenticated MCP server
   - [HIGH]     Same credential `CONTEXT7_API_KEY` reused across 2 harnesses
 
-Report: /tmp/agentguard-scan.html
+Report: /tmp/audr-scan.html
 ```
 
 The HTML report renders as a forensic document — file by file, severity by
 severity, with a per-finding "what an attacker gets" callout. Hand it to a
 security reviewer and they read it like a court exhibit, not a scanner dump.
 
-![AgentGuard scan report](docs/img/report-preview.png)
+![Audr scan report](docs/img/report-preview.png)
 
 > Stdout summary above is from a real `$HOME` scan. Screenshot is the
 > corresponding HTML report from `testdata/laptops/dirty`. Live sample:
@@ -49,7 +49,7 @@ couple of skills last week. Some of those configs let an attacker:
 - exfiltrate a production credential through a CI step that hands
   `secrets.DEPLOY_TOKEN` to an autonomous agent.
 
-AgentGuard finds these in 1 second per dev box, or in CI on every PR. It
+Audr finds these in 1 second per dev box, or in CI on every PR. It
 reads the same config files Claude / Cursor / Codex / Windsurf actually load
 (`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
 `.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), runs 20 rules
@@ -66,21 +66,21 @@ the agent's own config.
 
 ```sh
 # macOS + Linux:
-curl -fsSL https://raw.githubusercontent.com/harshmaur/agentguard/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/harshmaur/audr/main/install.sh | sh
 ```
 
 The script downloads the latest signed release tarball from GitHub Releases,
 verifies the SHA-256 against the published `SHA256SUMS`, verifies the cosign
 signature against the sigstore transparency log if `cosign` is on PATH, then
-installs the binary to `~/.local/bin/agentguard`.
+installs the binary to `~/.local/bin/audr`.
 
 **Build from source:**
 
 ```sh
-git clone https://github.com/harshmaur/agentguard
-cd agentguard
-go build -o agentguard ./cmd/agentguard
-./agentguard version
+git clone https://github.com/harshmaur/audr
+cd audr
+go build -o audr ./cmd/audr
+./audr version
 ```
 
 ---
@@ -90,34 +90,34 @@ go build -o agentguard ./cmd/agentguard
 ```sh
 # Scan your machine ($HOME). Writes HTML to /tmp/, opens in your browser,
 # prints a forensic summary on stdout.
-agentguard scan
+audr scan
 
 # Scan a specific tree.
-agentguard scan ~/code/my-repo
+audr scan ~/code/my-repo
 
 # Output formats.
-agentguard scan -f sarif -o scan.sarif    # GitHub Code Scanning compatible
-agentguard scan -f html  -o scan.html     # forensic-document HTML report
-agentguard scan -f json  -o -  | jq       # pipe JSON to stdout
+audr scan -f sarif -o scan.sarif    # GitHub Code Scanning compatible
+audr scan -f html  -o scan.html     # forensic-document HTML report
+audr scan -f json  -o -  | jq       # pipe JSON to stdout
 
 # Suppress findings (per-rule or per-path globs).
-echo 'mcp-unpinned-npx **/old-mcp.json' > .agentguardignore
-agentguard scan
+echo 'mcp-unpinned-npx **/old-mcp.json' > .audrignore
+audr scan
 ```
 
 Exit code is `1` if any high or critical finding fires, else `0`. CI usage:
 
 ```yaml
-- run: agentguard scan -f sarif -o agentguard.sarif .
+- run: audr scan -f sarif -o audr.sarif .
 - uses: github/codeql-action/upload-sarif@v3
-  with: { sarif_file: agentguard.sarif }
+  with: { sarif_file: audr.sarif }
 ```
 
 ---
 
 ## Attack Chains
 
-After the per-rule pass, AgentGuard runs a correlation pass that fires
+After the per-rule pass, Audr runs a correlation pass that fires
 when specific findings co-occur. Each chain combines findings into an
 end-to-end attacker walkthrough — what they touch, in what order, and what
 they walk away with:
@@ -194,13 +194,13 @@ Always-skipped directories (defensive default): `node_modules`, `vendor`,
 - `shellrc-secret-export` — High — exported credential matching a known token shape
 
 **Total: 20 rules, 4 format families, 5 attack chains.** Every finding
-carries a `taxonomy` label, so you know exactly what AgentGuard can and
+carries a `taxonomy` label, so you know exactly what Audr can and
 cannot do for you:
 
-- **enforced** — a failed scan can fail CI or block a commit. AgentGuard
+- **enforced** — a failed scan can fail CI or block a commit. Audr
   prevents the violation from reaching production.
 - **detectable** — reliably found, but a workflow (review / alert /
-  education) has to act on it. AgentGuard tells you; it does not stop you.
+  education) has to act on it. Audr tells you; it does not stop you.
 - **advisory** — cannot be reliably detected from config alone. Documented
   as best practice so it is not silently missing.
 
@@ -230,12 +230,12 @@ on a fresh machine to get most of the benefit:
 ```sh
 # Verify a downloaded release tarball against SHA256SUMS (and against the
 # sigstore transparency log if cosign is on PATH).
-agentguard verify agentguard-v0.2.4-linux-arm64.tar.gz
+audr verify audr-v0.2.4-linux-arm64.tar.gz
 
 # Print the SHA-256 of the running binary, plus every rule and chain it
 # will fire. Diff this between two installs to confirm they are identical.
-agentguard self-audit
-agentguard self-audit --json | jq .binary.sha256
+audr self-audit
+audr self-audit --json | jq .binary.sha256
 ```
 
 ### Manual verify (CISO security-team workflow)
@@ -243,11 +243,11 @@ agentguard self-audit --json | jq .binary.sha256
 ```sh
 VERSION=v0.2.4
 ARCH=darwin-arm64   # or linux-amd64, linux-arm64, darwin-amd64
-BASE="https://github.com/harshmaur/agentguard/releases/download/${VERSION}"
+BASE="https://github.com/harshmaur/audr/releases/download/${VERSION}"
 
-curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz"
-curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz.sig"
-curl -fsSL -O "${BASE}/agentguard-${VERSION}-${ARCH}.tar.gz.crt"
+curl -fsSL -O "${BASE}/audr-${VERSION}-${ARCH}.tar.gz"
+curl -fsSL -O "${BASE}/audr-${VERSION}-${ARCH}.tar.gz.sig"
+curl -fsSL -O "${BASE}/audr-${VERSION}-${ARCH}.tar.gz.crt"
 curl -fsSL -O "${BASE}/SHA256SUMS"
 
 # 1) SHA-256 matches the published sums file
@@ -255,23 +255,23 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 
 # 2) cosign verifies against sigstore transparency log
 cosign verify-blob \
-  --certificate "agentguard-${VERSION}-${ARCH}.tar.gz.crt" \
-  --signature   "agentguard-${VERSION}-${ARCH}.tar.gz.sig" \
-  --certificate-identity-regexp 'https://github.com/harshmaur/agentguard/.+' \
+  --certificate "audr-${VERSION}-${ARCH}.tar.gz.crt" \
+  --signature   "audr-${VERSION}-${ARCH}.tar.gz.sig" \
+  --certificate-identity-regexp 'https://github.com/harshmaur/audr/.+' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  "agentguard-${VERSION}-${ARCH}.tar.gz"
+  "audr-${VERSION}-${ARCH}.tar.gz"
 
 # 3) SLSA L2 build provenance (v0.2.4+)
-gh attestation verify "agentguard-${VERSION}-${ARCH}.tar.gz" \
-  --repo harshmaur/agentguard
+gh attestation verify "audr-${VERSION}-${ARCH}.tar.gz" \
+  --repo harshmaur/audr
 
 # 4) (belt-and-suspenders) build from source and compare hashes
-git clone --depth 1 --branch "${VERSION}" https://github.com/harshmaur/agentguard
-cd agentguard
+git clone --depth 1 --branch "${VERSION}" https://github.com/harshmaur/audr
+cd audr
 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags="-s -w -X main.Version=${VERSION}" \
-  -o agentguard ./cmd/agentguard
-shasum -a 256 agentguard
+  -o audr ./cmd/audr
+shasum -a 256 audr
 ```
 
 ---
@@ -289,7 +289,7 @@ testdata/**
 gha-write-all-permissions .github/workflows/release.yml
 ```
 
-Inline `# agentguard:disable=rule-id` is on the v0.3 list.
+Inline `# audr:disable=rule-id` is on the v0.3 list.
 
 ---
 
@@ -300,7 +300,7 @@ Inline `# agentguard:disable=rule-id` is on the v0.3 list.
   report, signed binary + cosign + SBOM + SLSA L2.
 - **v0.3 (next):** more harness detectors (Cline / Continue / Roo / Kilo /
   Aider / OpenClaw / Hermes / Goose), tool-description prompt-injection
-  rules, inline `# agentguard:disable=` suppression syntax, Windows support.
+  rules, inline `# audr:disable=` suppression syntax, Windows support.
 
 ---
 
@@ -319,11 +319,11 @@ Same model used by Sentry, Convex, GitButler, Keygen.
 ## Contributing
 
 ```sh
-go build -o agentguard ./cmd/agentguard
+go build -o audr ./cmd/audr
 go test -race -count=1 ./...
 
 # Run against the dirty fixture
-./agentguard scan -f html -o /tmp/r.html testdata/laptops/dirty
+./audr scan -f html -o /tmp/r.html testdata/laptops/dirty
 ```
 
 A new rule = a struct in `internal/rules/builtin/{format-family}.go`

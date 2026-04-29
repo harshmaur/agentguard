@@ -1,5 +1,5 @@
 // Package parse contains format-specific parsers for the file types
-// AgentGuard scans. Each parser fills in the relevant typed field on a
+// Audr scans. Each parser fills in the relevant typed field on a
 // Document; rules iterate over Documents and emit findings.
 package parse
 
@@ -243,7 +243,7 @@ type CodexMCPServer struct {
 }
 
 // DetectFormat picks a Format based on the file path. Returns FormatUnknown
-// for files that aren't AgentGuard-relevant.
+// for files that aren't Audr-relevant.
 func DetectFormat(path string) Format {
 	base := filepath.Base(path)
 	dir := filepath.Dir(path)

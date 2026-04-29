@@ -1,6 +1,6 @@
-# build output (root-anchored so cmd/agentguard/ is not ignored)
-/agentguard
-/agentguard-*
+# build output (root-anchored so cmd/audr/ is not ignored)
+/audr
+/audr-*
 /dist/
 /*.tar.gz
 

@@ -48,7 +48,7 @@ func TestString_PreservesNonSecrets(t *testing.T) {
 		"this is a normal message",
 		"GET /api/users HTTP/1.1",
 		"package main",
-		"agentguard scan --jobs 4",
+		"audr scan --jobs 4",
 		"version: 1.0.0",
 	}
 	for _, c := range cases {

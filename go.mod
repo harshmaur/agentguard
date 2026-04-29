@@ -1,4 +1,4 @@
-module github.com/harshmaur/agentguard
+module github.com/harshmaur/audr
 
 go 1.22.5
 

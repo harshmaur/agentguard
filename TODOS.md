@@ -1,4 +1,4 @@
-# AgentGuard TODOS
+# Audr TODOS
 
 Captured during /plan-eng-review on 2026-04-27. Items are deferred from v1 with explicit rationale, not silently dropped.
 
@@ -41,6 +41,6 @@ Captured during /plan-eng-review on 2026-04-27. Items are deferred from v1 with 
 - Slight risk of users thinking telemetry is active when it's no-op (mitigate via clear `--help` text: "Opt-in for v2 telemetry; v1 sends nothing")
 - Adds one config field that does nothing in v1
 
-**Context:** AgentGuard is a security tool. Telemetry needs an *unusually* careful privacy review — the events it would emit (which MCP servers, which configs, which rules fire) themselves leak information about the customer's environment. Phase 3 design must default to aggregate-only metrics (rule-fire counts) and explicitly avoid any payload that could identify a specific customer's MCP server, secret pattern, or internal repo.
+**Context:** Audr is a security tool. Telemetry needs an *unusually* careful privacy review — the events it would emit (which MCP servers, which configs, which rules fire) themselves leak information about the customer's environment. Phase 3 design must default to aggregate-only metrics (rule-fire counts) and explicitly avoid any payload that could identify a specific customer's MCP server, secret pattern, or internal repo.
 
 **Depends on / blocked by:** Phase 3 SaaS layer. Privacy review must happen before any byte is sent.

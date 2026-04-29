@@ -29,20 +29,20 @@ jobs:
         run: go test -race -count=1 ./...
 
       - name: build
-        run: go build -v ./cmd/agentguard
+        run: go build -v ./cmd/audr
 
       - name: smoke scan (dirty fixture — exit 1 expected with findings)
         run: |
-          ./agentguard version
+          ./audr version
           # Dirty fixture has critical/high findings, so the scanner exits 1.
           # That IS the behavior we want for CI integration. Capture the
           # non-zero exit, then assert on the report content.
           set +e
-          ./agentguard scan -f sarif testdata/laptops/dirty > /tmp/scan.sarif
+          ./audr scan -f sarif testdata/laptops/dirty > /tmp/scan.sarif
           dirty_exit_sarif=$?
-          ./agentguard scan -f json testdata/laptops/dirty > /tmp/scan.json
+          ./audr scan -f json testdata/laptops/dirty > /tmp/scan.json
           dirty_exit_json=$?
-          ./agentguard scan -f html -o /tmp/scan.html testdata/laptops/dirty
+          ./audr scan -f html -o /tmp/scan.html testdata/laptops/dirty
           dirty_exit_html=$?
           set -e
           # Each scan must exit 1 (findings present).
@@ -55,25 +55,47 @@ jobs:
 
       - name: clean fixture must have zero findings (exit 0)
         run: |
-          ./agentguard scan -f json testdata/laptops/clean > /tmp/clean.json
+          ./audr scan -f json testdata/laptops/clean > /tmp/clean.json
           test "$(jq '.stats.total' /tmp/clean.json)" -eq 0
 
       - name: self-scan — repo source must have zero findings
-        # Dogfood gate. Scans the repo with .agentguardignore (which
+        # Dogfood gate. Scans the repo with .audrignore (which
         # excludes testdata/ — intentional fixtures). Anything that fires
         # here is a real credential or risky config landed in source.
         # See AGENTS.md for the placeholder convention test fixtures use.
         run: |
-          ./agentguard scan -f json -o /tmp/self-scan.json .
+          ./audr scan -f json -o /tmp/self-scan.json .
           findings=$(jq '.stats.total' /tmp/self-scan.json)
           if [ "$findings" -ne 0 ]; then
-            echo "::error::agentguard self-scan found $findings issues in source — see /tmp/self-scan.json"
+            echo "::error::audr self-scan found $findings issues in source — see /tmp/self-scan.json"
             jq '.findings[] | "\(.severity) \(.rule_id) \(.path):\(.line)"' /tmp/self-scan.json
             exit 1
           fi
 
       - name: sarif must validate as JSON
         run: jq . /tmp/scan.sarif > /dev/null
+
+      - name: docs/sample-report.html must be in sync with the template + fixture
+        # Regenerate the sample report from the current template + dirty
+        # fixture. Diff against the committed copy after stripping the
+        # non-deterministic "Started" timestamp line. PR fails if the
+        # committed sample is structurally stale — guards against template
+        # or fixture changes that forget to regenerate the doc artifact.
+        run: |
+          ./audr scan -f html -o /tmp/sample-report.fresh.html testdata/laptops/dirty || true
+          # Strip the "Started" timestamp line — it's the only intentional
+          # source of run-to-run non-determinism in the report.
+          strip_started='s|<span class="v">[0-9-]\+ [0-9:]\+ [A-Z]\+</span>|<span class="v">[normalized]</span>|g'
+          if ! diff -q \
+              <(sed -e "$strip_started" /tmp/sample-report.fresh.html) \
+              <(sed -e "$strip_started" docs/sample-report.html) > /dev/null; then
+            echo "::error::docs/sample-report.html is structurally stale. Regenerate with:"
+            echo "  ./audr scan -f html -o docs/sample-report.html testdata/laptops/dirty"
+            diff \
+              <(sed -e "$strip_started" /tmp/sample-report.fresh.html) \
+              <(sed -e "$strip_started" docs/sample-report.html) | head -40 || true
+            exit 1
+          fi
 
   fuzz:
     runs-on: ubuntu-latest
