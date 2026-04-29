@@ -55,6 +55,21 @@ func TestInstallSh_RepoConstant(t *testing.T) {
 	}
 }
 
+func TestInstallSh_BinaryPathExtractsFromArchiveDir(t *testing.T) {
+	// The release tarball wraps the binary in a versioned directory:
+	//   audr-vX.Y.Z-os-arch/audr
+	// install.sh must point at the binary file INSIDE that directory.
+	// Pointing at the directory itself causes `mv` to install a directory
+	// at $INSTALL_DIR/audr instead of an executable file (regression
+	// surfaced by the v0.3.0 smoke test).
+	const want = `binary="${tmp}/audr-${VERSION}-${os}-${arch}/audr"`
+
+	script := installScript(t)
+	if !strings.Contains(script, want) {
+		t.Fatalf("install.sh binary= must include /audr suffix to point at the file, not the dir\n  want: %s", want)
+	}
+}
+
 func TestInstallSh_NoLegacyReferences(t *testing.T) {
 	// Once renamed, no legacy "agentguard" references should leak back into
 	// install.sh — any commit that re-introduces the string fails CI.
