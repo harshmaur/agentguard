@@ -114,9 +114,12 @@ else
 fi
 
 # --- extract + install ---
+# The release tarball wraps the binary in a versioned directory:
+#   audr-vX.Y.Z-os-arch/audr
+# Point at the binary file inside that directory, not at the directory itself.
 mkdir -p "$INSTALL_DIR"
 tar -xzf "${tmp}/${artifact}" -C "$tmp"
-binary="${tmp}/audr-${VERSION}-${os}-${arch}"
+binary="${tmp}/audr-${VERSION}-${os}-${arch}/audr"
 chmod +x "$binary"
 mv "$binary" "${INSTALL_DIR}/audr"
 

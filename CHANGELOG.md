@@ -3,7 +3,14 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
-## [0.3.0] - unreleased
+## [0.3.1] - unreleased
+
+Hotfix for the v0.3.0 install path.
+
+### Fixed
+- **`install.sh` was installing a directory at `~/.local/bin/audr` instead of the binary.** The release tarball wraps the `audr` binary inside `audr-vX.Y.Z-os-arch/`; install.sh's `binary=` pointed at that directory rather than at the file inside, so `mv "$binary" "$INSTALL_DIR/audr"` moved the whole directory. Latent since v0.2.x — surfaced by the v0.3.0 release smoke test. Pinned by a new regression test in `internal/installscript/` that asserts the binary path includes the `/audr` suffix.
+
+## [0.3.0]
 
 First public release of Audr — a static-analysis scanner for AI-agent configurations.
 
