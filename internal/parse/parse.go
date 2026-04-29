@@ -55,6 +55,10 @@ func Parse(path string, raw []byte) *Document {
 		cp, err := parseCursorPermissions(raw)
 		doc.CursorPermissions = cp
 		doc.ParseError = err
+	case FormatPackageJSON:
+		pkg, err := parsePackageJSON(raw)
+		doc.PackageJSON = pkg
+		doc.ParseError = err
 	}
 	return doc
 }
@@ -91,7 +95,8 @@ var (
 // parseMCPConfig parses the `.mcp.json` / `.cursor/mcp.json` shape.
 //
 // Schema (loosely):
-//   { "mcpServers": { "name": { "command": "...", "args": [...], "env": {...}, "url": "...", "type": "..." } } }
+//
+//	{ "mcpServers": { "name": { "command": "...", "args": [...], "env": {...}, "url": "...", "type": "..." } } }
 func parseMCPConfig(raw []byte) (*MCPConfig, error) {
 	var top struct {
 		MCPServers map[string]struct {

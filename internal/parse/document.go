@@ -13,17 +13,18 @@ import (
 type Format string
 
 const (
-	FormatMCPConfig    Format = "mcp-config"     // .mcp.json, .cursor/mcp.json
-	FormatClaudeSettings Format = "claude-settings" // .claude/settings.json, settings.local.json
-	FormatSkill        Format = "skill"          // .claude/skills/**/*.md
-	FormatAgentDoc     Format = "agent-doc"      // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
-	FormatGHAWorkflow  Format = "gha-workflow"   // .github/workflows/*.yml
-	FormatShellRC      Format = "shellrc"        // .bashrc, .zshrc, .profile, etc.
-	FormatEnv          Format = "env"            // .env, .env.local, .env.example
-	FormatCodexConfig  Format = "codex-config"   // ~/.codex/config.toml, .codex/config.toml (v0.2)
-	FormatWindsurfMCP  Format = "windsurf-mcp"   // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
+	FormatMCPConfig         Format = "mcp-config"         // .mcp.json, .cursor/mcp.json
+	FormatClaudeSettings    Format = "claude-settings"    // .claude/settings.json, settings.local.json
+	FormatSkill             Format = "skill"              // .claude/skills/**/*.md
+	FormatAgentDoc          Format = "agent-doc"          // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
+	FormatGHAWorkflow       Format = "gha-workflow"       // .github/workflows/*.yml
+	FormatShellRC           Format = "shellrc"            // .bashrc, .zshrc, .profile, etc.
+	FormatEnv               Format = "env"                // .env, .env.local, .env.example
+	FormatCodexConfig       Format = "codex-config"       // ~/.codex/config.toml, .codex/config.toml (v0.2)
+	FormatWindsurfMCP       Format = "windsurf-mcp"       // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
 	FormatCursorPermissions Format = "cursor-permissions" // ~/.cursor/permissions.json (v0.2.0-alpha.4)
-	FormatUnknown      Format = ""
+	FormatPackageJSON       Format = "package-json"       // package.json manifests for agent packages
+	FormatUnknown           Format = ""
 )
 
 // Document is the generic container produced by parsers and consumed by rules.
@@ -33,16 +34,17 @@ type Document struct {
 	Raw    []byte // full file contents (subject to size cap)
 
 	// Parsed forms. Exactly one is non-nil based on Format.
-	MCPConfig      *MCPConfig
-	ClaudeSettings *ClaudeSettings
-	Skill          *Skill
-	AgentDoc       *AgentDoc
-	Workflow       *Workflow
-	ShellRC        *ShellRC
-	Env            *EnvFile
-	CodexConfig    *CodexConfig // v0.2
-	WindsurfMCP    *WindsurfMCP // v0.2.0-alpha.3
+	MCPConfig         *MCPConfig
+	ClaudeSettings    *ClaudeSettings
+	Skill             *Skill
+	AgentDoc          *AgentDoc
+	Workflow          *Workflow
+	ShellRC           *ShellRC
+	Env               *EnvFile
+	CodexConfig       *CodexConfig       // v0.2
+	WindsurfMCP       *WindsurfMCP       // v0.2.0-alpha.3
 	CursorPermissions *CursorPermissions // v0.2.0-alpha.4
+	PackageJSON       *PackageJSON
 
 	// ParseError is set if parsing failed; rules treat this as an advisory
 	// finding, the scan continues.
@@ -132,7 +134,7 @@ type ShellRC struct {
 
 // EnvFile is a parsed .env-style file.
 type EnvFile struct {
-	Vars map[string]string
+	Vars  map[string]string
 	Lines map[string]int // line per key
 }
 
@@ -166,11 +168,12 @@ type CodexConfig struct {
 // WindsurfMCP is the parsed form of ~/.codeium/windsurf/mcp_config.json.
 //
 // Shape:
-//   { "mcpServers": {
-//       "<name>": { "type": "http"|"stdio", "url": "...", "command": "...",
-//                   "args": [...], "env": {...}, "headers": {...},
-//                   "alwaysAllow": [...], "disabled": bool }
-//   } }
+//
+//	{ "mcpServers": {
+//	    "<name>": { "type": "http"|"stdio", "url": "...", "command": "...",
+//	                "args": [...], "env": {...}, "headers": {...},
+//	                "alwaysAllow": [...], "disabled": bool }
+//	} }
 type WindsurfMCP struct {
 	Servers []WindsurfMCPServer
 }
@@ -178,9 +181,9 @@ type WindsurfMCP struct {
 // WindsurfMCPServer is a single MCP server entry in a Windsurf config.
 type WindsurfMCPServer struct {
 	Name        string
-	Type        string            // "http" | "stdio" | "sse"
-	URL         string            // for HTTP transports
-	Command     string            // for stdio transports
+	Type        string // "http" | "stdio" | "sse"
+	URL         string // for HTTP transports
+	Command     string // for stdio transports
 	Args        []string
 	Env         map[string]string
 	Headers     map[string]string // remote auth headers — Windsurf's analog of Codex's http_headers
@@ -197,8 +200,8 @@ type WindsurfMCPServer struct {
 // so rules walk this slice instead of three different typed fields.
 type NormalizedMCPServer struct {
 	Name        string
-	Source      Format            // which format produced this server
-	Command     string            // stdio command
+	Source      Format // which format produced this server
+	Command     string // stdio command
 	Args        []string
 	Env         map[string]string // process env
 	URL         string            // remote transport URL
@@ -211,10 +214,11 @@ type NormalizedMCPServer struct {
 // CursorPermissions is the parsed form of ~/.cursor/permissions.json.
 //
 // Schema (per Cursor docs):
-//   {
-//     "mcpAllowlist":      ["github:*", "linear:list_issues", "*:my_tool"],
-//     "terminalAllowlist": ["git", "npm:install*", "cargo build"]
-//   }
+//
+//	{
+//	  "mcpAllowlist":      ["github:*", "linear:list_issues", "*:my_tool"],
+//	  "terminalAllowlist": ["git", "npm:install*", "cargo build"]
+//	}
 //
 // Both fields are optional; either can be omitted (or empty array).
 // Cursor docs explicitly state these are "best-effort convenience, not
@@ -227,6 +231,16 @@ type CursorPermissions struct {
 	// no auto-run. When the file is missing, IDE settings apply.
 	HasMCPAllowlist      bool // true if the key was present (vs missing)
 	HasTerminalAllowlist bool
+}
+
+// PackageJSON is the subset of package.json needed by version-posture rules.
+type PackageJSON struct {
+	Name                 string
+	Version              string
+	Dependencies         map[string]string
+	DevDependencies      map[string]string
+	OptionalDependencies map[string]string
+	PeerDependencies     map[string]string
 }
 
 // CodexMCPServer is a single [mcp_servers.<name>] entry from config.toml.
@@ -308,6 +322,10 @@ func DetectFormat(path string) Format {
 	// Env files.
 	if strings.HasPrefix(base, ".env") {
 		return FormatEnv
+	}
+
+	if base == "package.json" {
+		return FormatPackageJSON
 	}
 
 	return FormatUnknown

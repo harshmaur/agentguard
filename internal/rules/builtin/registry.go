@@ -60,5 +60,8 @@ func builtins() []rules.Rule {
 
 		// Shell rc rules.
 		shellrcSecretExport{},
+
+		// package.json version posture rules.
+		openclawUnboundBootstrapSetupCode{},
 	}
 }
