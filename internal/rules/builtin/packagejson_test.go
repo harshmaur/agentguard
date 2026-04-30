@@ -32,3 +32,30 @@ func TestOpenClawUnboundBootstrapSetupCode_AllowsFixedVersion(t *testing.T) {
 		t.Fatalf("got %d findings, want 0", len(findings))
 	}
 }
+
+func TestOpenClawConfigPatchConsentBypass_FlagsVulnerablePackage(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.3.27"}`))
+	findings := (openclawConfigPatchConsentBypass{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	if findings[0].RuleID != "openclaw-config-patch-consent-bypass" {
+		t.Fatalf("rule id = %q", findings[0].RuleID)
+	}
+}
+
+func TestOpenClawConfigPatchConsentBypass_FlagsVulnerableDependency(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"devDependencies":{"openclaw":"~2026.3.24"}}`))
+	findings := (openclawConfigPatchConsentBypass{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+}
+
+func TestOpenClawConfigPatchConsentBypass_AllowsFixedVersion(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.3.28","dependencies":{"openclaw":"2026.4.1"}}`))
+	findings := (openclawConfigPatchConsentBypass{}).Apply(doc)
+	if len(findings) != 0 {
+		t.Fatalf("got %d findings, want 0", len(findings))
+	}
+}

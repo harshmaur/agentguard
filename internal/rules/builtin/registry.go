@@ -63,5 +63,6 @@ func builtins() []rules.Rule {
 
 		// package.json version posture rules.
 		openclawUnboundBootstrapSetupCode{},
+		openclawConfigPatchConsentBypass{},
 	}
 }
