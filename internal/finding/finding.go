@@ -61,8 +61,8 @@ type Finding struct {
 	Description  string   `json:"description"`
 	Path         string   `json:"path,omitempty"`
 	Line         int      `json:"line,omitempty"`
-	Match        string   `json:"match,omitempty"`        // already redacted
-	Context      string   `json:"context,omitempty"`      // already redacted
+	Match        string   `json:"match,omitempty"`   // already redacted
+	Context      string   `json:"context,omitempty"` // already redacted
 	SuggestedFix string   `json:"suggested_fix,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
 }
@@ -116,8 +116,37 @@ func (f Finding) Location() string {
 	return f.Path
 }
 
-// SortKey provides a stable ordering for output: severity desc, then path,
-// then line. Used by the collector before formatters serialize.
+// Less provides a total, stable ordering for output. Severity sorts from most
+// severe to least severe (SeverityCritical=0), followed by location and then
+// finding content so duplicate findings on the same line cannot inherit
+// nondeterministic rule/map iteration order.
+func Less(a, b Finding) bool {
+	if a.Severity != b.Severity {
+		return a.Severity < b.Severity
+	}
+	if a.Path != b.Path {
+		return a.Path < b.Path
+	}
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+	if a.RuleID != b.RuleID {
+		return a.RuleID < b.RuleID
+	}
+	if a.Title != b.Title {
+		return a.Title < b.Title
+	}
+	if a.Description != b.Description {
+		return a.Description < b.Description
+	}
+	if a.Match != b.Match {
+		return a.Match < b.Match
+	}
+	return a.Context < b.Context
+}
+
+// SortKey provides the primary ordering components for callers that need to
+// display or group findings. Use Less when a total ordering is required.
 func (f Finding) SortKey() (int, string, int) {
 	return int(f.Severity), f.Path, f.Line
 }

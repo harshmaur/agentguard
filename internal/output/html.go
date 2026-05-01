@@ -11,8 +11,8 @@
 package output
 
 import (
-	"encoding/base64"
 	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io"
@@ -182,12 +182,12 @@ func HTML(w io.Writer, r Report) error {
 		"slug": func(s string) string {
 			return strings.Trim(strings.ToLower(slugStripRE.ReplaceAllString(s, "-")), "-")
 		},
-		"join":            strings.Join,
-		"duration":        func(start, end time.Time) string { return end.Sub(start).Round(time.Millisecond).String() },
-		"verdict":         func(r Report) Verdict { return r.Verdict() },
-		"narrativeLede":   func(s string) template.HTML { l, _ := narrativeParts(s); return l },
-		"narrativeRest":   func(s string) template.HTML { _, r := narrativeParts(s); return r },
-		"md":              func(s string) template.HTML { return template.HTML(mdInline(s)) },
+		"join":          strings.Join,
+		"duration":      func(start, end time.Time) string { return end.Sub(start).Round(time.Millisecond).String() },
+		"verdict":       func(r Report) Verdict { return r.Verdict() },
+		"narrativeLede": func(s string) template.HTML { l, _ := narrativeParts(s); return l },
+		"narrativeRest": func(s string) template.HTML { _, r := narrativeParts(s); return r },
+		"md":            func(s string) template.HTML { return template.HTML(mdInline(s)) },
 		"fontURI": func(name string) template.URL {
 			switch name {
 			case "instrument_serif":
@@ -222,13 +222,7 @@ func HTML(w io.Writer, r Report) error {
 			groups := make([]PathGroup, 0, len(byPath))
 			for _, g := range byPath {
 				sort.SliceStable(g.Findings, func(i, j int) bool {
-					if g.Findings[i].Severity != g.Findings[j].Severity {
-						return g.Findings[i].Severity < g.Findings[j].Severity
-					}
-					if g.Findings[i].Line != g.Findings[j].Line {
-						return g.Findings[i].Line < g.Findings[j].Line
-					}
-					return g.Findings[i].RuleID < g.Findings[j].RuleID
+					return finding.Less(g.Findings[i], g.Findings[j])
 				})
 				groups = append(groups, *g)
 			}

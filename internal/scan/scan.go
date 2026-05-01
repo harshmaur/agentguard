@@ -69,18 +69,18 @@ type Options struct {
 
 // Result is what a scan produces.
 type Result struct {
-	Findings   []finding.Finding
+	Findings []finding.Finding
 	// Documents retained for cross-finding correlation (Attack Chains).
 	// Only documents whose Format is in the correlate-relevant set are
 	// kept here; skill files and agent-doc markdown are dropped to bound
 	// memory. Raw bytes are nil'd before retention.
-	Documents  []*parse.Document
-	StartedAt  time.Time
-	FinishedAt time.Time
-	FilesSeen  int
+	Documents   []*parse.Document
+	StartedAt   time.Time
+	FinishedAt  time.Time
+	FilesSeen   int
 	FilesParsed int
-	Suppressed int
-	Skipped    int
+	Suppressed  int
+	Skipped     int
 }
 
 // correlateRelevantFormats are the formats whose parsed Documents we retain
@@ -185,16 +185,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	res.FinishedAt = time.Now()
 
-	// Stable sort: severity desc, then path asc, then line asc.
+	// Stable sort findings before formatters serialize. Use a total ordering so
+	// same-rule findings on the same line do not inherit nondeterministic map or
+	// goroutine collection order.
 	sort.SliceStable(res.Findings, func(i, j int) bool {
-		ai, aj := res.Findings[i], res.Findings[j]
-		if ai.Severity != aj.Severity {
-			return ai.Severity < aj.Severity // SeverityCritical=0 sorts first
-		}
-		if ai.Path != aj.Path {
-			return ai.Path < aj.Path
-		}
-		return ai.Line < aj.Line
+		return finding.Less(res.Findings[i], res.Findings[j])
 	})
 
 	if errors.Is(scanCtx.Err(), context.DeadlineExceeded) {
