@@ -65,5 +65,6 @@ func builtins() []rules.Rule {
 		openclawUnboundBootstrapSetupCode{},
 		openclawConfigPatchConsentBypass{},
 		openclawNodePairApproveScopeBypass{},
+		openclawPluginAuthOperatorWriteBypass{},
 	}
 }
