@@ -78,22 +78,27 @@ jobs:
       - name: docs/sample-report.html must be in sync with the template + fixture
         # Regenerate the sample report from the current template + dirty
         # fixture. Diff against the committed copy after stripping the
-        # non-deterministic "Started" timestamp line. PR fails if the
+        # non-deterministic timestamp and duration values. PR fails if the
         # committed sample is structurally stale — guards against template
         # or fixture changes that forget to regenerate the doc artifact.
         run: |
           ./audr scan -f html -o /tmp/sample-report.fresh.html testdata/laptops/dirty || true
-          # Strip the "Started" timestamp line — it's the only intentional
-          # source of run-to-run non-determinism in the report.
-          strip_started='s|<span class="v">[0-9-]\+ [0-9:]\+ [A-Z]\+</span>|<span class="v">[normalized]</span>|g'
+          # Strip runtime-only values. The started timestamp and scan duration
+          # legitimately vary across developer machines and GitHub runners.
+          normalize_report() {
+            sed -E \
+              -e 's@<span class="v">[0-9-]+ [0-9:]+ [A-Z]+</span>@<span class="v">[normalized]</span>@g' \
+              -e 's@<span class="v">[0-9]+(ms|µs|ns|s)</span>@<span class="v">[duration]</span>@g' \
+              "$1"
+          }
           if ! diff -q \
-              <(sed -e "$strip_started" /tmp/sample-report.fresh.html) \
-              <(sed -e "$strip_started" docs/sample-report.html) > /dev/null; then
+              <(normalize_report /tmp/sample-report.fresh.html) \
+              <(normalize_report docs/sample-report.html) > /dev/null; then
             echo "::error::docs/sample-report.html is structurally stale. Regenerate with:"
             echo "  ./audr scan -f html -o docs/sample-report.html testdata/laptops/dirty"
             diff \
-              <(sed -e "$strip_started" /tmp/sample-report.fresh.html) \
-              <(sed -e "$strip_started" docs/sample-report.html) | head -40 || true
+              <(normalize_report /tmp/sample-report.fresh.html) \
+              <(normalize_report docs/sample-report.html) | head -40 || true
             exit 1
           fi
 
