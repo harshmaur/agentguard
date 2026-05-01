@@ -60,6 +60,33 @@ func TestOpenClawConfigPatchConsentBypass_AllowsFixedVersion(t *testing.T) {
 	}
 }
 
+func TestOpenClawWebsocketUpgradeExhaustion_FlagsVulnerablePackage(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.3.27"}`))
+	findings := (openclawWebsocketUpgradeExhaustion{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	if findings[0].RuleID != "openclaw-websocket-upgrade-exhaustion" {
+		t.Fatalf("rule id = %q", findings[0].RuleID)
+	}
+}
+
+func TestOpenClawWebsocketUpgradeExhaustion_FlagsVulnerableDependency(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"dependencies":{"openclaw":"^2026.3.24"}}`))
+	findings := (openclawWebsocketUpgradeExhaustion{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+}
+
+func TestOpenClawWebsocketUpgradeExhaustion_AllowsFixedVersion(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.3.28","dependencies":{"openclaw":"2026.4.1"}}`))
+	findings := (openclawWebsocketUpgradeExhaustion{}).Apply(doc)
+	if len(findings) != 0 {
+		t.Fatalf("got %d findings, want 0", len(findings))
+	}
+}
+
 func TestOpenClawNodePairApproveScopeBypass_FlagsVulnerablePackage(t *testing.T) {
 	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.4.7"}`))
 	findings := (openclawNodePairApproveScopeBypass{}).Apply(doc)

@@ -12,6 +12,7 @@ import (
 
 type openclawUnboundBootstrapSetupCode struct{}
 type openclawConfigPatchConsentBypass struct{}
+type openclawWebsocketUpgradeExhaustion struct{}
 type openclawNodePairApproveScopeBypass struct{}
 type openclawPluginAuthOperatorWriteBypass struct{}
 
@@ -48,6 +49,16 @@ func (openclawConfigPatchConsentBypass) Title() string {
 func (openclawConfigPatchConsentBypass) Severity() finding.Severity { return finding.SeverityHigh }
 func (openclawConfigPatchConsentBypass) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
 func (openclawConfigPatchConsentBypass) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
+func (openclawWebsocketUpgradeExhaustion) ID() string { return "openclaw-websocket-upgrade-exhaustion" }
+func (openclawWebsocketUpgradeExhaustion) Title() string {
+	return "OpenClaw version is vulnerable to unauthenticated WebSocket upgrade exhaustion"
+}
+func (openclawWebsocketUpgradeExhaustion) Severity() finding.Severity { return finding.SeverityHigh }
+func (openclawWebsocketUpgradeExhaustion) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
+func (openclawWebsocketUpgradeExhaustion) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
@@ -90,6 +101,22 @@ func (openclawConfigPatchConsentBypass) Apply(doc *parse.Document) []finding.Fin
 	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
 		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawConfigPatchVersion(v) {
 			return []finding.Finding{openclawConfigPatchFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
+func (openclawWebsocketUpgradeExhaustion) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawWebsocketUpgradeVersion(pkg.Version) {
+		return []finding.Finding{openclawWebsocketUpgradeFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawWebsocketUpgradeVersion(v) {
+			return []finding.Finding{openclawWebsocketUpgradeFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
 		}
 	}
 	return nil
@@ -155,6 +182,20 @@ func openclawConfigPatchFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawWebsocketUpgradeFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-websocket-upgrade-exhaustion",
+		Severity:     finding.SeverityHigh,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.3.28 has unbounded unauthenticated WebSocket upgrades",
+		Description:  "CVE-2026-41399: OpenClaw before 2026.3.28 accepts unbounded concurrent unauthenticated WebSocket upgrades without pre-authentication budget allocation, letting unauthenticated clients exhaust socket and worker capacity.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.3.28 or later and review WebSocket exposure on affected hosts.",
+		Tags:         []string{"cve", "openclaw", "package-json", "resource-exhaustion"},
+	})
+}
+
 func openclawNodePairApproveFinding(path, match string) finding.Finding {
 	return finding.New(finding.Args{
 		RuleID:       "openclaw-node-pair-approve-scope-bypass",
@@ -190,6 +231,10 @@ func vulnerableOpenClawVersion(raw string) bool {
 }
 
 func vulnerableOpenClawConfigPatchVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 28})
+}
+
+func vulnerableOpenClawWebsocketUpgradeVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 28})
 }
 
