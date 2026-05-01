@@ -11,8 +11,8 @@ import (
 )
 
 type openclawUnboundBootstrapSetupCode struct{}
-
 type openclawConfigPatchConsentBypass struct{}
+type openclawNodePairApproveScopeBypass struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -50,6 +50,18 @@ func (openclawConfigPatchConsentBypass) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
+func (openclawNodePairApproveScopeBypass) ID() string {
+	return "openclaw-node-pair-approve-scope-bypass"
+}
+func (openclawNodePairApproveScopeBypass) Title() string {
+	return "OpenClaw version is vulnerable to node pairing approval scope bypass"
+}
+func (openclawNodePairApproveScopeBypass) Severity() finding.Severity { return finding.SeverityHigh }
+func (openclawNodePairApproveScopeBypass) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
+func (openclawNodePairApproveScopeBypass) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
 func (openclawConfigPatchConsentBypass) Apply(doc *parse.Document) []finding.Finding {
 	if doc.PackageJSON == nil {
 		return nil
@@ -61,6 +73,22 @@ func (openclawConfigPatchConsentBypass) Apply(doc *parse.Document) []finding.Fin
 	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
 		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawConfigPatchVersion(v) {
 			return []finding.Finding{openclawConfigPatchFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
+func (openclawNodePairApproveScopeBypass) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawNodePairApproveVersion(pkg.Version) {
+		return []finding.Finding{openclawNodePairApproveFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawNodePairApproveVersion(v) {
+			return []finding.Finding{openclawNodePairApproveFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
 		}
 	}
 	return nil
@@ -94,6 +122,20 @@ func openclawConfigPatchFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawNodePairApproveFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-node-pair-approve-scope-bypass",
+		Severity:     finding.SeverityHigh,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.4.8 lets operator.write approve node pairing",
+		Description:  "CVE-2026-42426: OpenClaw before 2026.4.8 accepts broad operator.write scope for node.pair.approve instead of requiring operator.pairing, letting write-scoped operators approve exec-capable node pairing.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.4.8 or later and review paired node approvals issued by vulnerable versions.",
+		Tags:         []string{"cve", "openclaw", "package-json", "privilege-escalation"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -102,6 +144,10 @@ func vulnerableOpenClawVersion(raw string) bool {
 
 func vulnerableOpenClawConfigPatchVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 28})
+}
+
+func vulnerableOpenClawNodePairApproveVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 8})
 }
 
 func vulnerableOpenClawVersionBefore(raw string, fixed []int) bool {
