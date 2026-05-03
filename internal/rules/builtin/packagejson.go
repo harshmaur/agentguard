@@ -15,6 +15,7 @@ type openclawConfigPatchConsentBypass struct{}
 type openclawWebsocketUpgradeExhaustion struct{}
 type openclawNodePairApproveScopeBypass struct{}
 type openclawPluginAuthOperatorWriteBypass struct{}
+type openclawTeamsWebhookPreauthBodyDos struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -90,6 +91,18 @@ func (openclawPluginAuthOperatorWriteBypass) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
+func (openclawTeamsWebhookPreauthBodyDos) ID() string {
+	return "openclaw-teams-webhook-preauth-body-dos"
+}
+func (openclawTeamsWebhookPreauthBodyDos) Title() string {
+	return "OpenClaw version is vulnerable to MS Teams webhook pre-auth body parsing DoS"
+}
+func (openclawTeamsWebhookPreauthBodyDos) Severity() finding.Severity { return finding.SeverityHigh }
+func (openclawTeamsWebhookPreauthBodyDos) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
+func (openclawTeamsWebhookPreauthBodyDos) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
 func (openclawConfigPatchConsentBypass) Apply(doc *parse.Document) []finding.Finding {
 	if doc.PackageJSON == nil {
 		return nil
@@ -149,6 +162,22 @@ func (openclawPluginAuthOperatorWriteBypass) Apply(doc *parse.Document) []findin
 	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
 		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawPluginAuthVersion(v) {
 			return []finding.Finding{openclawPluginAuthFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
+func (openclawTeamsWebhookPreauthBodyDos) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawTeamsWebhookVersion(pkg.Version) {
+		return []finding.Finding{openclawTeamsWebhookFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawTeamsWebhookVersion(v) {
+			return []finding.Finding{openclawTeamsWebhookFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
 		}
 	}
 	return nil
@@ -224,6 +253,20 @@ func openclawPluginAuthFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawTeamsWebhookFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-teams-webhook-preauth-body-dos",
+		Severity:     finding.SeverityHigh,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.3.31 parses MS Teams webhook bodies before JWT validation",
+		Description:  "CVE-2026-41405: OpenClaw before 2026.3.31 parses MS Teams webhook request bodies before JWT validation, letting unauthenticated webhook traffic spend server CPU and memory before authentication.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.3.31 or later and review exposed MS Teams webhook integrations on affected hosts.",
+		Tags:         []string{"cve", "openclaw", "package-json", "resource-exhaustion"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -243,6 +286,10 @@ func vulnerableOpenClawNodePairApproveVersion(raw string) bool {
 }
 
 func vulnerableOpenClawPluginAuthVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 31})
+}
+
+func vulnerableOpenClawTeamsWebhookVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 31})
 }
 
