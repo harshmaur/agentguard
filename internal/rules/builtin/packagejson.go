@@ -16,6 +16,7 @@ type openclawWebsocketUpgradeExhaustion struct{}
 type openclawNodePairApproveScopeBypass struct{}
 type openclawPluginAuthOperatorWriteBypass struct{}
 type openclawTeamsWebhookPreauthBodyDos struct{}
+type openclawBundledHooksEnvOverride struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -103,6 +104,18 @@ func (openclawTeamsWebhookPreauthBodyDos) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
+func (openclawBundledHooksEnvOverride) ID() string {
+	return "openclaw-bundled-hooks-env-override"
+}
+func (openclawBundledHooksEnvOverride) Title() string {
+	return "OpenClaw workspace .env overrides bundled hook trust root"
+}
+func (openclawBundledHooksEnvOverride) Severity() finding.Severity { return finding.SeverityHigh }
+func (openclawBundledHooksEnvOverride) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
+func (openclawBundledHooksEnvOverride) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON, parse.FormatEnv}
+}
+
 func (openclawConfigPatchConsentBypass) Apply(doc *parse.Document) []finding.Finding {
 	if doc.PackageJSON == nil {
 		return nil
@@ -178,6 +191,32 @@ func (openclawTeamsWebhookPreauthBodyDos) Apply(doc *parse.Document) []finding.F
 	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
 		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawTeamsWebhookVersion(v) {
 			return []finding.Finding{openclawTeamsWebhookFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
+func (openclawBundledHooksEnvOverride) Apply(doc *parse.Document) []finding.Finding {
+	if doc.Env != nil {
+		if v, ok := doc.Env.Vars["OPENCLAW_BUNDLED_HOOKS_DIR"]; ok {
+			f := openclawBundledHooksFinding(doc.Path, fmt.Sprintf("OPENCLAW_BUNDLED_HOOKS_DIR=%s", v))
+			if line := doc.Env.Lines["OPENCLAW_BUNDLED_HOOKS_DIR"]; line > 0 {
+				f.Line = line
+			}
+			return []finding.Finding{f}
+		}
+		return nil
+	}
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawBundledHooksVersion(pkg.Version) {
+		return []finding.Finding{openclawBundledHooksFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawBundledHooksVersion(v) {
+			return []finding.Finding{openclawBundledHooksFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
 		}
 	}
 	return nil
@@ -267,6 +306,20 @@ func openclawTeamsWebhookFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawBundledHooksFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-bundled-hooks-env-override",
+		Severity:     finding.SeverityHigh,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw workspace .env can override bundled hooks directory",
+		Description:  "CVE-2026-41336: OpenClaw before 2026.3.31 lets workspace .env files override OPENCLAW_BUNDLED_HOOKS_DIR, replacing trusted default-on bundled hooks with attacker-controlled hook code.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.3.31 or later and remove OPENCLAW_BUNDLED_HOOKS_DIR from workspace .env files unless the hook trust root is explicitly intended.",
+		Tags:         []string{"cve", "openclaw", "env", "untrusted-search-path"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -290,6 +343,10 @@ func vulnerableOpenClawPluginAuthVersion(raw string) bool {
 }
 
 func vulnerableOpenClawTeamsWebhookVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 31})
+}
+
+func vulnerableOpenClawBundledHooksVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 31})
 }
 
