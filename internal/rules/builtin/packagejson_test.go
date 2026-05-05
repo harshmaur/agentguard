@@ -205,3 +205,41 @@ func TestOpenClawBundledHooksEnvOverride_AllowsFixedVersion(t *testing.T) {
 		t.Fatalf("got %d findings, want 0", len(findings))
 	}
 }
+
+func TestOpenClawBundledPluginsEnvOverride_FlagsVulnerablePackage(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.3.30"}`))
+	findings := (openclawBundledPluginsEnvOverride{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	if findings[0].RuleID != "openclaw-bundled-plugins-env-override" {
+		t.Fatalf("rule id = %q", findings[0].RuleID)
+	}
+}
+
+func TestOpenClawBundledPluginsEnvOverride_FlagsVulnerableDependency(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"dependencies":{"openclaw":"^2026.3.24"}}`))
+	findings := (openclawBundledPluginsEnvOverride{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+}
+
+func TestOpenClawBundledPluginsEnvOverride_FlagsWorkspaceEnvOverride(t *testing.T) {
+	doc := parse.Parse(".env", []byte("NODE_ENV=development\nOPENCLAW_BUNDLED_PLUGINS_DIR=./plugins\n"))
+	findings := (openclawBundledPluginsEnvOverride{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	if findings[0].Line != 2 {
+		t.Fatalf("line = %d, want 2", findings[0].Line)
+	}
+}
+
+func TestOpenClawBundledPluginsEnvOverride_AllowsFixedVersion(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.3.31","dependencies":{"openclaw":"2026.4.1"}}`))
+	findings := (openclawBundledPluginsEnvOverride{}).Apply(doc)
+	if len(findings) != 0 {
+		t.Fatalf("got %d findings, want 0", len(findings))
+	}
+}

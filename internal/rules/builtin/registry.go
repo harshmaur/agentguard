@@ -69,5 +69,6 @@ func builtins() []rules.Rule {
 		openclawPluginAuthOperatorWriteBypass{},
 		openclawTeamsWebhookPreauthBodyDos{},
 		openclawBundledHooksEnvOverride{},
+		openclawBundledPluginsEnvOverride{},
 	}
 }
