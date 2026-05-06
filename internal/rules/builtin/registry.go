@@ -70,5 +70,6 @@ func builtins() []rules.Rule {
 		openclawTeamsWebhookPreauthBodyDos{},
 		openclawBundledHooksEnvOverride{},
 		openclawBundledPluginsEnvOverride{},
+		openclawHeartbeatOwnerDowngrade{},
 	}
 }

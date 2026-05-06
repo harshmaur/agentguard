@@ -18,6 +18,7 @@ type openclawPluginAuthOperatorWriteBypass struct{}
 type openclawTeamsWebhookPreauthBodyDos struct{}
 type openclawBundledHooksEnvOverride struct{}
 type openclawBundledPluginsEnvOverride struct{}
+type openclawHeartbeatOwnerDowngrade struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -127,6 +128,20 @@ func (openclawBundledPluginsEnvOverride) Severity() finding.Severity { return fi
 func (openclawBundledPluginsEnvOverride) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
 func (openclawBundledPluginsEnvOverride) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON, parse.FormatEnv}
+}
+
+func (openclawHeartbeatOwnerDowngrade) ID() string {
+	return "openclaw-heartbeat-owner-downgrade"
+}
+func (openclawHeartbeatOwnerDowngrade) Title() string {
+	return "OpenClaw version is vulnerable to heartbeat owner downgrade"
+}
+func (openclawHeartbeatOwnerDowngrade) Severity() finding.Severity {
+	return finding.SeverityCritical
+}
+func (openclawHeartbeatOwnerDowngrade) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
+func (openclawHeartbeatOwnerDowngrade) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
 }
 
 func (openclawConfigPatchConsentBypass) Apply(doc *parse.Document) []finding.Finding {
@@ -261,6 +276,22 @@ func (openclawBundledPluginsEnvOverride) Apply(doc *parse.Document) []finding.Fi
 	return nil
 }
 
+func (openclawHeartbeatOwnerDowngrade) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawHeartbeatOwnerDowngradeVersion(pkg.Version) {
+		return []finding.Finding{openclawHeartbeatOwnerDowngradeFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawHeartbeatOwnerDowngradeVersion(v) {
+			return []finding.Finding{openclawHeartbeatOwnerDowngradeFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
 func openclawBootstrapFinding(path, match string) finding.Finding {
 	return finding.New(finding.Args{
 		RuleID:       "openclaw-unbound-bootstrap-setup-code",
@@ -373,6 +404,20 @@ func openclawBundledPluginsFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawHeartbeatOwnerDowngradeFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-heartbeat-owner-downgrade",
+		Severity:     finding.SeverityCritical,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.4.14 lets heartbeat state downgrade channel owners",
+		Description:  "CVE-2026-43566: OpenClaw versions 2026.4.7 before 2026.4.14 let heartbeat owner downgrade paths weaken channel ownership and privilege boundaries during agent control.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.4.14 or later and review channel ownership changes made by vulnerable versions.",
+		Tags:         []string{"cve", "openclaw", "package-json", "privilege-escalation"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -405,6 +450,10 @@ func vulnerableOpenClawBundledHooksVersion(raw string) bool {
 
 func vulnerableOpenClawBundledPluginsVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 3, 31})
+}
+
+func vulnerableOpenClawHeartbeatOwnerDowngradeVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 14})
 }
 
 func vulnerableOpenClawVersionBefore(raw string, fixed []int) bool {
