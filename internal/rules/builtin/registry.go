@@ -72,5 +72,6 @@ func builtins() []rules.Rule {
 		openclawBundledPluginsEnvOverride{},
 		openclawHeartbeatOwnerDowngrade{},
 		openclawTrustedHookMetadataInjection{},
+		openclawFeishuWebhookAuthBypass{},
 	}
 }

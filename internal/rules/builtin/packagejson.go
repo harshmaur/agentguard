@@ -20,6 +20,7 @@ type openclawBundledHooksEnvOverride struct{}
 type openclawBundledPluginsEnvOverride struct{}
 type openclawHeartbeatOwnerDowngrade struct{}
 type openclawTrustedHookMetadataInjection struct{}
+type openclawFeishuWebhookAuthBypass struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -156,6 +157,20 @@ func (openclawTrustedHookMetadataInjection) Severity() finding.Severity {
 }
 func (openclawTrustedHookMetadataInjection) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
 func (openclawTrustedHookMetadataInjection) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
+func (openclawFeishuWebhookAuthBypass) ID() string {
+	return "openclaw-feishu-webhook-auth-bypass"
+}
+func (openclawFeishuWebhookAuthBypass) Title() string {
+	return "OpenClaw version is vulnerable to Feishu webhook authentication bypass"
+}
+func (openclawFeishuWebhookAuthBypass) Severity() finding.Severity {
+	return finding.SeverityCritical
+}
+func (openclawFeishuWebhookAuthBypass) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
+func (openclawFeishuWebhookAuthBypass) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
@@ -323,6 +338,22 @@ func (openclawTrustedHookMetadataInjection) Apply(doc *parse.Document) []finding
 	return nil
 }
 
+func (openclawFeishuWebhookAuthBypass) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawFeishuWebhookVersion(pkg.Version) {
+		return []finding.Finding{openclawFeishuWebhookFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawFeishuWebhookVersion(v) {
+			return []finding.Finding{openclawFeishuWebhookFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
 func openclawBootstrapFinding(path, match string) finding.Finding {
 	return finding.New(finding.Args{
 		RuleID:       "openclaw-unbound-bootstrap-setup-code",
@@ -463,6 +494,20 @@ func openclawTrustedHookMetadataFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawFeishuWebhookFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-feishu-webhook-auth-bypass",
+		Severity:     finding.SeverityCritical,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.4.15 fails open on Feishu webhook authentication",
+		Description:  "CVE-2026-44109: OpenClaw before 2026.4.15 lets Feishu webhook and card-action validation fail open when encryptKey configuration or callback tokens are blank, allowing unauthenticated requests to reach command dispatch.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.4.15 or later and rotate Feishu webhook callback tokens configured on affected versions.",
+		Tags:         []string{"cve", "openclaw", "package-json", "auth-bypass"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -503,6 +548,10 @@ func vulnerableOpenClawHeartbeatOwnerDowngradeVersion(raw string) bool {
 
 func vulnerableOpenClawTrustedHookMetadataVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 10})
+}
+
+func vulnerableOpenClawFeishuWebhookVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 15})
 }
 
 func vulnerableOpenClawVersionBefore(raw string, fixed []int) bool {
