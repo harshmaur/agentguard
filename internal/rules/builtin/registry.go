@@ -73,5 +73,6 @@ func builtins() []rules.Rule {
 		openclawHeartbeatOwnerDowngrade{},
 		openclawTrustedHookMetadataInjection{},
 		openclawFeishuWebhookAuthBypass{},
+		openclawBearerSecretRefRotationBypass{},
 	}
 }

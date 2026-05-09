@@ -21,6 +21,7 @@ type openclawBundledPluginsEnvOverride struct{}
 type openclawHeartbeatOwnerDowngrade struct{}
 type openclawTrustedHookMetadataInjection struct{}
 type openclawFeishuWebhookAuthBypass struct{}
+type openclawBearerSecretRefRotationBypass struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -171,6 +172,22 @@ func (openclawFeishuWebhookAuthBypass) Severity() finding.Severity {
 }
 func (openclawFeishuWebhookAuthBypass) Taxonomy() finding.Taxonomy { return finding.TaxDetectable }
 func (openclawFeishuWebhookAuthBypass) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
+func (openclawBearerSecretRefRotationBypass) ID() string {
+	return "openclaw-bearer-secretref-rotation-bypass"
+}
+func (openclawBearerSecretRefRotationBypass) Title() string {
+	return "OpenClaw version is vulnerable to bearer SecretRef rotation bypass"
+}
+func (openclawBearerSecretRefRotationBypass) Severity() finding.Severity {
+	return finding.SeverityCritical
+}
+func (openclawBearerSecretRefRotationBypass) Taxonomy() finding.Taxonomy {
+	return finding.TaxDetectable
+}
+func (openclawBearerSecretRefRotationBypass) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
@@ -354,6 +371,22 @@ func (openclawFeishuWebhookAuthBypass) Apply(doc *parse.Document) []finding.Find
 	return nil
 }
 
+func (openclawBearerSecretRefRotationBypass) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawBearerSecretRefRotationVersion(pkg.Version) {
+		return []finding.Finding{openclawBearerSecretRefRotationFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawBearerSecretRefRotationVersion(v) {
+			return []finding.Finding{openclawBearerSecretRefRotationFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
 func openclawBootstrapFinding(path, match string) finding.Finding {
 	return finding.New(finding.Args{
 		RuleID:       "openclaw-unbound-bootstrap-setup-code",
@@ -508,6 +541,20 @@ func openclawFeishuWebhookFinding(path, match string) finding.Finding {
 	})
 }
 
+func openclawBearerSecretRefRotationFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-bearer-secretref-rotation-bypass",
+		Severity:     finding.SeverityCritical,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.4.15 keeps revoked bearer SecretRefs active",
+		Description:  "CVE-2026-43585: OpenClaw before 2026.4.15 captures resolved bearer-auth configuration at startup and fails to re-resolve SecretRefs per request, leaving rotated-out bearer tokens valid for gateway HTTP and WebSocket access.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.4.15 or later and rotate bearer tokens configured through SecretRef on affected gateways.",
+		Tags:         []string{"cve", "openclaw", "package-json", "auth-bypass"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -551,6 +598,10 @@ func vulnerableOpenClawTrustedHookMetadataVersion(raw string) bool {
 }
 
 func vulnerableOpenClawFeishuWebhookVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 15})
+}
+
+func vulnerableOpenClawBearerSecretRefRotationVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 15})
 }
 

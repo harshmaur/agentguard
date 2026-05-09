@@ -324,3 +324,30 @@ func TestOpenClawFeishuWebhookAuthBypass_AllowsFixedVersion(t *testing.T) {
 		t.Fatalf("got %d findings, want 0", len(findings))
 	}
 }
+
+func TestOpenClawBearerSecretRefRotationBypass_FlagsVulnerablePackage(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.4.14"}`))
+	findings := (openclawBearerSecretRefRotationBypass{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	if findings[0].RuleID != "openclaw-bearer-secretref-rotation-bypass" {
+		t.Fatalf("rule id = %q", findings[0].RuleID)
+	}
+}
+
+func TestOpenClawBearerSecretRefRotationBypass_FlagsVulnerableDependency(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"dependencies":{"openclaw":"^2026.4.1"}}`))
+	findings := (openclawBearerSecretRefRotationBypass{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+}
+
+func TestOpenClawBearerSecretRefRotationBypass_AllowsFixedVersion(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.4.15","dependencies":{"openclaw":"2026.4.16"}}`))
+	findings := (openclawBearerSecretRefRotationBypass{}).Apply(doc)
+	if len(findings) != 0 {
+		t.Fatalf("got %d findings, want 0", len(findings))
+	}
+}
