@@ -22,6 +22,7 @@ type openclawHeartbeatOwnerDowngrade struct{}
 type openclawTrustedHookMetadataInjection struct{}
 type openclawFeishuWebhookAuthBypass struct{}
 type openclawBearerSecretRefRotationBypass struct{}
+type openclawSandboxCDPRelayPublicBind struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -188,6 +189,22 @@ func (openclawBearerSecretRefRotationBypass) Taxonomy() finding.Taxonomy {
 	return finding.TaxDetectable
 }
 func (openclawBearerSecretRefRotationBypass) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
+func (openclawSandboxCDPRelayPublicBind) ID() string {
+	return "openclaw-sandbox-cdp-relay-public-bind"
+}
+func (openclawSandboxCDPRelayPublicBind) Title() string {
+	return "OpenClaw version is vulnerable to sandbox CDP relay public binding"
+}
+func (openclawSandboxCDPRelayPublicBind) Severity() finding.Severity {
+	return finding.SeverityCritical
+}
+func (openclawSandboxCDPRelayPublicBind) Taxonomy() finding.Taxonomy {
+	return finding.TaxDetectable
+}
+func (openclawSandboxCDPRelayPublicBind) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
@@ -387,6 +404,22 @@ func (openclawBearerSecretRefRotationBypass) Apply(doc *parse.Document) []findin
 	return nil
 }
 
+func (openclawSandboxCDPRelayPublicBind) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawSandboxCDPRelayPublicBindVersion(pkg.Version) {
+		return []finding.Finding{openclawSandboxCDPRelayPublicBindFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawSandboxCDPRelayPublicBindVersion(v) {
+			return []finding.Finding{openclawSandboxCDPRelayPublicBindFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
 func openclawBootstrapFinding(path, match string) finding.Finding {
 	return finding.New(finding.Args{
 		RuleID:       "openclaw-unbound-bootstrap-setup-code",
@@ -555,6 +588,20 @@ func openclawBearerSecretRefRotationFinding(path, match string) finding.Finding 
 	})
 }
 
+func openclawSandboxCDPRelayPublicBindFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-sandbox-cdp-relay-public-bind",
+		Severity:     finding.SeverityCritical,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.4.10 exposes the sandbox CDP relay on all interfaces",
+		Description:  "CVE-2026-43581: OpenClaw before 2026.4.10 binds the sandbox browser Chrome DevTools Protocol relay to 0.0.0.0, exposing browser control outside the intended local sandbox boundary.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.4.10 or later and review any sandbox browser sessions exposed by vulnerable versions.",
+		Tags:         []string{"cve", "openclaw", "package-json", "network-exposure"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -603,6 +650,10 @@ func vulnerableOpenClawFeishuWebhookVersion(raw string) bool {
 
 func vulnerableOpenClawBearerSecretRefRotationVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 15})
+}
+
+func vulnerableOpenClawSandboxCDPRelayPublicBindVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 10})
 }
 
 func vulnerableOpenClawVersionBefore(raw string, fixed []int) bool {
