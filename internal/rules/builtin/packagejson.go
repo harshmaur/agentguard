@@ -23,6 +23,7 @@ type openclawTrustedHookMetadataInjection struct{}
 type openclawFeishuWebhookAuthBypass struct{}
 type openclawBearerSecretRefRotationBypass struct{}
 type openclawSandboxCDPRelayPublicBind struct{}
+type openclawAsyncExecCompletionOwnerDowngrade struct{}
 
 func (openclawUnboundBootstrapSetupCode) ID() string { return "openclaw-unbound-bootstrap-setup-code" }
 func (openclawUnboundBootstrapSetupCode) Title() string {
@@ -205,6 +206,22 @@ func (openclawSandboxCDPRelayPublicBind) Taxonomy() finding.Taxonomy {
 	return finding.TaxDetectable
 }
 func (openclawSandboxCDPRelayPublicBind) Formats() []parse.Format {
+	return []parse.Format{parse.FormatPackageJSON}
+}
+
+func (openclawAsyncExecCompletionOwnerDowngrade) ID() string {
+	return "openclaw-async-exec-completion-owner-downgrade"
+}
+func (openclawAsyncExecCompletionOwnerDowngrade) Title() string {
+	return "OpenClaw version is vulnerable to async exec completion owner downgrade"
+}
+func (openclawAsyncExecCompletionOwnerDowngrade) Severity() finding.Severity {
+	return finding.SeverityCritical
+}
+func (openclawAsyncExecCompletionOwnerDowngrade) Taxonomy() finding.Taxonomy {
+	return finding.TaxDetectable
+}
+func (openclawAsyncExecCompletionOwnerDowngrade) Formats() []parse.Format {
 	return []parse.Format{parse.FormatPackageJSON}
 }
 
@@ -420,6 +437,22 @@ func (openclawSandboxCDPRelayPublicBind) Apply(doc *parse.Document) []finding.Fi
 	return nil
 }
 
+func (openclawAsyncExecCompletionOwnerDowngrade) Apply(doc *parse.Document) []finding.Finding {
+	if doc.PackageJSON == nil {
+		return nil
+	}
+	pkg := doc.PackageJSON
+	if pkg.Name == "openclaw" && vulnerableOpenClawAsyncExecCompletionOwnerDowngradeVersion(pkg.Version) {
+		return []finding.Finding{openclawAsyncExecCompletionOwnerDowngradeFinding(doc.Path, fmt.Sprintf("openclaw@%s", pkg.Version))}
+	}
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies, pkg.OptionalDependencies, pkg.PeerDependencies} {
+		if v, ok := deps["openclaw"]; ok && vulnerableOpenClawAsyncExecCompletionOwnerDowngradeVersion(v) {
+			return []finding.Finding{openclawAsyncExecCompletionOwnerDowngradeFinding(doc.Path, fmt.Sprintf("openclaw@%s", v))}
+		}
+	}
+	return nil
+}
+
 func openclawBootstrapFinding(path, match string) finding.Finding {
 	return finding.New(finding.Args{
 		RuleID:       "openclaw-unbound-bootstrap-setup-code",
@@ -602,6 +635,20 @@ func openclawSandboxCDPRelayPublicBindFinding(path, match string) finding.Findin
 	})
 }
 
+func openclawAsyncExecCompletionOwnerDowngradeFinding(path, match string) finding.Finding {
+	return finding.New(finding.Args{
+		RuleID:       "openclaw-async-exec-completion-owner-downgrade",
+		Severity:     finding.SeverityCritical,
+		Taxonomy:     finding.TaxDetectable,
+		Title:        "OpenClaw before 2026.4.10 misses async exec completion owner downgrades",
+		Description:  "CVE-2026-43578: OpenClaw versions 2026.3.31 before 2026.4.10 miss local background async exec completion events in heartbeat owner downgrade detection, leaving runs in a more privileged context than intended.",
+		Path:         path,
+		Match:        match,
+		SuggestedFix: "Upgrade OpenClaw to 2026.4.10 or later and review background async exec completions processed by vulnerable versions.",
+		Tags:         []string{"cve", "openclaw", "package-json", "privilege-escalation"},
+	})
+}
+
 var packageVersionRE = regexp.MustCompile(`\d+(?:\.\d+){0,2}`)
 
 func vulnerableOpenClawVersion(raw string) bool {
@@ -653,6 +700,10 @@ func vulnerableOpenClawBearerSecretRefRotationVersion(raw string) bool {
 }
 
 func vulnerableOpenClawSandboxCDPRelayPublicBindVersion(raw string) bool {
+	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 10})
+}
+
+func vulnerableOpenClawAsyncExecCompletionOwnerDowngradeVersion(raw string) bool {
 	return vulnerableOpenClawVersionBefore(raw, []int{2026, 4, 10})
 }
 

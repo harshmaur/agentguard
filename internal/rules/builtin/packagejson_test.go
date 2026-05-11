@@ -378,3 +378,30 @@ func TestOpenClawSandboxCDPRelayPublicBind_AllowsFixedVersion(t *testing.T) {
 		t.Fatalf("got %d findings, want 0", len(findings))
 	}
 }
+
+func TestOpenClawAsyncExecCompletionOwnerDowngrade_FlagsVulnerablePackage(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.4.9"}`))
+	findings := (openclawAsyncExecCompletionOwnerDowngrade{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+	if findings[0].RuleID != "openclaw-async-exec-completion-owner-downgrade" {
+		t.Fatalf("rule id = %q", findings[0].RuleID)
+	}
+}
+
+func TestOpenClawAsyncExecCompletionOwnerDowngrade_FlagsVulnerableDependency(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"devDependencies":{"openclaw":"^2026.3.31"}}`))
+	findings := (openclawAsyncExecCompletionOwnerDowngrade{}).Apply(doc)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1", len(findings))
+	}
+}
+
+func TestOpenClawAsyncExecCompletionOwnerDowngrade_AllowsFixedVersion(t *testing.T) {
+	doc := parse.Parse("package.json", []byte(`{"name":"openclaw","version":"2026.4.10","dependencies":{"openclaw":"2026.4.11"}}`))
+	findings := (openclawAsyncExecCompletionOwnerDowngrade{}).Apply(doc)
+	if len(findings) != 0 {
+		t.Fatalf("got %d findings, want 0", len(findings))
+	}
+}

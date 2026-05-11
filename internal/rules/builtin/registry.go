@@ -75,5 +75,6 @@ func builtins() []rules.Rule {
 		openclawFeishuWebhookAuthBypass{},
 		openclawBearerSecretRefRotationBypass{},
 		openclawSandboxCDPRelayPublicBind{},
+		openclawAsyncExecCompletionOwnerDowngrade{},
 	}
 }
