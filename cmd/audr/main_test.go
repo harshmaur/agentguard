@@ -14,8 +14,8 @@ import (
 
 func TestResolveOutput(t *testing.T) {
 	tests := []struct {
-		name           string
-		flags          scanFlags
+		name  string
+		flags scanFlags
 		// We cannot meaningfully assert browser-open or summary-dest from a
 		// test environment without a TTY. Instead we assert on:
 		// - format
@@ -116,6 +116,44 @@ func TestResolveOutput(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSelectedDependencyBackends(t *testing.T) {
+	got, err := selectedDependencyBackends(scanFlags{depsBackend: "auto"})
+	if err != nil {
+		t.Fatalf("selectedDependencyBackends err: %v", err)
+	}
+	if len(got) != 1 || string(got[0]) != "osv-scanner" {
+		t.Fatalf("auto backends = %v, want osv-scanner", got)
+	}
+
+	got, err = selectedDependencyBackends(scanFlags{depsBackend: "auto", deep: true})
+	if err != nil {
+		t.Fatalf("selectedDependencyBackends deep err: %v", err)
+	}
+	if len(got) != 2 || string(got[0]) != "osv-scanner" || string(got[1]) != "trivy" {
+		t.Fatalf("deep backends = %v, want osv-scanner,trivy", got)
+	}
+
+	if _, err := selectedDependencyBackends(scanFlags{depsBackend: "bogus"}); err == nil {
+		t.Fatalf("expected invalid backend error")
+	}
+}
+
+func TestDoctorCommandPrintsBackendHealth(t *testing.T) {
+	cmd := newDoctorCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor err: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"Audr doctor", "OSV-Scanner", "Trivy", "audr scan --deep"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, got)
+		}
 	}
 }
 

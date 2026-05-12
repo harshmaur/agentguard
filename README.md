@@ -53,15 +53,21 @@ Audr finds these in 1 second per dev box, or in CI on every PR. It
 reads the same config files Claude / Cursor / Codex / Windsurf actually load
 (`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
 `.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), scans
-agent-relevant package manifests (`package.json`, `requirements.txt`,
-`pyproject.toml`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json`), runs
+package manifests, optionally runs open-source dependency scanners, runs
 built-in rules plus attack-chain correlations, and emits HTML for humans,
 SARIF for GitHub Code Scanning, JSON for everything else.
 
-Audr is not a general Snyk replacement. It scans the layer those tools still
-miss most often: the agent's own config, plus package-version posture for
-AI-agent and MCP packages that create local developer-machine risk. The offline
-package vulnerability database lives in
+Audr is not trying to rebuild Snyk, Trivy, Grype, or OSV. It owns the single
+local/CI command and the unified developer-machine report. For broad dependency
+vulnerability coverage, `audr scan` can call OSV-Scanner (Apache-2.0) under the
+hood; `audr scan --deep` can also call Trivy (Apache-2.0) for deeper filesystem
+package scanning. If a scanner is missing and Audr is running interactively, it
+prints the exact install command and asks before installing anything. In CI or
+machine-output mode, Audr never prompts; use `audr doctor` for setup guidance or
+`--require-deps` to fail when the requested dependency scanner is unavailable.
+
+Audr also keeps a small offline fallback package vulnerability corpus for
+agent/local developer-machine CVEs. That reviewed source database lives in
 `internal/rules/builtin/advisories/agent-packages.json`, is compiled into Go by
 `scripts/generate-agent-package-advisories.py`, and is refreshed from the daily
 AUDR CVE ledger by the existing `audr-cve-shipper` cron.
@@ -105,6 +111,13 @@ audr scan ~/code/my-repo
 audr scan -f sarif -o scan.sarif    # GitHub Code Scanning compatible
 audr scan -f html  -o scan.html     # forensic-document HTML report
 audr scan -f json  -o -  | jq       # pipe JSON to stdout
+
+# Dependency scanners.
+audr doctor                         # check OSV-Scanner/Trivy availability
+audr scan --no-deps .               # Audr-native checks only
+audr scan --deps-only .             # dependency vulnerability scan only
+audr scan --deep .                  # include Trivy deep filesystem/package scan
+audr scan --ci --require-deps .     # CI: no prompts; fail if deps backend missing
 
 # Suppress findings (per-rule or per-path globs).
 echo 'mcp-unpinned-npx **/old-mcp.json' > .audrignore

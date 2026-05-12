@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -19,11 +20,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/harshmaur/audr/internal/correlate"
+	"github.com/harshmaur/audr/internal/depscan"
 	"github.com/harshmaur/audr/internal/finding"
 	"github.com/harshmaur/audr/internal/output"
 	_ "github.com/harshmaur/audr/internal/rules/builtin"
@@ -63,6 +66,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newScanCmd())
 	cmd.AddCommand(newVerifyCmd())
 	cmd.AddCommand(newSelfAuditCmd())
+	cmd.AddCommand(newDoctorCmd())
 	cmd.AddCommand(newVersionCmd())
 	return cmd
 }
@@ -81,6 +85,12 @@ func newScanCmd() *cobra.Command {
 		flagLogJSON     bool
 		flagOpen        string // "auto" | "always" | "never"
 		flagQuiet       bool
+		flagNoDeps      bool
+		flagDepsOnly    bool
+		flagDeep        bool
+		flagCI          bool
+		flagRequireDeps bool
+		flagDepsBackend string // "auto" | "osv-scanner" | "trivy"
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
@@ -117,6 +127,12 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 				logJSON:     flagLogJSON,
 				openMode:    flagOpen,
 				quiet:       flagQuiet,
+				noDeps:      flagNoDeps,
+				depsOnly:    flagDepsOnly,
+				deep:        flagDeep,
+				ci:          flagCI,
+				requireDeps: flagRequireDeps,
+				depsBackend: flagDepsBackend,
 			})
 		},
 	}
@@ -132,6 +148,12 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "log INFO messages to stderr")
 	cmd.Flags().BoolVar(&flagDebug, "debug", false, "log DEBUG messages to stderr")
 	cmd.Flags().BoolVar(&flagLogJSON, "log-json", false, "emit logs as JSON instead of text")
+	cmd.Flags().BoolVar(&flagNoDeps, "no-deps", false, "skip external dependency vulnerability scanners")
+	cmd.Flags().BoolVar(&flagDepsOnly, "deps-only", false, "run only external dependency vulnerability scanners")
+	cmd.Flags().BoolVar(&flagDeep, "deep", false, "include deep filesystem/package scanning with Trivy when available")
+	cmd.Flags().BoolVar(&flagCI, "ci", false, "non-interactive CI mode; never prompt to install scanner backends")
+	cmd.Flags().BoolVar(&flagRequireDeps, "require-deps", false, "fail if requested dependency scanner backends are unavailable")
+	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner | trivy")
 	return cmd
 }
 
@@ -159,17 +181,23 @@ type scanFlags struct {
 	logJSON     bool
 	openMode    string // "auto" | "always" | "never"
 	quiet       bool
+	noDeps      bool
+	depsOnly    bool
+	deep        bool
+	ci          bool
+	requireDeps bool
+	depsBackend string
 }
 
 // outPlan captures the resolved output decisions: where the report goes,
 // where the human-readable summary goes, and whether to open a browser.
 type outPlan struct {
-	format        string // "html" | "sarif" | "json"
-	reportPath    string // file path; "" if writing to stdout
+	format         string // "html" | "sarif" | "json"
+	reportPath     string // file path; "" if writing to stdout
 	reportToStdout bool
-	printSummary  bool
-	summaryDest   io.Writer // os.Stdout or os.Stderr
-	openBrowser   bool
+	printSummary   bool
+	summaryDest    io.Writer // os.Stdout or os.Stderr
+	openBrowser    bool
 }
 
 func resolveOutput(f scanFlags) (outPlan, error) {
@@ -282,18 +310,34 @@ func runScan(f scanFlags) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	res, scanErr := scan.Run(ctx, scan.Options{
-		Roots:         roots,
-		Workers:       f.jobs,
-		FileTimeout:   f.fileTimeout,
-		FileSizeLimit: f.sizeLimit,
-		ScanTimeout:   f.scanTimeout,
-		Suppress:      supp,
-		Logger:        logger,
+	res := &scan.Result{StartedAt: time.Now(), FinishedAt: time.Now()}
+	if !f.depsOnly {
+		var scanErr error
+		res, scanErr = scan.Run(ctx, scan.Options{
+			Roots:         roots,
+			Workers:       f.jobs,
+			FileTimeout:   f.fileTimeout,
+			FileSizeLimit: f.sizeLimit,
+			ScanTimeout:   f.scanTimeout,
+			Suppress:      supp,
+			Logger:        logger,
+		})
+		if scanErr != nil {
+			// scan.Run returns partial Result on timeout; report it anyway.
+			fmt.Fprintf(os.Stderr, "warning: %v\n", scanErr)
+		}
+	}
+
+	depFindings, depErr := runDependencyBackends(ctx, f, roots, plan)
+	if depErr != nil {
+		return depErr
+	}
+	res.Findings = append(res.Findings, depFindings...)
+	sort.SliceStable(res.Findings, func(i, j int) bool {
+		return finding.Less(res.Findings[i], res.Findings[j])
 	})
-	if scanErr != nil {
-		// scan.Run returns partial Result on timeout; report it anyway.
-		fmt.Fprintf(os.Stderr, "warning: %v\n", scanErr)
+	if f.depsOnly {
+		res.FinishedAt = time.Now()
 	}
 
 	// v0.2.0-alpha.5: cross-finding correlation pass produces Attack Chain
@@ -429,6 +473,162 @@ func openBrowser(path string) error {
 	// Reap the process in the background so it doesn't become a zombie.
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+func runDependencyBackends(ctx context.Context, f scanFlags, roots []string, plan outPlan) ([]finding.Finding, error) {
+	if f.noDeps {
+		return nil, nil
+	}
+	backends, err := selectedDependencyBackends(f)
+	if err != nil {
+		return nil, err
+	}
+	var all []finding.Finding
+	for _, backend := range backends {
+		status := depscan.BackendStatus(backend)
+		if !status.Installed {
+			installed, err := maybeInstallBackend(ctx, backend, f, plan)
+			if err != nil {
+				return nil, err
+			}
+			if installed {
+				status = depscan.BackendStatus(backend)
+			}
+		}
+		if !status.Installed {
+			msg := fmt.Sprintf("dependency scanner %s is not installed; run `audr doctor` for install instructions", backend)
+			if f.requireDeps || f.depsOnly {
+				return nil, errors.New(msg)
+			}
+			fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
+			continue
+		}
+		findings, err := depscan.RunBackend(ctx, depscan.RunOptions{Backend: backend, Roots: roots})
+		if err != nil {
+			if f.requireDeps || f.depsOnly {
+				return nil, err
+			}
+			fmt.Fprintf(os.Stderr, "warning: dependency scanner %s failed: %v\n", backend, err)
+			continue
+		}
+		all = append(all, findings...)
+	}
+	return all, nil
+}
+
+func selectedDependencyBackends(f scanFlags) ([]depscan.Backend, error) {
+	switch strings.ToLower(strings.TrimSpace(f.depsBackend)) {
+	case "", "auto":
+		backends := []depscan.Backend{depscan.BackendOSVScanner}
+		if f.deep {
+			backends = append(backends, depscan.BackendTrivy)
+		}
+		return backends, nil
+	case "osv", "osv-scanner":
+		backends := []depscan.Backend{depscan.BackendOSVScanner}
+		if f.deep {
+			backends = append(backends, depscan.BackendTrivy)
+		}
+		return backends, nil
+	case "trivy":
+		return []depscan.Backend{depscan.BackendTrivy}, nil
+	default:
+		return nil, fmt.Errorf("--deps-backend must be auto | osv-scanner | trivy (got %q)", f.depsBackend)
+	}
+}
+
+func maybeInstallBackend(ctx context.Context, backend depscan.Backend, f scanFlags, plan outPlan) (bool, error) {
+	if f.ci || !isTerminal(os.Stdin) || !isTerminal(os.Stderr) || plan.reportToStdout {
+		return false, nil
+	}
+	install := depscan.InstallPlan(backend)
+	fmt.Fprintf(os.Stderr, "\nDependency scanner %s is not installed.\n", install.Name)
+	for _, cmd := range install.Commands {
+		fmt.Fprintf(os.Stderr, "  install option: %s\n", cmd)
+	}
+	fmt.Fprintf(os.Stderr, "Install %s now? [y/N] ", install.Name)
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	if answer != "y" && answer != "yes" {
+		return false, nil
+	}
+	cmdLine := firstRunnableInstallCommand(install.Commands)
+	if cmdLine == "" {
+		return false, fmt.Errorf("no install command available for %s on %s/%s", install.Name, runtime.GOOS, runtime.GOARCH)
+	}
+	fmt.Fprintf(os.Stderr, "Installing %s with: %s\n", install.Name, cmdLine)
+	cmd := exec.CommandContext(ctx, shellName(), shellFlag(), cmdLine)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("install %s: %w", install.Name, err)
+	}
+	return true, nil
+}
+
+func firstRunnableInstallCommand(commands []string) string {
+	for _, cmd := range commands {
+		name := strings.Fields(cmd)
+		if len(name) == 0 {
+			continue
+		}
+		if name[0] == "curl" {
+			if _, err := exec.LookPath("curl"); err == nil {
+				return cmd
+			}
+			continue
+		}
+		if _, err := exec.LookPath(name[0]); err == nil {
+			return cmd
+		}
+	}
+	if len(commands) > 0 {
+		return commands[0]
+	}
+	return ""
+}
+
+func shellName() string {
+	if runtime.GOOS == "windows" {
+		return "cmd"
+	}
+	return "sh"
+}
+
+func shellFlag() string {
+	if runtime.GOOS == "windows" {
+		return "/C"
+	}
+	return "-c"
+}
+
+func newDoctorCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "doctor",
+		Short: "Check Audr scanner backend health",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "Audr doctor\n\n")
+			for _, backend := range []depscan.Backend{depscan.BackendOSVScanner, depscan.BackendTrivy} {
+				status := depscan.BackendStatus(backend)
+				plan := depscan.InstallPlan(backend)
+				if status.Installed {
+					fmt.Fprintf(w, "✓ %s installed: %s\n", plan.Name, status.Path)
+					continue
+				}
+				fmt.Fprintf(w, "! %s missing (%s)\n", plan.Name, status.Binary)
+				for _, c := range plan.Commands {
+					fmt.Fprintf(w, "  install: %s\n", c)
+				}
+				for _, n := range plan.Notes {
+					fmt.Fprintf(w, "  note: %s\n", n)
+				}
+			}
+			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --deep` also uses Trivy.\n")
+			return nil
+		},
+	}
 }
 
 func buildLogger(f scanFlags) *slog.Logger {

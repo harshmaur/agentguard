@@ -304,6 +304,17 @@ func TestText_VerdictAndChains(t *testing.T) {
 	}
 }
 
+func TestPackageVulnerabilityFindingsIncludesExternalScannerRules(t *testing.T) {
+	findings := packageVulnerabilityFindings([]finding.Finding{
+		{RuleID: "dependency-osv-vulnerability", Severity: finding.SeverityHigh, Title: "OSV", Path: "package-lock.json"},
+		{RuleID: "dependency-trivy-vulnerability", Severity: finding.SeverityHigh, Title: "Trivy", Path: "poetry.lock"},
+		{RuleID: "mcp-unpinned-npx", Severity: finding.SeverityHigh, Title: "Other", Path: ".mcp.json"},
+	})
+	if len(findings) != 2 {
+		t.Fatalf("packageVulnerabilityFindings len = %d, want 2", len(findings))
+	}
+}
+
 func TestText_RendersPackageVulnerabilitySection(t *testing.T) {
 	now := time.Now()
 	findings := []finding.Finding{}
