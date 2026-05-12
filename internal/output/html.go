@@ -250,15 +250,14 @@ func HTML(w io.Writer, r Report) error {
 }
 
 const (
-	packageVulnerabilityRuleID = "agent-package-known-vulnerable"
-	osvVulnerabilityRuleID     = "dependency-osv-vulnerability"
-	trivyVulnerabilityRuleID   = "dependency-trivy-vulnerability"
+	osvVulnerabilityRuleID   = "dependency-osv-vulnerability"
+	trivyVulnerabilityRuleID = "dependency-trivy-vulnerability"
 )
 
 func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding {
 	packageFindings := make([]finding.Finding, 0)
 	for _, f := range findings {
-		if f.RuleID == packageVulnerabilityRuleID || f.RuleID == osvVulnerabilityRuleID || f.RuleID == trivyVulnerabilityRuleID {
+		if f.RuleID == osvVulnerabilityRuleID || f.RuleID == trivyVulnerabilityRuleID {
 			packageFindings = append(packageFindings, f)
 		}
 	}

@@ -61,8 +61,7 @@ func builtins() []rules.Rule {
 		// Shell rc rules.
 		shellrcSecretExport{},
 
-		// package manifest version posture rules.
-		agentPackageKnownVulnerable{},
+		// Dependency CVE coverage is delegated to external OSV-Scanner/Trivy backends.
 
 		// package.json OpenClaw version posture rules.
 		openclawUnboundBootstrapSetupCode{},

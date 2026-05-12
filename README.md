@@ -68,11 +68,12 @@ machine-output mode, Audr never prompts; use `audr doctor` for setup guidance,
 or `--require-deps` to fail when the requested dependency scanner is
 unavailable.
 
-Audr also keeps a small offline fallback package vulnerability corpus for
-agent/local developer-machine CVEs. That reviewed source database lives in
-`internal/rules/builtin/advisories/agent-packages.json`, is compiled into Go by
-`scripts/generate-agent-package-advisories.py`, and is refreshed from the daily
-AUDR CVE ledger by the existing `audr-cve-shipper` cron.
+Audr delegates broad dependency vulnerability coverage to open-source scanner
+backends instead of maintaining its own package CVE database. `audr scan` uses
+OSV-Scanner when available; `audr scan --deep` also uses Trivy. The former
+Audr-local agent-package advisory corpus has been removed from runtime scanning
+so dependency results come from OSV/Trivy and appear in the same Package
+vulnerabilities report section.
 
 ---
 

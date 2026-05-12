@@ -328,7 +328,7 @@ func TestText_RendersPackageVulnerabilitySection(t *testing.T) {
 		})
 	}
 	findings = append(findings, finding.Finding{
-		RuleID:       "agent-package-known-vulnerable",
+		RuleID:       "dependency-osv-vulnerability",
 		Severity:     finding.SeverityHigh,
 		Title:        "Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
 		Description:  "npm declares @anthropic-ai/sdk@0.81.0, which matches CVE-2026-41686.",
@@ -366,7 +366,7 @@ func TestHTML_RendersPackageVulnerabilitySection(t *testing.T) {
 		FinishedAt: now.Add(time.Second),
 		Findings: []finding.Finding{
 			{
-				RuleID:       "agent-package-known-vulnerable",
+				RuleID:       "dependency-osv-vulnerability",
 				Severity:     finding.SeverityHigh,
 				Taxonomy:     finding.TaxDetectable,
 				Title:        "Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",

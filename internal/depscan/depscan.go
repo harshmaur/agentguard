@@ -1,11 +1,15 @@
 package depscan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -39,9 +43,11 @@ type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return out, fmt.Errorf("%s %s failed: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return out, fmt.Errorf("%s %s failed: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }
@@ -178,9 +184,16 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 	if len(roots) == 0 {
 		roots = []string{"."}
 	}
+	projectRoots, err := DiscoverProjectRoots(roots)
+	if err != nil {
+		return nil, err
+	}
+	if len(projectRoots) == 0 {
+		return nil, nil
+	}
 	switch opts.Backend {
 	case BackendOSVScanner:
-		args := append([]string{"--format", "json"}, roots...)
+		args := append([]string{"scan", "source", "--format", "json", "--recursive", "--allow-no-lockfiles", "--verbosity", "error"}, projectRoots...)
 		out, err := runner.Run(ctx, binaryName(opts.Backend), args...)
 		findings, parseErr := ParseOSVScannerJSON(out)
 		if parseErr == nil && len(out) > 0 {
@@ -192,8 +205,8 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 		return findings, parseErr
 	case BackendTrivy:
 		var all []finding.Finding
-		for _, root := range roots {
-			out, err := runner.Run(ctx, binaryName(opts.Backend), "fs", "--format", "json", "--quiet", root)
+		for _, root := range projectRoots {
+			out, err := runner.Run(ctx, binaryName(opts.Backend), "fs", "--scanners", "vuln", "--format", "json", "--quiet", root)
 			findings, parseErr := ParseTrivyJSON(out)
 			if parseErr == nil && len(out) > 0 {
 				all = append(all, findings...)
@@ -209,6 +222,96 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 		return all, nil
 	default:
 		return nil, fmt.Errorf("unknown dependency scanner backend %q", opts.Backend)
+	}
+}
+
+func DiscoverProjectRoots(roots []string) ([]string, error) {
+	seen := map[string]bool{}
+	var out []string
+	for _, root := range roots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			if isDependencySourceFile(filepath.Base(root)) {
+				dir := filepath.Dir(root)
+				if !seen[dir] {
+					seen[dir] = true
+					out = append(out, dir)
+				}
+			}
+			continue
+		}
+		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != root && shouldSkipDir(d.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !isDependencySourceFile(d.Name()) {
+				return nil
+			}
+			dir := filepath.Dir(path)
+			if !seen[dir] {
+				seen[dir] = true
+				out = append(out, dir)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	sort.Strings(out)
+	return pruneNestedProjectRoots(out), nil
+}
+
+func pruneNestedProjectRoots(roots []string) []string {
+	if len(roots) < 2 {
+		return roots
+	}
+	var pruned []string
+	for _, root := range roots {
+		covered := false
+		for _, parent := range pruned {
+			rel, err := filepath.Rel(parent, root)
+			if err == nil && rel != "." && !strings.HasPrefix(rel, "..") && rel != "" {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			pruned = append(pruned, root)
+		}
+	}
+	return pruned
+}
+
+func isDependencySourceFile(name string) bool {
+	switch name {
+	case "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
+		"requirements.txt", "pyproject.toml", "poetry.lock", "uv.lock", "Pipfile.lock",
+		"go.mod", "go.sum", "Cargo.lock", "Cargo.toml", "Gemfile.lock", "Gemfile", "composer.lock", "composer.json":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldSkipDir(name string) bool {
+	switch name {
+	case "node_modules", "vendor", ".git", "dist", "build", "target", "__pycache__", ".next", ".cache", ".venv", "venv":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -245,6 +348,7 @@ type osvReport struct {
 		Packages []struct {
 			Package struct {
 				Name      string `json:"name"`
+				Version   string `json:"version"`
 				Ecosystem string `json:"ecosystem"`
 			} `json:"package"`
 			Version         string             `json:"version"`
@@ -282,6 +386,7 @@ func ParseOSVScannerJSON(raw []byte) ([]finding.Finding, error) {
 	var out []finding.Finding
 	for _, res := range report.Results {
 		for _, pkg := range res.Packages {
+			version := firstNonEmpty(pkg.Version, pkg.Package.Version)
 			for _, vuln := range pkg.Vulnerabilities {
 				id := advisoryID(vuln.ID, vuln.Aliases)
 				fixed := osvFixedVersion(vuln)
@@ -297,7 +402,7 @@ func ParseOSVScannerJSON(raw []byte) ([]finding.Finding, error) {
 					Title:        fmt.Sprintf("Vulnerable dependency: %s", pkg.Package.Name),
 					Description:  fmt.Sprintf("%s: %s", id, desc),
 					Path:         res.Source.Path,
-					Match:        fmt.Sprintf("%s %s@%s", pkg.Package.Ecosystem, pkg.Package.Name, pkg.Version),
+					Match:        fmt.Sprintf("%s %s@%s", pkg.Package.Ecosystem, pkg.Package.Name, version),
 					Context:      fmt.Sprintf("advisory=%s fixed=%s", id, fixed),
 					SuggestedFix: fix,
 					Tags:         []string{"dependency", "vulnerability", "osv", strings.ToLower(pkg.Package.Ecosystem)},
