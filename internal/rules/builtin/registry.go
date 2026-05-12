@@ -61,7 +61,10 @@ func builtins() []rules.Rule {
 		// Shell rc rules.
 		shellrcSecretExport{},
 
-		// package.json version posture rules.
+		// package manifest version posture rules.
+		agentPackageKnownVulnerable{},
+
+		// package.json OpenClaw version posture rules.
 		openclawUnboundBootstrapSetupCode{},
 		openclawConfigPatchConsentBypass{},
 		openclawWebsocketUpgradeExhaustion{},

@@ -13,18 +13,19 @@ import (
 type Format string
 
 const (
-	FormatMCPConfig         Format = "mcp-config"         // .mcp.json, .cursor/mcp.json
-	FormatClaudeSettings    Format = "claude-settings"    // .claude/settings.json, settings.local.json
-	FormatSkill             Format = "skill"              // .claude/skills/**/*.md
-	FormatAgentDoc          Format = "agent-doc"          // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
-	FormatGHAWorkflow       Format = "gha-workflow"       // .github/workflows/*.yml
-	FormatShellRC           Format = "shellrc"            // .bashrc, .zshrc, .profile, etc.
-	FormatEnv               Format = "env"                // .env, .env.local, .env.example
-	FormatCodexConfig       Format = "codex-config"       // ~/.codex/config.toml, .codex/config.toml (v0.2)
-	FormatWindsurfMCP       Format = "windsurf-mcp"       // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
-	FormatCursorPermissions Format = "cursor-permissions" // ~/.cursor/permissions.json (v0.2.0-alpha.4)
-	FormatPackageJSON       Format = "package-json"       // package.json manifests for agent packages
-	FormatUnknown           Format = ""
+	FormatMCPConfig          Format = "mcp-config"          // .mcp.json, .cursor/mcp.json
+	FormatClaudeSettings     Format = "claude-settings"     // .claude/settings.json, settings.local.json
+	FormatSkill              Format = "skill"               // .claude/skills/**/*.md
+	FormatAgentDoc           Format = "agent-doc"           // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
+	FormatGHAWorkflow        Format = "gha-workflow"        // .github/workflows/*.yml
+	FormatShellRC            Format = "shellrc"             // .bashrc, .zshrc, .profile, etc.
+	FormatEnv                Format = "env"                 // .env, .env.local, .env.example
+	FormatCodexConfig        Format = "codex-config"        // ~/.codex/config.toml, .codex/config.toml (v0.2)
+	FormatWindsurfMCP        Format = "windsurf-mcp"        // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
+	FormatCursorPermissions  Format = "cursor-permissions"  // ~/.cursor/permissions.json (v0.2.0-alpha.4)
+	FormatPackageJSON        Format = "package-json"        // package.json manifests for agent packages
+	FormatDependencyManifest Format = "dependency-manifest" // language manifests/lockfiles for agent package CVEs
+	FormatUnknown            Format = ""
 )
 
 // Document is the generic container produced by parsers and consumed by rules.
@@ -33,18 +34,20 @@ type Document struct {
 	Format Format
 	Raw    []byte // full file contents (subject to size cap)
 
-	// Parsed forms. Exactly one is non-nil based on Format.
-	MCPConfig         *MCPConfig
-	ClaudeSettings    *ClaudeSettings
-	Skill             *Skill
-	AgentDoc          *AgentDoc
-	Workflow          *Workflow
-	ShellRC           *ShellRC
-	Env               *EnvFile
-	CodexConfig       *CodexConfig       // v0.2
-	WindsurfMCP       *WindsurfMCP       // v0.2.0-alpha.3
-	CursorPermissions *CursorPermissions // v0.2.0-alpha.4
-	PackageJSON       *PackageJSON
+	// Parsed forms. PackageJSON files also populate DependencyManifest so
+	// package-version CVE rules can share one normalized dependency surface.
+	MCPConfig          *MCPConfig
+	ClaudeSettings     *ClaudeSettings
+	Skill              *Skill
+	AgentDoc           *AgentDoc
+	Workflow           *Workflow
+	ShellRC            *ShellRC
+	Env                *EnvFile
+	CodexConfig        *CodexConfig       // v0.2
+	WindsurfMCP        *WindsurfMCP       // v0.2.0-alpha.3
+	CursorPermissions  *CursorPermissions // v0.2.0-alpha.4
+	PackageJSON        *PackageJSON
+	DependencyManifest *DependencyManifest
 
 	// ParseError is set if parsing failed; rules treat this as an advisory
 	// finding, the scan continues.
@@ -243,6 +246,21 @@ type PackageJSON struct {
 	PeerDependencies     map[string]string
 }
 
+// DependencyManifest is a normalized package manifest for language ecosystems
+// that can host vulnerable AI-agent packages.
+type DependencyManifest struct {
+	Ecosystem    string
+	Dependencies []Dependency
+}
+
+// Dependency is one package declaration in a manifest.
+type Dependency struct {
+	Name    string
+	Version string
+	Scope   string
+	Line    int
+}
+
 // CodexMCPServer is a single [mcp_servers.<name>] entry from config.toml.
 type CodexMCPServer struct {
 	Name        string
@@ -326,6 +344,11 @@ func DetectFormat(path string) Format {
 
 	if base == "package.json" {
 		return FormatPackageJSON
+	}
+
+	switch base {
+	case "requirements.txt", "pyproject.toml", "go.mod", "Cargo.toml", "Gemfile", "composer.json":
+		return FormatDependencyManifest
 	}
 
 	return FormatUnknown

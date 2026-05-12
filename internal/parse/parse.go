@@ -58,6 +58,13 @@ func Parse(path string, raw []byte) *Document {
 	case FormatPackageJSON:
 		pkg, err := parsePackageJSON(raw)
 		doc.PackageJSON = pkg
+		if err == nil {
+			doc.DependencyManifest = packageJSONDependencyManifest(pkg, raw)
+		}
+		doc.ParseError = err
+	case FormatDependencyManifest:
+		deps, err := parseDependencyManifest(path, raw)
+		doc.DependencyManifest = deps
 		doc.ParseError = err
 	}
 	return doc

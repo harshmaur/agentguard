@@ -52,13 +52,15 @@ couple of skills last week. Some of those configs let an attacker:
 Audr finds these in 1 second per dev box, or in CI on every PR. It
 reads the same config files Claude / Cursor / Codex / Windsurf actually load
 (`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
-`.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), runs 20 rules
-plus 5 attack-chain correlations, and emits HTML for humans, SARIF for
-GitHub Code Scanning, JSON for everything else.
+`.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), scans
+agent-relevant package manifests (`package.json`, `requirements.txt`,
+`pyproject.toml`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json`), runs
+built-in rules plus attack-chain correlations, and emits HTML for humans,
+SARIF for GitHub Code Scanning, JSON for everything else.
 
-It is not an OSS-vulnerability scanner (Snyk owns that) and it is not a
-cloud-posture tool (Wiz owns that). It scans the layer those tools don't:
-the agent's own config.
+Audr is not a general Snyk replacement. It scans the layer those tools still
+miss most often: the agent's own config, plus package-version posture for
+AI-agent and MCP packages that create local developer-machine risk.
 
 ---
 
