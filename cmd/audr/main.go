@@ -67,6 +67,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newVerifyCmd())
 	cmd.AddCommand(newSelfAuditCmd())
 	cmd.AddCommand(newDoctorCmd())
+	cmd.AddCommand(newUpdateScannersCmd())
 	cmd.AddCommand(newVersionCmd())
 	return cmd
 }
@@ -537,6 +538,19 @@ func selectedDependencyBackends(f scanFlags) ([]depscan.Backend, error) {
 	}
 }
 
+func selectedScannerBackends(raw string) ([]depscan.Backend, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "auto":
+		return []depscan.Backend{depscan.BackendOSVScanner, depscan.BackendTrivy}, nil
+	case "osv", "osv-scanner":
+		return []depscan.Backend{depscan.BackendOSVScanner}, nil
+	case "trivy":
+		return []depscan.Backend{depscan.BackendTrivy}, nil
+	default:
+		return nil, fmt.Errorf("--backend must be auto | osv-scanner | trivy (got %q)", raw)
+	}
+}
+
 func maybeInstallBackend(ctx context.Context, backend depscan.Backend, f scanFlags, plan outPlan) (bool, error) {
 	if f.ci || !isTerminal(os.Stdin) || !isTerminal(os.Stderr) || plan.reportToStdout {
 		return false, nil
@@ -613,22 +627,87 @@ func newDoctorCmd() *cobra.Command {
 			for _, backend := range []depscan.Backend{depscan.BackendOSVScanner, depscan.BackendTrivy} {
 				status := depscan.BackendStatus(backend)
 				plan := depscan.InstallPlan(backend)
+				update := depscan.UpdatePlan(backend)
 				if status.Installed {
 					fmt.Fprintf(w, "✓ %s installed: %s\n", plan.Name, status.Path)
-					continue
+				} else {
+					fmt.Fprintf(w, "! %s missing (%s)\n", plan.Name, status.Binary)
+					for _, c := range plan.Commands {
+						fmt.Fprintf(w, "  install: %s\n", c)
+					}
 				}
-				fmt.Fprintf(w, "! %s missing (%s)\n", plan.Name, status.Binary)
-				for _, c := range plan.Commands {
-					fmt.Fprintf(w, "  install: %s\n", c)
+				for _, c := range append(update.BinaryCommands, update.DatabaseCommands...) {
+					fmt.Fprintf(w, "  update: %s\n", c)
+				}
+				for _, n := range append(plan.Notes, update.Notes...) {
+					fmt.Fprintf(w, "  note: %s\n", n)
+				}
+			}
+			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --deep` also uses Trivy. Use `audr update-scanners --yes` to refresh scanner binaries and vulnerability DB caches.\n")
+			return nil
+		},
+	}
+}
+
+func newUpdateScannersCmd() *cobra.Command {
+	var backend string
+	var yes bool
+	var ci bool
+	var dbOnly bool
+	cmd := &cobra.Command{
+		Use:   "update-scanners",
+		Short: "Update external dependency scanner backends",
+		Long:  "Update open-source scanners used by audr scan: OSV-Scanner and Trivy. Without --yes, this command prints the commands it would run and exits without side effects.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			backends, err := selectedScannerBackends(backend)
+			if err != nil {
+				return err
+			}
+			w := cmd.OutOrStdout()
+			ctx := cmd.Context()
+			for _, b := range backends {
+				plan := depscan.UpdatePlan(b)
+				commands := append([]string(nil), plan.DatabaseCommands...)
+				if !dbOnly {
+					commands = append(append([]string(nil), plan.BinaryCommands...), plan.DatabaseCommands...)
+				}
+				fmt.Fprintf(w, "%s\n", plan.Name)
+				for _, c := range commands {
+					fmt.Fprintf(w, "  update: %s\n", c)
 				}
 				for _, n := range plan.Notes {
 					fmt.Fprintf(w, "  note: %s\n", n)
 				}
+				if len(commands) == 0 {
+					fmt.Fprintf(w, "  no update command available for this platform\n")
+					continue
+				}
+				if !yes {
+					if ci || !isTerminal(os.Stdin) || !isTerminal(os.Stderr) {
+						fmt.Fprintf(w, "  dry-run: rerun with --yes to execute these updates.\n")
+						continue
+					}
+					fmt.Fprintf(os.Stderr, "Run these %s updates now? [y/N] ", plan.Name)
+					answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+					answer = strings.ToLower(strings.TrimSpace(answer))
+					if answer != "y" && answer != "yes" {
+						fmt.Fprintf(w, "  skipped\n")
+						continue
+					}
+				}
+				if err := depscan.RunUpdatePlan(ctx, plan, depscan.UpdateOptions{DBOnly: dbOnly}); err != nil {
+					return fmt.Errorf("update %s: %w", plan.Name, err)
+				}
+				fmt.Fprintf(w, "  updated\n")
 			}
-			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --deep` also uses Trivy.\n")
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner | trivy")
+	cmd.Flags().BoolVar(&yes, "yes", false, "execute updates without prompting")
+	cmd.Flags().BoolVar(&ci, "ci", false, "non-interactive mode; print commands unless --yes is also set")
+	cmd.Flags().BoolVar(&dbOnly, "db-only", false, "refresh vulnerability database/cache only where supported")
+	return cmd
 }
 
 func buildLogger(f scanFlags) *slog.Logger {

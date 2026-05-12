@@ -65,6 +65,18 @@ type InstallerPlan struct {
 	Notes    []string
 }
 
+type ScannerUpdatePlan struct {
+	Name             string
+	BinaryCommands   []string
+	DatabaseCommands []string
+	Notes            []string
+}
+
+type UpdateOptions struct {
+	Runner CommandRunner
+	DBOnly bool
+}
+
 func BackendStatus(backend Backend) Status {
 	bin := binaryName(backend)
 	p, err := exec.LookPath(bin)
@@ -100,6 +112,61 @@ func InstallPlan(backend Backend) InstallerPlan {
 	default:
 		return InstallerPlan{Name: string(backend)}
 	}
+}
+
+func UpdatePlan(backend Backend) ScannerUpdatePlan {
+	switch backend {
+	case BackendOSVScanner:
+		plan := ScannerUpdatePlan{Name: "OSV-Scanner"}
+		switch runtime.GOOS {
+		case "darwin":
+			plan.BinaryCommands = []string{"brew upgrade osv-scanner || brew install osv-scanner"}
+		case "windows":
+			plan.BinaryCommands = []string{"go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"}
+		default:
+			plan.BinaryCommands = []string{"go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"}
+			plan.Notes = []string{"OSV-Scanner has no separate local vulnerability DB to refresh; updating the binary is enough."}
+		}
+		return plan
+	case BackendTrivy:
+		plan := ScannerUpdatePlan{
+			Name:             "Trivy",
+			DatabaseCommands: []string{"trivy --download-db-only --quiet"},
+		}
+		switch runtime.GOOS {
+		case "darwin":
+			plan.BinaryCommands = []string{"brew upgrade trivy || brew install trivy"}
+		case "windows":
+			plan.BinaryCommands = []string{"winget upgrade AquaSecurity.Trivy || winget install AquaSecurity.Trivy"}
+		default:
+			plan.BinaryCommands = []string{"brew upgrade trivy || brew install trivy", "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"}
+			plan.Notes = []string{"Trivy auto-refreshes its vulnerability DB during scans by default; `audr update-scanners --db-only` refreshes it explicitly."}
+		}
+		return plan
+	default:
+		return ScannerUpdatePlan{Name: string(backend)}
+	}
+}
+
+func RunUpdatePlan(ctx context.Context, plan ScannerUpdatePlan, opts UpdateOptions) error {
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	commands := append([]string(nil), plan.DatabaseCommands...)
+	if !opts.DBOnly {
+		commands = append(append([]string(nil), plan.BinaryCommands...), plan.DatabaseCommands...)
+	}
+	for _, command := range commands {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		if _, err := runner.Run(ctx, shellName(), shellFlag(), command); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error) {
@@ -143,6 +210,20 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 	default:
 		return nil, fmt.Errorf("unknown dependency scanner backend %q", opts.Backend)
 	}
+}
+
+func shellName() string {
+	if runtime.GOOS == "windows" {
+		return "cmd"
+	}
+	return "sh"
+}
+
+func shellFlag() string {
+	if runtime.GOOS == "windows" {
+		return "/C"
+	}
+	return "-c"
 }
 
 func binaryName(backend Backend) string {

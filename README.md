@@ -63,8 +63,10 @@ vulnerability coverage, `audr scan` can call OSV-Scanner (Apache-2.0) under the
 hood; `audr scan --deep` can also call Trivy (Apache-2.0) for deeper filesystem
 package scanning. If a scanner is missing and Audr is running interactively, it
 prints the exact install command and asks before installing anything. In CI or
-machine-output mode, Audr never prompts; use `audr doctor` for setup guidance or
-`--require-deps` to fail when the requested dependency scanner is unavailable.
+machine-output mode, Audr never prompts; use `audr doctor` for setup guidance,
+`audr update-scanners` to refresh scanner binaries and vulnerability DB caches,
+or `--require-deps` to fail when the requested dependency scanner is
+unavailable.
 
 Audr also keeps a small offline fallback package vulnerability corpus for
 agent/local developer-machine CVEs. That reviewed source database lives in
@@ -114,6 +116,9 @@ audr scan -f json  -o -  | jq       # pipe JSON to stdout
 
 # Dependency scanners.
 audr doctor                         # check OSV-Scanner/Trivy availability
+audr update-scanners                # dry-run: print scanner update commands
+audr update-scanners --yes          # update scanner binaries + Trivy DB cache
+audr update-scanners --db-only      # dry-run: DB/cache refresh only where supported
 audr scan --no-deps .               # Audr-native checks only
 audr scan --deps-only .             # dependency vulnerability scan only
 audr scan --deep .                  # include Trivy deep filesystem/package scan

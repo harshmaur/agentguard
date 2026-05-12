@@ -97,6 +97,50 @@ func TestInstallPlanIncludesOpenSourceScannerCommands(t *testing.T) {
 	}
 }
 
+func TestUpdatePlanIncludesBinaryAndDatabaseRefreshCommands(t *testing.T) {
+	osv := UpdatePlan(BackendOSVScanner)
+	if osv.Name == "" || len(osv.BinaryCommands) == 0 {
+		t.Fatalf("UpdatePlan(OSV) = %+v, want binary update command", osv)
+	}
+	trivy := UpdatePlan(BackendTrivy)
+	if trivy.Name == "" || len(trivy.BinaryCommands) == 0 || len(trivy.DatabaseCommands) == 0 {
+		t.Fatalf("UpdatePlan(Trivy) = %+v, want binary and database update commands", trivy)
+	}
+	if !strings.Contains(strings.Join(trivy.DatabaseCommands, "\n"), "--download-db-only") {
+		t.Fatalf("Trivy DB update commands = %v, want --download-db-only", trivy.DatabaseCommands)
+	}
+}
+
+func TestRunUpdatePlanUsesInjectedRunner(t *testing.T) {
+	var calls []string
+	runner := CommandRunnerFunc(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return []byte("ok"), nil
+	})
+	plan := ScannerUpdatePlan{Name: "Example", BinaryCommands: []string{"example upgrade"}, DatabaseCommands: []string{"example db"}}
+	if err := RunUpdatePlan(context.Background(), plan, UpdateOptions{Runner: runner}); err != nil {
+		t.Fatalf("RunUpdatePlan err: %v", err)
+	}
+	if len(calls) != 2 || !strings.Contains(calls[0], "example upgrade") || !strings.Contains(calls[1], "example db") {
+		t.Fatalf("calls = %v, want binary then db update", calls)
+	}
+}
+
+func TestRunUpdatePlanDBOnlySkipsBinaryCommands(t *testing.T) {
+	var calls []string
+	runner := CommandRunnerFunc(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, strings.Join(args, " "))
+		return []byte("ok"), nil
+	})
+	plan := ScannerUpdatePlan{Name: "Example", BinaryCommands: []string{"example upgrade"}, DatabaseCommands: []string{"example db"}}
+	if err := RunUpdatePlan(context.Background(), plan, UpdateOptions{Runner: runner, DBOnly: true}); err != nil {
+		t.Fatalf("RunUpdatePlan err: %v", err)
+	}
+	if len(calls) != 1 || !strings.Contains(calls[0], "example db") {
+		t.Fatalf("calls = %v, want only db update", calls)
+	}
+}
+
 func TestRunBackendUsesInjectedRunner(t *testing.T) {
 	var called string
 	runner := CommandRunnerFunc(func(ctx context.Context, name string, args ...string) ([]byte, error) {

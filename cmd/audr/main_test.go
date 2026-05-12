@@ -150,10 +150,35 @@ func TestDoctorCommandPrintsBackendHealth(t *testing.T) {
 		t.Fatalf("doctor err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Audr doctor", "OSV-Scanner", "Trivy", "audr scan --deep"} {
+	for _, want := range []string{"Audr doctor", "OSV-Scanner", "Trivy", "audr scan --deep", "update:"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestUpdateScannersCommandDryRunPrintsCommands(t *testing.T) {
+	cmd := newUpdateScannersCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--ci"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("update-scanners dry run err: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"OSV-Scanner", "Trivy", "update:", "rerun with --yes"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("update-scanners output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestUpdateScannersCommandRejectsInvalidBackend(t *testing.T) {
+	cmd := newUpdateScannersCmd()
+	cmd.SetArgs([]string{"--backend", "bogus", "--ci"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("expected invalid backend error")
 	}
 }
 
