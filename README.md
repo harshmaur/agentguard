@@ -63,8 +63,8 @@ miss most often: the agent's own config, plus package-version posture for
 AI-agent and MCP packages that create local developer-machine risk. The offline
 package vulnerability database lives in
 `internal/rules/builtin/advisories/agent-packages.json`, is compiled into Go by
-`scripts/generate-agent-package-advisories.py`, and is refreshed by the scheduled
-`update-agent-package-advisories` GitHub Actions workflow.
+`scripts/generate-agent-package-advisories.py`, and is refreshed from the daily
+AUDR CVE ledger by the existing `audr-cve-shipper` cron.
 
 ---
 
