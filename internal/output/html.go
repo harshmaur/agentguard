@@ -249,15 +249,12 @@ func HTML(w io.Writer, r Report) error {
 	return tmpl.Execute(w, r)
 }
 
-const (
-	osvVulnerabilityRuleID   = "dependency-osv-vulnerability"
-	trivyVulnerabilityRuleID = "dependency-trivy-vulnerability"
-)
+const osvVulnerabilityRuleID = "dependency-osv-vulnerability"
 
 func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding {
 	packageFindings := make([]finding.Finding, 0)
 	for _, f := range findings {
-		if f.RuleID == osvVulnerabilityRuleID || f.RuleID == trivyVulnerabilityRuleID {
+		if f.RuleID == osvVulnerabilityRuleID {
 			packageFindings = append(packageFindings, f)
 		}
 	}

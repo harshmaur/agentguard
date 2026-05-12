@@ -132,8 +132,8 @@ func TestSelectedDependencyBackends(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selectedDependencyBackends deep err: %v", err)
 	}
-	if len(got) != 2 || string(got[0]) != "osv-scanner" || string(got[1]) != "trivy" {
-		t.Fatalf("deep backends = %v, want osv-scanner,trivy", got)
+	if len(got) != 1 || string(got[0]) != "osv-scanner" {
+		t.Fatalf("deep backends = %v, want osv-scanner", got)
 	}
 
 	if _, err := selectedDependencyBackends(scanFlags{depsBackend: "bogus"}); err == nil {
@@ -150,7 +150,7 @@ func TestDoctorCommandPrintsBackendHealth(t *testing.T) {
 		t.Fatalf("doctor err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Audr doctor", "OSV-Scanner", "Trivy", "audr scan --deep", "update:"} {
+	for _, want := range []string{"Audr doctor", "OSV-Scanner", "OSV-Scanner for dependency vulnerabilities", "update:"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, got)
 		}
@@ -167,7 +167,7 @@ func TestUpdateScannersCommandDryRunPrintsCommands(t *testing.T) {
 		t.Fatalf("update-scanners dry run err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"OSV-Scanner", "Trivy", "update:", "rerun with --yes"} {
+	for _, want := range []string{"OSV-Scanner", "update:", "rerun with --yes"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("update-scanners output missing %q:\n%s", want, got)
 		}

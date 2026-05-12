@@ -17,17 +17,11 @@ import (
 	"github.com/harshmaur/audr/internal/finding"
 )
 
-const (
-	RuleOSVVulnerability   = "dependency-osv-vulnerability"
-	RuleTrivyVulnerability = "dependency-trivy-vulnerability"
-)
+const RuleOSVVulnerability = "dependency-osv-vulnerability"
 
 type Backend string
 
-const (
-	BackendOSVScanner Backend = "osv-scanner"
-	BackendTrivy      Backend = "trivy"
-)
+const BackendOSVScanner Backend = "osv-scanner"
 
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -103,18 +97,6 @@ func InstallPlan(backend Backend) InstallerPlan {
 			plan.Notes = []string{"Requires Go on PATH; alternatively install an official OSV-Scanner release for your platform."}
 		}
 		return plan
-	case BackendTrivy:
-		plan := InstallerPlan{Name: "Trivy"}
-		switch runtime.GOOS {
-		case "darwin":
-			plan.Commands = []string{"brew install trivy"}
-		case "windows":
-			plan.Commands = []string{"winget install AquaSecurity.Trivy"}
-		default:
-			plan.Commands = []string{"brew install trivy", "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"}
-			plan.Notes = []string{"Use the package-manager command you trust for this machine; Audr asks before running installs."}
-		}
-		return plan
 	default:
 		return InstallerPlan{Name: string(backend)}
 	}
@@ -132,21 +114,6 @@ func UpdatePlan(backend Backend) ScannerUpdatePlan {
 		default:
 			plan.BinaryCommands = []string{"go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"}
 			plan.Notes = []string{"OSV-Scanner has no separate local vulnerability DB to refresh; updating the binary is enough."}
-		}
-		return plan
-	case BackendTrivy:
-		plan := ScannerUpdatePlan{
-			Name:             "Trivy",
-			DatabaseCommands: []string{"trivy --download-db-only --quiet"},
-		}
-		switch runtime.GOOS {
-		case "darwin":
-			plan.BinaryCommands = []string{"brew upgrade trivy || brew install trivy"}
-		case "windows":
-			plan.BinaryCommands = []string{"winget upgrade AquaSecurity.Trivy || winget install AquaSecurity.Trivy"}
-		default:
-			plan.BinaryCommands = []string{"brew upgrade trivy || brew install trivy", "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"}
-			plan.Notes = []string{"Trivy auto-refreshes its vulnerability DB during scans by default; `audr update-scanners --db-only` refreshes it explicitly."}
 		}
 		return plan
 	default:
@@ -203,23 +170,6 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 			return nil, err
 		}
 		return findings, parseErr
-	case BackendTrivy:
-		var all []finding.Finding
-		for _, root := range projectRoots {
-			out, err := runner.Run(ctx, binaryName(opts.Backend), "fs", "--scanners", "vuln", "--format", "json", "--quiet", root)
-			findings, parseErr := ParseTrivyJSON(out)
-			if parseErr == nil && len(out) > 0 {
-				all = append(all, findings...)
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			if parseErr != nil {
-				return nil, parseErr
-			}
-		}
-		return all, nil
 	default:
 		return nil, fmt.Errorf("unknown dependency scanner backend %q", opts.Backend)
 	}
@@ -333,8 +283,6 @@ func binaryName(backend Backend) string {
 	switch backend {
 	case BackendOSVScanner:
 		return "osv-scanner"
-	case BackendTrivy:
-		return "trivy"
 	default:
 		return string(backend)
 	}
@@ -425,57 +373,6 @@ func osvFixedVersion(v osvVulnerability) string {
 		}
 	}
 	return ""
-}
-
-type trivyReport struct {
-	Results []struct {
-		Target          string `json:"Target"`
-		Class           string `json:"Class"`
-		Type            string `json:"Type"`
-		Vulnerabilities []struct {
-			VulnerabilityID  string `json:"VulnerabilityID"`
-			PkgName          string `json:"PkgName"`
-			InstalledVersion string `json:"InstalledVersion"`
-			FixedVersion     string `json:"FixedVersion"`
-			Severity         string `json:"Severity"`
-			Title            string `json:"Title"`
-			Description      string `json:"Description"`
-		} `json:"Vulnerabilities"`
-	} `json:"Results"`
-}
-
-func ParseTrivyJSON(raw []byte) ([]finding.Finding, error) {
-	if len(strings.TrimSpace(string(raw))) == 0 {
-		return nil, nil
-	}
-	var report trivyReport
-	if err := json.Unmarshal(raw, &report); err != nil {
-		return nil, fmt.Errorf("parse trivy json: %w", err)
-	}
-	var out []finding.Finding
-	for _, res := range report.Results {
-		for _, vuln := range res.Vulnerabilities {
-			desc := firstNonEmpty(vuln.Title, vuln.Description, "Trivy reported a vulnerable dependency or package.")
-			fix := "Upgrade the package to a non-vulnerable version."
-			if vuln.FixedVersion != "" {
-				fix = fmt.Sprintf("Upgrade %s to %s or later.", vuln.PkgName, vuln.FixedVersion)
-			}
-			out = append(out, finding.New(finding.Args{
-				RuleID:       RuleTrivyVulnerability,
-				Severity:     severityFromString(vuln.Severity),
-				Taxonomy:     finding.TaxAdvisory,
-				Title:        fmt.Sprintf("Vulnerable package: %s", vuln.PkgName),
-				Description:  fmt.Sprintf("%s: %s", vuln.VulnerabilityID, desc),
-				Path:         res.Target,
-				Match:        fmt.Sprintf("%s %s@%s", res.Type, vuln.PkgName, vuln.InstalledVersion),
-				Context:      fmt.Sprintf("advisory=%s fixed=%s class=%s", vuln.VulnerabilityID, vuln.FixedVersion, res.Class),
-				SuggestedFix: fix,
-				Tags:         []string{"dependency", "vulnerability", "trivy", strings.ToLower(res.Type)},
-			}))
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool { return finding.Less(out[i], out[j]) })
-	return out, nil
 }
 
 func advisoryID(id string, aliases []string) string {

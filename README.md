@@ -53,27 +53,24 @@ Audr finds these in 1 second per dev box, or in CI on every PR. It
 reads the same config files Claude / Cursor / Codex / Windsurf actually load
 (`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
 `.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), scans
-package manifests, optionally runs open-source dependency scanners, runs
-built-in rules plus attack-chain correlations, and emits HTML for humans,
+package manifests, optionally runs OSV-Scanner for dependency vulnerabilities,
+runs built-in rules plus attack-chain correlations, and emits HTML for humans,
 SARIF for GitHub Code Scanning, JSON for everything else.
 
-Audr is not trying to rebuild Snyk, Trivy, Grype, or OSV. It owns the single
+Audr is not trying to rebuild a generic SCA scanner. It owns the single
 local/CI command and the unified developer-machine report. For broad dependency
 vulnerability coverage, `audr scan` can call OSV-Scanner (Apache-2.0) under the
-hood; `audr scan --deep` can also call Trivy (Apache-2.0) for deeper filesystem
-package scanning. If a scanner is missing and Audr is running interactively, it
-prints the exact install command and asks before installing anything. In CI or
+hood. If OSV-Scanner is missing and Audr is running interactively, it prints the
+exact install command and asks before installing anything. In CI or
 machine-output mode, Audr never prompts; use `audr doctor` for setup guidance,
-`audr update-scanners` to refresh scanner binaries and vulnerability DB caches,
-or `--require-deps` to fail when the requested dependency scanner is
-unavailable.
+`audr update-scanners` to refresh the OSV-Scanner binary, or `--require-deps`
+to fail when OSV-Scanner is unavailable.
 
-Audr delegates broad dependency vulnerability coverage to open-source scanner
-backends instead of maintaining its own package CVE database. `audr scan` uses
-OSV-Scanner when available; `audr scan --deep` also uses Trivy. The former
-Audr-local agent-package advisory corpus has been removed from runtime scanning
-so dependency results come from OSV/Trivy and appear in the same Package
-vulnerabilities report section.
+Audr delegates broad dependency vulnerability coverage to OSV-Scanner instead
+of maintaining its own package CVE database. The former Audr-local
+agent-package advisory corpus has been removed from runtime scanning, so
+dependency results come from OSV and appear in the same Package vulnerabilities
+report section.
 
 ---
 
@@ -116,14 +113,13 @@ audr scan -f html  -o scan.html     # forensic-document HTML report
 audr scan -f json  -o -  | jq       # pipe JSON to stdout
 
 # Dependency scanners.
-audr doctor                         # check OSV-Scanner/Trivy availability
-audr update-scanners                # dry-run: print scanner update commands
-audr update-scanners --yes          # update scanner binaries + Trivy DB cache
-audr update-scanners --db-only      # dry-run: DB/cache refresh only where supported
+audr doctor                         # check OSV-Scanner availability
+audr update-scanners                # dry-run: print OSV-Scanner update command
+audr update-scanners --yes          # update OSV-Scanner binary
+audr update-scanners --db-only      # dry-run: no-op for OSV-Scanner; no local DB cache
 audr scan --no-deps .               # Audr-native checks only
-audr scan --deps-only .             # dependency vulnerability scan only
-audr scan --deep .                  # include Trivy deep filesystem/package scan
-audr scan --ci --require-deps .     # CI: no prompts; fail if deps backend missing
+audr scan --deps-only .             # OSV dependency vulnerability scan only
+audr scan --ci --require-deps .     # CI: no prompts; fail if OSV-Scanner is missing
 
 # Suppress findings (per-rule or per-path globs).
 echo 'mcp-unpinned-npx **/old-mcp.json' > .audrignore

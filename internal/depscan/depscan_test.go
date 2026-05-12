@@ -49,67 +49,23 @@ func TestParseOSVScannerJSON_NormalizesFindings(t *testing.T) {
 	}
 }
 
-func TestParseTrivyJSON_NormalizesFindings(t *testing.T) {
-	input := []byte(`{
-		"Results": [{
-			"Target": "poetry.lock",
-			"Class": "lang-pkgs",
-			"Type": "poetry",
-			"Vulnerabilities": [{
-				"VulnerabilityID": "CVE-2022-31129",
-				"PkgName": "moment",
-				"InstalledVersion": "2.29.1",
-				"FixedVersion": "2.29.4",
-				"Severity": "HIGH",
-				"Title": "Path traversal"
-			}]
-		}]
-	}`)
-
-	findings, err := ParseTrivyJSON(input)
-	if err != nil {
-		t.Fatalf("ParseTrivyJSON err: %v", err)
-	}
-	if len(findings) != 1 {
-		t.Fatalf("len(findings) = %d, want 1", len(findings))
-	}
-	got := findings[0]
-	if got.RuleID != RuleTrivyVulnerability {
-		t.Fatalf("RuleID = %q", got.RuleID)
-	}
-	for _, want := range []string{"moment", "2.29.1", "CVE-2022-31129"} {
-		if !strings.Contains(got.Match, want) && !strings.Contains(got.Description, want) && !strings.Contains(got.Context, want) {
-			t.Errorf("finding does not mention %q: %+v", want, got)
-		}
-	}
-	if !strings.Contains(got.SuggestedFix, "2.29.4") {
-		t.Errorf("SuggestedFix = %q, want fixed version", got.SuggestedFix)
-	}
-}
-
 func TestInstallPlanIncludesOpenSourceScannerCommands(t *testing.T) {
-	for _, backend := range []Backend{BackendOSVScanner, BackendTrivy} {
-		plan := InstallPlan(backend)
-		if plan.Name == "" || len(plan.Commands) == 0 {
-			t.Fatalf("InstallPlan(%s) = %+v, want command", backend, plan)
-		}
-		if runtime.GOOS != "windows" && strings.Contains(strings.Join(plan.Commands, "\n"), "powershell") {
-			t.Fatalf("unexpected windows-only command on %s: %+v", runtime.GOOS, plan)
-		}
+	plan := InstallPlan(BackendOSVScanner)
+	if plan.Name == "" || len(plan.Commands) == 0 {
+		t.Fatalf("InstallPlan(OSV) = %+v, want command", plan)
+	}
+	if runtime.GOOS != "windows" && strings.Contains(strings.Join(plan.Commands, "\n"), "powershell") {
+		t.Fatalf("unexpected windows-only command on %s: %+v", runtime.GOOS, plan)
 	}
 }
 
-func TestUpdatePlanIncludesBinaryAndDatabaseRefreshCommands(t *testing.T) {
+func TestUpdatePlanIncludesBinaryUpdateCommand(t *testing.T) {
 	osv := UpdatePlan(BackendOSVScanner)
 	if osv.Name == "" || len(osv.BinaryCommands) == 0 {
 		t.Fatalf("UpdatePlan(OSV) = %+v, want binary update command", osv)
 	}
-	trivy := UpdatePlan(BackendTrivy)
-	if trivy.Name == "" || len(trivy.BinaryCommands) == 0 || len(trivy.DatabaseCommands) == 0 {
-		t.Fatalf("UpdatePlan(Trivy) = %+v, want binary and database update commands", trivy)
-	}
-	if !strings.Contains(strings.Join(trivy.DatabaseCommands, "\n"), "--download-db-only") {
-		t.Fatalf("Trivy DB update commands = %v, want --download-db-only", trivy.DatabaseCommands)
+	if len(osv.DatabaseCommands) != 0 {
+		t.Fatalf("UpdatePlan(OSV) database commands = %v, want none", osv.DatabaseCommands)
 	}
 }
 

@@ -91,7 +91,7 @@ func newScanCmd() *cobra.Command {
 		flagDeep        bool
 		flagCI          bool
 		flagRequireDeps bool
-		flagDepsBackend string // "auto" | "osv-scanner" | "trivy"
+		flagDepsBackend string // "auto" | "osv-scanner"
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
@@ -151,10 +151,10 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVar(&flagLogJSON, "log-json", false, "emit logs as JSON instead of text")
 	cmd.Flags().BoolVar(&flagNoDeps, "no-deps", false, "skip external dependency vulnerability scanners")
 	cmd.Flags().BoolVar(&flagDepsOnly, "deps-only", false, "run only external dependency vulnerability scanners")
-	cmd.Flags().BoolVar(&flagDeep, "deep", false, "include deep filesystem/package scanning with Trivy when available")
+	cmd.Flags().BoolVar(&flagDeep, "deep", false, "compatibility flag; dependency vulnerability scanning remains OSV-only")
 	cmd.Flags().BoolVar(&flagCI, "ci", false, "non-interactive CI mode; never prompt to install scanner backends")
 	cmd.Flags().BoolVar(&flagRequireDeps, "require-deps", false, "fail if requested dependency scanner backends are unavailable")
-	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner | trivy")
+	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner")
 	return cmd
 }
 
@@ -519,35 +519,19 @@ func runDependencyBackends(ctx context.Context, f scanFlags, roots []string, pla
 
 func selectedDependencyBackends(f scanFlags) ([]depscan.Backend, error) {
 	switch strings.ToLower(strings.TrimSpace(f.depsBackend)) {
-	case "", "auto":
-		backends := []depscan.Backend{depscan.BackendOSVScanner}
-		if f.deep {
-			backends = append(backends, depscan.BackendTrivy)
-		}
-		return backends, nil
-	case "osv", "osv-scanner":
-		backends := []depscan.Backend{depscan.BackendOSVScanner}
-		if f.deep {
-			backends = append(backends, depscan.BackendTrivy)
-		}
-		return backends, nil
-	case "trivy":
-		return []depscan.Backend{depscan.BackendTrivy}, nil
+	case "", "auto", "osv", "osv-scanner":
+		return []depscan.Backend{depscan.BackendOSVScanner}, nil
 	default:
-		return nil, fmt.Errorf("--deps-backend must be auto | osv-scanner | trivy (got %q)", f.depsBackend)
+		return nil, fmt.Errorf("--deps-backend must be auto | osv-scanner (got %q)", f.depsBackend)
 	}
 }
 
 func selectedScannerBackends(raw string) ([]depscan.Backend, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "auto":
-		return []depscan.Backend{depscan.BackendOSVScanner, depscan.BackendTrivy}, nil
-	case "osv", "osv-scanner":
+	case "", "auto", "osv", "osv-scanner":
 		return []depscan.Backend{depscan.BackendOSVScanner}, nil
-	case "trivy":
-		return []depscan.Backend{depscan.BackendTrivy}, nil
 	default:
-		return nil, fmt.Errorf("--backend must be auto | osv-scanner | trivy (got %q)", raw)
+		return nil, fmt.Errorf("--backend must be auto | osv-scanner (got %q)", raw)
 	}
 }
 
@@ -624,7 +608,7 @@ func newDoctorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "Audr doctor\n\n")
-			for _, backend := range []depscan.Backend{depscan.BackendOSVScanner, depscan.BackendTrivy} {
+			for _, backend := range []depscan.Backend{depscan.BackendOSVScanner} {
 				status := depscan.BackendStatus(backend)
 				plan := depscan.InstallPlan(backend)
 				update := depscan.UpdatePlan(backend)
@@ -643,7 +627,7 @@ func newDoctorCmd() *cobra.Command {
 					fmt.Fprintf(w, "  note: %s\n", n)
 				}
 			}
-			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --deep` also uses Trivy. Use `audr update-scanners --yes` to refresh scanner binaries and vulnerability DB caches.\n")
+			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. Use `audr update-scanners --yes` to refresh the OSV-Scanner binary. OSV-Scanner queries OSV directly and does not require a local vulnerability DB cache.\n")
 			return nil
 		},
 	}
@@ -657,7 +641,7 @@ func newUpdateScannersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-scanners",
 		Short: "Update external dependency scanner backends",
-		Long:  "Update open-source scanners used by audr scan: OSV-Scanner and Trivy. Without --yes, this command prints the commands it would run and exits without side effects.",
+		Long:  "Update OSV-Scanner, the open-source dependency scanner used by audr scan. Without --yes, this command prints the commands it would run and exits without side effects.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			backends, err := selectedScannerBackends(backend)
 			if err != nil {
@@ -703,10 +687,10 @@ func newUpdateScannersCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner | trivy")
+	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner")
 	cmd.Flags().BoolVar(&yes, "yes", false, "execute updates without prompting")
 	cmd.Flags().BoolVar(&ci, "ci", false, "non-interactive mode; print commands unless --yes is also set")
-	cmd.Flags().BoolVar(&dbOnly, "db-only", false, "refresh vulnerability database/cache only where supported")
+	cmd.Flags().BoolVar(&dbOnly, "db-only", false, "refresh vulnerability database/cache only where supported; OSV-Scanner has no local DB cache")
 	return cmd
 }
 
