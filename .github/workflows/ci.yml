@@ -83,13 +83,15 @@ jobs:
         # or fixture changes that forget to regenerate the doc artifact.
         run: |
           ./audr scan -f html -o /tmp/sample-report.fresh.html testdata/laptops/dirty || true
-          # Strip runtime-only values. The started timestamp and scan duration
-          # legitimately vary across developer machines and GitHub runners.
+          # Strip runtime-only values and line-end whitespace. The started
+          # timestamp and scan duration legitimately vary across developer
+          # machines and GitHub runners; template indentation can also leave
+          # harmless trailing spaces on generated blank/control lines.
           normalize_report() {
             sed -E \
               -e 's@<span class="v">[0-9-]+ [0-9:]+ [A-Z]+</span>@<span class="v">[normalized]</span>@g' \
               -e 's@<span class="v">[0-9]+(ms|µs|ns|s)</span>@<span class="v">[duration]</span>@g' \
-              "$1"
+              "$1" | sed -E 's/[[:space:]]+$//'
           }
           if ! diff -q \
               <(normalize_report /tmp/sample-report.fresh.html) \
