@@ -304,6 +304,88 @@ func TestText_VerdictAndChains(t *testing.T) {
 	}
 }
 
+func TestText_RendersPackageVulnerabilitySection(t *testing.T) {
+	now := time.Now()
+	findings := []finding.Finding{}
+	for i := 0; i < 14; i++ {
+		findings = append(findings, finding.Finding{
+			RuleID:   "mcp-unauth-remote-url",
+			Severity: finding.SeverityHigh,
+			Title:    "Other high finding",
+			Path:     "/tmp/other.json",
+			Line:     i + 1,
+		})
+	}
+	findings = append(findings, finding.Finding{
+		RuleID:       "agent-package-known-vulnerable",
+		Severity:     finding.SeverityHigh,
+		Title:        "Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
+		Description:  "npm declares @anthropic-ai/sdk@0.81.0, which matches CVE-2026-41686.",
+		Path:         "/repo/package.json",
+		Line:         17,
+		Match:        "@anthropic-ai/sdk@0.81.0",
+		SuggestedFix: "Upgrade @anthropic-ai/sdk to 0.91.1 or later.",
+	})
+	r := Report{Version: "v0.2.3-test", Roots: []string{"/repo"}, FilesParsed: 1, FilesSeen: 1, StartedAt: now, FinishedAt: now.Add(time.Second), Findings: findings}
+
+	var buf bytes.Buffer
+	if err := Text(&buf, r, "/tmp/x.html"); err != nil {
+		t.Fatalf("Text render: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Package vulnerabilities (1)",
+		"Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
+		"/repo/package.json:17",
+		"Installed: @anthropic-ai/sdk@0.81.0",
+		"Fix: Upgrade @anthropic-ai/sdk to 0.91.1 or later.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("CLI package section missing %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestHTML_RendersPackageVulnerabilitySection(t *testing.T) {
+	now := time.Now()
+	r := Report{
+		Version:    "v0.2.3-test",
+		Roots:      []string{"/repo"},
+		StartedAt:  now,
+		FinishedAt: now.Add(time.Second),
+		Findings: []finding.Finding{
+			{
+				RuleID:       "agent-package-known-vulnerable",
+				Severity:     finding.SeverityHigh,
+				Taxonomy:     finding.TaxDetectable,
+				Title:        "Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
+				Description:  "npm declares @anthropic-ai/sdk@0.81.0, which matches CVE-2026-41686.",
+				Path:         "/repo/package.json",
+				Line:         17,
+				Match:        "@anthropic-ai/sdk@0.81.0",
+				SuggestedFix: "Upgrade @anthropic-ai/sdk to 0.91.1 or later.",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := HTML(&buf, r); err != nil {
+		t.Fatalf("HTML render: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Package vulnerabilities",
+		"1 vulnerable package manifest",
+		"Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
+		"/repo/package.json",
+		"@anthropic-ai/sdk@0.81.0",
+		"Upgrade @anthropic-ai/sdk to 0.91.1 or later.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("HTML package section missing %q", want)
+		}
+	}
+}
+
 func TestHTML_EmptyFindings(t *testing.T) {
 	r := Report{Version: "v0.2.2-test", Roots: []string{"/tmp"}, FilesParsed: 5, StartedAt: time.Now(), FinishedAt: time.Now()}
 	var buf bytes.Buffer

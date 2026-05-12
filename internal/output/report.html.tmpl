@@ -684,6 +684,46 @@
   {{end}}
   {{end}}
 
+  {{- $packageFindings := packageVulns .Findings }}
+  {{if $packageFindings}}
+  <h2 class="section">
+    <span>Package vulnerabilities</span>
+    <span class="count">{{len $packageFindings}} vulnerable package manifest{{if ne (len $packageFindings) 1}}s{{end}}</span>
+  </h2>
+
+  <ul class="findings package-vulnerabilities">
+    {{range $packageFindings}}
+    <li>
+      <details class="finding {{sevClass .Severity}}" open>
+        <summary class="finding-summary">
+          <div class="finding-summary-row">
+            <span>
+              <span class="finding-title">{{md .Title}}</span>
+              {{if gt .Line 0}}<span class="finding-line">line {{.Line}}</span>{{end}}
+            </span>
+            <span class="finding-pills">
+              <span class="pill {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
+            </span>
+          </div>
+        </summary>
+        <div class="finding-body">
+          <div class="finding-rule"><span class="k">Manifest</span>{{.Path}}</div>
+          <div class="finding-desc">{{md .Description}}</div>
+          {{if .Match}}<pre class="finding-match">{{.Match}}</pre>{{end}}
+          {{if .SuggestedFix}}
+            <div class="finding-fix">
+              <span class="finding-fix-label">Fix</span>
+              {{md .SuggestedFix}}
+            </div>
+          {{end}}
+          <div class="finding-rule"><span class="k">Rule</span>{{.RuleID}} · <span class="k">Class</span>{{.Taxonomy}}</div>
+        </div>
+      </details>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+
   {{if eq (index $c "total") 0}}
     <section class="empty">
       <div class="empty-mark">✓</div>

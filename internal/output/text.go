@@ -74,6 +74,33 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 		bw.printf("  (%d suppressed by .audrignore)\n", r.Suppressed)
 	}
 
+	packageFindings := packageVulnerabilityFindings(r.Findings)
+	if len(packageFindings) > 0 {
+		bw.printf("\nPackage vulnerabilities (%d):\n", len(packageFindings))
+		max := 8
+		shown := packageFindings
+		if len(packageFindings) > max {
+			shown = packageFindings[:max]
+		}
+		for _, f := range shown {
+			loc := f.Path
+			if f.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", f.Path, f.Line)
+			}
+			bw.printf("  - [%s] %s\n", strings.ToUpper(f.Severity.String()), f.Title)
+			bw.printf("    %s\n", loc)
+			if f.Match != "" {
+				bw.printf("    Installed: %s\n", f.Match)
+			}
+			if f.SuggestedFix != "" {
+				bw.printf("    Fix: %s\n", f.SuggestedFix)
+			}
+		}
+		if len(packageFindings) > max {
+			bw.printf("  ... and %d more package vulnerabilities (see HTML for full list)\n", len(packageFindings)-max)
+		}
+	}
+
 	// Group printable findings: show all critical + high + medium, cap at 12 per
 	// severity tier so we don't flood the terminal. Lows are summarized only.
 	bySev := map[finding.Severity][]finding.Finding{}

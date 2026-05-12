@@ -171,6 +171,7 @@ func HTML(w io.Writer, r Report) error {
 			c["total"] = len(findings)
 			return c
 		},
+		"packageVulns": packageVulnerabilityFindings,
 		"shortPath": func(p string) string {
 			parts := strings.Split(p, "/")
 			if len(parts) <= 4 {
@@ -246,6 +247,21 @@ func HTML(w io.Writer, r Report) error {
 		return fmt.Errorf("html template: %w", err)
 	}
 	return tmpl.Execute(w, r)
+}
+
+const packageVulnerabilityRuleID = "agent-package-known-vulnerable"
+
+func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding {
+	packageFindings := make([]finding.Finding, 0)
+	for _, f := range findings {
+		if f.RuleID == packageVulnerabilityRuleID {
+			packageFindings = append(packageFindings, f)
+		}
+	}
+	sort.SliceStable(packageFindings, func(i, j int) bool {
+		return finding.Less(packageFindings[i], packageFindings[j])
+	})
+	return packageFindings
 }
 
 // Verdict returns the headline sentence for this Report. Used by both the
