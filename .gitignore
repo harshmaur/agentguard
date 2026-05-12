@@ -13,6 +13,7 @@
 !testdata/laptops/**/*.json
 !docs/*.html
 !docs/*.json
+!internal/rules/builtin/advisories/*.json
 
 # editor
 .vscode/

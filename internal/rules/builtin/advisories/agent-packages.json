@@ -1,0 +1,1739 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-12T09:29:05Z",
+  "source": "Reviewed AUDR CVE ledger plus preserved historical package advisories. Runtime scanner is offline.",
+  "advisories": [
+    {
+      "ecosystem": "npm",
+      "package": "@anthropic-ai/sdk",
+      "cve": "CVE-2026-41686",
+      "title": "Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
+      "severity": "high",
+      "min_version": "0.79.0",
+      "fixed_version": "0.91.1",
+      "tags": [
+        "anthropic",
+        "npm",
+        "filesystem-permissions"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ]
+    },
+    {
+      "ecosystem": "npm",
+      "package": "automagik-genie",
+      "cve": "CVE-2026-30635",
+      "title": "automagik-genie MCP server transcript reader is vulnerable to command injection",
+      "severity": "critical",
+      "tags": [
+        "command-injection",
+        "mcp",
+        "npm"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "exact_version": "2.5.27"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "cloudbase-mcp",
+      "cve": "CVE-2026-7221",
+      "title": "CloudBase-MCP openUrl tool is vulnerable to SSRF",
+      "severity": "high",
+      "tags": [
+        "mcp",
+        "npm",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "last_vulnerable": "2.17.0"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "directus-mcp",
+      "cve": "CVE-2026-7729",
+      "title": "directus-mcp fileUrl validation is vulnerable to SSRF",
+      "severity": "high",
+      "tags": [
+        "mcp",
+        "npm",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "exact_version": "1.0.0"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "mcp-chat-studio",
+      "cve": "CVE-2026-7147",
+      "title": "mcp-chat-studio LLM Models API base_url is vulnerable to SSRF",
+      "severity": "high",
+      "tags": [
+        "mcp",
+        "npm",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "last_vulnerable": "1.5.0"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "n8n-mcp",
+      "cve": "CVE-2026-41495",
+      "title": "n8n-mcp package matches CVE-2026-41495: n8n-MCP is an MCP server that provides AI assistants access to n8n node documentation, properties, and operations",
+      "severity": "medium",
+      "tags": [
+        "auth-bypass",
+        "mcp",
+        "npm"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2.47.11"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "n8n-mcp",
+      "cve": "CVE-2026-42282",
+      "title": "n8n-mcp package matches CVE-2026-42282: n8n-MCP is an MCP server that provides AI assistants access to n8n node documentation, properties, and operations",
+      "severity": "medium",
+      "tags": [
+        "mcp",
+        "npm"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2.47.13"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41352",
+      "title": "openclaw package matches CVE-2026-41352: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41362",
+      "title": "openclaw package matches CVE-2026-41362: OpenClaw 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "last_vulnerable": "2026.3.31",
+      "min_version": "2026.2.19"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41363",
+      "title": "openclaw package matches CVE-2026-41363: OpenClaw 2026",
+      "severity": "high",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "last_vulnerable": "2026.3.24",
+      "min_version": "2026.2.6"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41364",
+      "title": "openclaw package matches CVE-2026-41364: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41367",
+      "title": "openclaw package matches CVE-2026-41367: OpenClaw 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "last_vulnerable": "2026.3.24",
+      "min_version": "2026.2.14"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41371",
+      "title": "openclaw package matches CVE-2026-41371: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.28"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41374",
+      "title": "openclaw package matches CVE-2026-41374: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41377",
+      "title": "openclaw package matches CVE-2026-41377: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41378",
+      "title": "openclaw package matches CVE-2026-41378: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41380",
+      "title": "openclaw package matches CVE-2026-41380: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.28"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41383",
+      "title": "openclaw package matches CVE-2026-41383: OpenClaw < 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.2"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41384",
+      "title": "openclaw package matches CVE-2026-41384: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.24"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41387",
+      "title": "openclaw package matches CVE-2026-41387: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41391",
+      "title": "openclaw package matches CVE-2026-41391: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41393",
+      "title": "openclaw package matches CVE-2026-41393: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41396",
+      "title": "openclaw package matches CVE-2026-41396: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41398",
+      "title": "openclaw package matches CVE-2026-41398: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.2"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41400",
+      "title": "openclaw package matches CVE-2026-41400: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41402",
+      "title": "openclaw package matches CVE-2026-41402: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41403",
+      "title": "openclaw package matches CVE-2026-41403: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41404",
+      "title": "openclaw package matches CVE-2026-41404: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41407",
+      "title": "openclaw package matches CVE-2026-41407: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.2"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41408",
+      "title": "openclaw package matches CVE-2026-41408: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41910",
+      "title": "openclaw package matches CVE-2026-41910: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41912",
+      "title": "openclaw package matches CVE-2026-41912: OpenClaw < 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41913",
+      "title": "openclaw package matches CVE-2026-41913: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.4"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41914",
+      "title": "openclaw package matches CVE-2026-41914: OpenClaw < 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-41915",
+      "title": "openclaw package matches CVE-2026-41915: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42420",
+      "title": "openclaw package matches CVE-2026-42420: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42422",
+      "title": "openclaw package matches CVE-2026-42422: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42423",
+      "title": "openclaw package matches CVE-2026-42423: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42428",
+      "title": "openclaw package matches CVE-2026-42428: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42429",
+      "title": "openclaw package matches CVE-2026-42429: OpenClaw < 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42431",
+      "title": "openclaw package matches CVE-2026-42431: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42432",
+      "title": "openclaw package matches CVE-2026-42432: OpenClaw < 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.8"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42433",
+      "title": "openclaw package matches CVE-2026-42433: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42434",
+      "title": "openclaw package matches CVE-2026-42434: OpenClaw versions 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.4.5"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42435",
+      "title": "openclaw package matches CVE-2026-42435: OpenClaw versions from 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.12",
+      "min_version": "2026.2.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42436",
+      "title": "openclaw package matches CVE-2026-42436: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42437",
+      "title": "openclaw package matches CVE-2026-42437: OpenClaw versions 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.4.9"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42438",
+      "title": "openclaw package matches CVE-2026-42438: OpenClaw versions 2026",
+      "severity": "high",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.4.9"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-42439",
+      "title": "openclaw package matches CVE-2026-42439: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43526",
+      "title": "openclaw package matches CVE-2026-43526: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.12"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43527",
+      "title": "openclaw package matches CVE-2026-43527: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43528",
+      "title": "openclaw package matches CVE-2026-43528: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43529",
+      "title": "openclaw package matches CVE-2026-43529: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43530",
+      "title": "openclaw package matches CVE-2026-43530: OpenClaw versions 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.12",
+      "min_version": "2026.2.23"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43531",
+      "title": "openclaw package matches CVE-2026-43531: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.9"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43532",
+      "title": "openclaw package matches CVE-2026-43532: OpenClaw versions 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.4.7"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43533",
+      "title": "openclaw package matches CVE-2026-43533: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43534",
+      "title": "openclaw package matches CVE-2026-43534: OpenClaw before 2026",
+      "severity": "critical",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43535",
+      "title": "openclaw package matches CVE-2026-43535: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "filesystem-permissions",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43566",
+      "title": "openclaw package matches CVE-2026-43566: OpenClaw versions 2026",
+      "severity": "critical",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14",
+      "min_version": "2026.4.7"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43567",
+      "title": "openclaw package matches CVE-2026-43567: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43568",
+      "title": "openclaw package matches CVE-2026-43568: OpenClaw versions 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.4.5"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43569",
+      "title": "openclaw package matches CVE-2026-43569: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "auth-bypass",
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.9"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43570",
+      "title": "openclaw package matches CVE-2026-43570: OpenClaw versions 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.5",
+      "min_version": "2026.3.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43571",
+      "title": "openclaw package matches CVE-2026-43571: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43572",
+      "title": "openclaw package matches CVE-2026-43572: OpenClaw versions 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14",
+      "min_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43573",
+      "title": "openclaw package matches CVE-2026-43573: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43574",
+      "title": "openclaw package matches CVE-2026-43574: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.12"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43575",
+      "title": "openclaw package matches CVE-2026-43575: OpenClaw versions 2026",
+      "severity": "critical",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.2.21"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43576",
+      "title": "openclaw package matches CVE-2026-43576: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.5"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43577",
+      "title": "openclaw package matches CVE-2026-43577: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.9"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43578",
+      "title": "openclaw package matches CVE-2026-43578: OpenClaw versions 2026",
+      "severity": "critical",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10",
+      "min_version": "2026.3.31"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43579",
+      "title": "openclaw package matches CVE-2026-43579: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "auth-bypass",
+        "filesystem-permissions",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43580",
+      "title": "openclaw package matches CVE-2026-43580: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43581",
+      "title": "openclaw package matches CVE-2026-43581: OpenClaw before 2026",
+      "severity": "critical",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43582",
+      "title": "openclaw package matches CVE-2026-43582: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43583",
+      "title": "openclaw package matches CVE-2026-43583: OpenClaw versions 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.14",
+      "min_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43584",
+      "title": "openclaw package matches CVE-2026-43584: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.10"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-43585",
+      "title": "openclaw package matches CVE-2026-43585: OpenClaw before 2026",
+      "severity": "critical",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.15"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44109",
+      "title": "openclaw package matches CVE-2026-44109: OpenClaw before 2026",
+      "severity": "critical",
+      "tags": [
+        "auth-bypass",
+        "command-injection",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.15"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44110",
+      "title": "openclaw package matches CVE-2026-44110: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.15"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44111",
+      "title": "openclaw package matches CVE-2026-44111: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.15"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44112",
+      "title": "openclaw package matches CVE-2026-44112: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44113",
+      "title": "openclaw package matches CVE-2026-44113: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44114",
+      "title": "openclaw package matches CVE-2026-44114: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44115",
+      "title": "openclaw package matches CVE-2026-44115: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44116",
+      "title": "openclaw package matches CVE-2026-44116: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44117",
+      "title": "openclaw package matches CVE-2026-44117: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44118",
+      "title": "openclaw package matches CVE-2026-44118: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "mcp",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44991",
+      "title": "openclaw package matches CVE-2026-44991: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.21"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44992",
+      "title": "openclaw package matches CVE-2026-44992: OpenClaw versions 2026",
+      "severity": "medium",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20",
+      "min_version": "2026.4.5"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44993",
+      "title": "openclaw package matches CVE-2026-44993: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44994",
+      "title": "openclaw package matches CVE-2026-44994: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44995",
+      "title": "openclaw package matches CVE-2026-44995: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "command-injection",
+        "env",
+        "mcp",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44996",
+      "title": "openclaw package matches CVE-2026-44996: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "file-access",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.15"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44997",
+      "title": "openclaw package matches CVE-2026-44997: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44998",
+      "title": "openclaw package matches CVE-2026-44998: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "mcp",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-44999",
+      "title": "openclaw package matches CVE-2026-44999: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45000",
+      "title": "openclaw package matches CVE-2026-45000: OpenClaw before 2026",
+      "severity": "low",
+      "tags": [
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45001",
+      "title": "openclaw package matches CVE-2026-45001: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "mcp",
+        "npm",
+        "openclaw",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45002",
+      "title": "openclaw package matches CVE-2026-45002: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.20"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45003",
+      "title": "openclaw package matches CVE-2026-45003: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "env",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.22"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45004",
+      "title": "openclaw package matches CVE-2026-45004: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "command-injection",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.23"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45005",
+      "title": "openclaw package matches CVE-2026-45005: OpenClaw before 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.23"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-45006",
+      "title": "openclaw package matches CVE-2026-45006: OpenClaw before 2026",
+      "severity": "high",
+      "tags": [
+        "auth-bypass",
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "2026.4.23"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "openclaw",
+      "cve": "CVE-2026-8305",
+      "title": "openclaw package matches CVE-2026-8305: A vulnerability was detected in OpenClaw up to 2026",
+      "severity": "medium",
+      "tags": [
+        "npm",
+        "openclaw"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "last_vulnerable": "2026.1.24"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "xhs-mcp",
+      "cve": "CVE-2026-7417",
+      "title": "xhs-mcp media_paths validation is vulnerable to SSRF",
+      "severity": "high",
+      "tags": [
+        "mcp",
+        "npm",
+        "ssrf"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "exact_version": "0.8.11"
+    },
+    {
+      "ecosystem": "pypi",
+      "package": "praisonai",
+      "cve": "CVE-2026-41496",
+      "title": "praisonai version is vulnerable to multi-backend conversation store SQL injection",
+      "severity": "critical",
+      "fixed_version": "4.6.9",
+      "tags": [
+        "praisonai",
+        "pypi",
+        "sql-injection"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ]
+    },
+    {
+      "ecosystem": "pypi",
+      "package": "praisonai",
+      "cve": "CVE-2026-44336",
+      "title": "praisonai MCP server exposes unsafe file-handling tools by default",
+      "severity": "high",
+      "tags": [
+        "command-injection",
+        "file-access",
+        "mcp",
+        "praisonai",
+        "pypi"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ],
+      "fixed_version": "4.6.34"
+    },
+    {
+      "ecosystem": "pypi",
+      "package": "praisonaiagents",
+      "cve": "CVE-2026-41496",
+      "title": "praisonaiagents version is vulnerable to multi-backend conversation store SQL injection",
+      "severity": "critical",
+      "fixed_version": "1.6.9",
+      "tags": [
+        "praisonai",
+        "pypi",
+        "sql-injection"
+      ],
+      "sources": [
+        "docs/cve-triage-ledger.json"
+      ]
+    }
+  ]
+}

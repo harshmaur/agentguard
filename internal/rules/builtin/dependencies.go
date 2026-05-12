@@ -63,63 +63,6 @@ func (agentPackageKnownVulnerable) Apply(doc *parse.Document) []finding.Finding 
 	return out
 }
 
-var dependencyAdvisories = []dependencyAdvisory{
-	{
-		Ecosystem: "pypi", Package: "praisonaiagents", CVE: "CVE-2026-41496",
-		Title:    "praisonaiagents version is vulnerable to multi-backend conversation store SQL injection",
-		Severity: finding.SeverityCritical, FixedVersion: "1.6.9",
-		Tags: []string{"praisonai", "pypi", "sql-injection"},
-	},
-	{
-		Ecosystem: "pypi", Package: "praisonai", CVE: "CVE-2026-41496",
-		Title:    "praisonai version is vulnerable to multi-backend conversation store SQL injection",
-		Severity: finding.SeverityCritical, FixedVersion: "4.6.9",
-		Tags: []string{"praisonai", "pypi", "sql-injection"},
-	},
-	{
-		Ecosystem: "pypi", Package: "praisonai", CVE: "CVE-2026-44336",
-		Title:    "praisonai MCP server exposes unsafe file-handling tools by default",
-		Severity: finding.SeverityHigh, FixedVersion: "4.6.34",
-		Tags: []string{"praisonai", "mcp", "pypi", "file-access"},
-	},
-	{
-		Ecosystem: "npm", Package: "@anthropic-ai/sdk", CVE: "CVE-2026-41686",
-		Title:    "Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
-		Severity: finding.SeverityHigh, MinVersion: "0.79.0", FixedVersion: "0.91.1",
-		Tags: []string{"anthropic", "npm", "filesystem-permissions"},
-	},
-	{
-		Ecosystem: "npm", Package: "xhs-mcp", CVE: "CVE-2026-7417",
-		Title:    "xhs-mcp media_paths validation is vulnerable to SSRF",
-		Severity: finding.SeverityHigh, ExactVersion: "0.8.11",
-		Tags: []string{"mcp", "npm", "ssrf"},
-	},
-	{
-		Ecosystem: "npm", Package: "directus-mcp", CVE: "CVE-2026-7729",
-		Title:    "directus-mcp fileUrl validation is vulnerable to SSRF",
-		Severity: finding.SeverityHigh, ExactVersion: "1.0.0",
-		Tags: []string{"mcp", "npm", "ssrf"},
-	},
-	{
-		Ecosystem: "npm", Package: "cloudbase-mcp", CVE: "CVE-2026-7221",
-		Title:    "CloudBase-MCP openUrl tool is vulnerable to SSRF",
-		Severity: finding.SeverityHigh, FixedVersion: "2.17.1",
-		Tags: []string{"mcp", "npm", "ssrf"},
-	},
-	{
-		Ecosystem: "npm", Package: "mcp-chat-studio", CVE: "CVE-2026-7147",
-		Title:    "mcp-chat-studio LLM Models API base_url is vulnerable to SSRF",
-		Severity: finding.SeverityHigh, LastVulnerable: "1.5.0",
-		Tags: []string{"mcp", "npm", "ssrf"},
-	},
-	{
-		Ecosystem: "npm", Package: "automagik-genie", CVE: "CVE-2026-30635",
-		Title:    "automagik-genie MCP server transcript reader is vulnerable to command injection",
-		Severity: finding.SeverityCritical, ExactVersion: "2.5.27",
-		Tags: []string{"mcp", "npm", "command-injection"},
-	},
-}
-
 func dependencyMatchesAdvisory(ecosystem string, dep parse.Dependency, advisory dependencyAdvisory) bool {
 	if ecosystem != advisory.Ecosystem || normalizePackageName(ecosystem, dep.Name) != normalizePackageName(ecosystem, advisory.Package) {
 		return false

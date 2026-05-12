@@ -60,7 +60,11 @@ SARIF for GitHub Code Scanning, JSON for everything else.
 
 Audr is not a general Snyk replacement. It scans the layer those tools still
 miss most often: the agent's own config, plus package-version posture for
-AI-agent and MCP packages that create local developer-machine risk.
+AI-agent and MCP packages that create local developer-machine risk. The offline
+package vulnerability database lives in
+`internal/rules/builtin/advisories/agent-packages.json`, is compiled into Go by
+`scripts/generate-agent-package-advisories.py`, and is refreshed by the scheduled
+`update-agent-package-advisories` GitHub Actions workflow.
 
 ---
 
