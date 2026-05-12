@@ -684,6 +684,46 @@
   {{end}}
   {{end}}
 
+  {{- $secretFindings := secretFindings .Findings }}
+  {{if $secretFindings}}
+  <h2 class="section">
+    <span>Secrets</span>
+    <span class="count">{{len $secretFindings}} secret exposure{{if ne (len $secretFindings) 1}}s{{end}}</span>
+  </h2>
+
+  <ul class="findings secret-exposures">
+    {{range $secretFindings}}
+    <li>
+      <details class="finding {{sevClass .Severity}}" open>
+        <summary class="finding-summary">
+          <div class="finding-summary-row">
+            <span>
+              <span class="finding-title">{{md .Title}}</span>
+              {{if gt .Line 0}}<span class="finding-line">line {{.Line}}</span>{{end}}
+            </span>
+            <span class="finding-pills">
+              <span class="pill {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
+            </span>
+          </div>
+        </summary>
+        <div class="finding-body">
+          <div class="finding-rule"><span class="k">File</span>{{.Path}}</div>
+          <div class="finding-desc">{{md .Description}}</div>
+          {{if .Match}}<pre class="finding-match">{{.Match}}</pre>{{end}}
+          {{if .SuggestedFix}}
+            <div class="finding-fix">
+              <span class="finding-fix-label">Fix</span>
+              {{md .SuggestedFix}}
+            </div>
+          {{end}}
+          <div class="finding-rule"><span class="k">Rule</span>{{.RuleID}} · <span class="k">Class</span>{{.Taxonomy}}</div>
+        </div>
+      </details>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+
   {{- $packageFindings := packageVulns .Findings }}
   {{if $packageFindings}}
   <h2 class="section">
@@ -728,7 +768,7 @@
     <section class="empty">
       <div class="empty-mark">✓</div>
       <h2 class="empty-title">No findings</h2>
-      <p class="empty-body">Audr scanned {{.FilesParsed}} agent-config files and didn't find any policy violations.</p>
+      <p class="empty-body">Audr scanned {{.FilesParsed}} files and didn't find any developer-machine security findings.</p>
     </section>
   {{else}}
     <h2 class="section">

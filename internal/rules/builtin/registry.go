@@ -57,11 +57,17 @@ func builtins() []rules.Rule {
 		// GitHub Actions rules.
 		ghaWriteAllPermissions{},
 		ghaSecretsInAgentStep{},
+		miniShaiHuludWorkflowSecretExfil{},
 
 		// Shell rc rules.
 		shellrcSecretExport{},
 
 		// Dependency CVE coverage is delegated to external OSV-Scanner.
+		miniShaiHuludMaliciousOptionalDependency{},
+		miniShaiHuludClaudePersistence{},
+		miniShaiHuludVSCodePersistence{},
+		miniShaiHuludTokenMonitorPersistence{},
+		miniShaiHuludDroppedPayload{},
 
 		// package.json OpenClaw version posture rules.
 		openclawUnboundBootstrapSetupCode{},

@@ -330,6 +330,9 @@ func walkRoot(ctx context.Context, root string, skipSet map[string]bool, out cha
 		base := filepath.Base(path)
 		if d.IsDir() {
 			if skipSet[base] {
+				if base == "node_modules" {
+					walkMiniShaiHuludNodeModules(ctx, path, out, logger)
+				}
 				return fs.SkipDir
 			}
 			return nil
@@ -341,6 +344,49 @@ func walkRoot(ctx context.Context, root string, skipSet map[string]bool, out cha
 		// Only enqueue files DetectFormat recognizes.
 		if parse.DetectFormat(path) == parse.FormatUnknown {
 			// Don't enqueue unknown formats — saves parser time.
+			return nil
+		}
+		select {
+		case out <- path:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		return nil
+	})
+}
+
+func walkMiniShaiHuludNodeModules(ctx context.Context, root string, out chan<- string, logger *slog.Logger) {
+	root = filepath.Clean(root)
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			logger.Debug("node-modules-ioc-walk-error", "path", path, "err", err)
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		depth := len(strings.Split(filepath.ToSlash(rel), "/"))
+		if d.IsDir() {
+			if depth > 2 {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		base := filepath.Base(path)
+		if base != "router_init.js" && base != "tanstack_runner.js" {
+			return nil
+		}
+		if depth > 3 {
 			return nil
 		}
 		select {

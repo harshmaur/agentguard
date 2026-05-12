@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -141,6 +142,48 @@ func TestSelectedDependencyBackends(t *testing.T) {
 	}
 }
 
+func TestSecretScanSelection(t *testing.T) {
+	if selectedSecretScan(scanFlags{}) {
+		t.Fatalf("secret scan should be opt-in by default")
+	}
+	if !selectedSecretScan(scanFlags{secrets: true}) {
+		t.Fatalf("--secrets should enable secret scanning")
+	}
+	if !selectedSecretScan(scanFlags{deep: true}) {
+		t.Fatalf("--deep should include secret scanning")
+	}
+	if selectedSecretScan(scanFlags{deep: true, noSecrets: true}) {
+		t.Fatalf("--no-secrets should override --deep")
+	}
+	if !selectedSecretScan(scanFlags{secretsOnly: true}) {
+		t.Fatalf("--secrets-only should enable secret scanning")
+	}
+	if selectedSecretScan(scanFlags{depsOnly: true, deep: true}) {
+		t.Fatalf("--deps-only should not run secret scanning")
+	}
+}
+
+func TestRunDependencyBackendsSkipsWhenSecretsOnly(t *testing.T) {
+	findings, err := runDependencyBackends(context.Background(), scanFlags{secretsOnly: true}, []string{"/path/that/does/not/exist"}, outPlan{})
+	if err != nil {
+		t.Fatalf("runDependencyBackends secrets-only err = %v, want nil", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("findings = %d, want 0", len(findings))
+	}
+}
+
+func TestValidateScanModesRejectsConflicts(t *testing.T) {
+	for _, flags := range []scanFlags{
+		{secretsOnly: true, noSecrets: true},
+		{secretsOnly: true, depsOnly: true},
+	} {
+		if err := validateScanModes(flags); err == nil {
+			t.Fatalf("validateScanModes(%+v) = nil, want conflict error", flags)
+		}
+	}
+}
+
 func TestDoctorCommandPrintsBackendHealth(t *testing.T) {
 	cmd := newDoctorCmd()
 	var out bytes.Buffer
@@ -150,7 +193,7 @@ func TestDoctorCommandPrintsBackendHealth(t *testing.T) {
 		t.Fatalf("doctor err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Audr doctor", "OSV-Scanner", "OSV-Scanner for dependency vulnerabilities", "update:"} {
+	for _, want := range []string{"Audr doctor", "OSV-Scanner", "TruffleHog", "OSV-Scanner for dependency vulnerabilities", "TruffleHog for secret scanning", "update:"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, got)
 		}
@@ -167,10 +210,28 @@ func TestUpdateScannersCommandDryRunPrintsCommands(t *testing.T) {
 		t.Fatalf("update-scanners dry run err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"OSV-Scanner", "update:", "rerun with --yes"} {
+	for _, want := range []string{"OSV-Scanner", "TruffleHog", "update:", "rerun with --yes"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("update-scanners output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestUpdateScannersCommandSupportsTruffleHogBackend(t *testing.T) {
+	cmd := newUpdateScannersCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--backend", "trufflehog", "--ci"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("update-scanners trufflehog dry run err: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "TruffleHog") {
+		t.Fatalf("update-scanners output missing TruffleHog:\n%s", got)
+	}
+	if strings.Contains(got, "OSV-Scanner") {
+		t.Fatalf("--backend trufflehog should not update OSV-Scanner:\n%s", got)
 	}
 }
 

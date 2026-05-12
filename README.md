@@ -1,11 +1,11 @@
 # Audr
 
-**Static-analysis scanner for AI-agent configurations.**
+**Developer-machine security scanner for AI-agent/tooling risk.**
 
 Scan MCP servers, Claude Code skills, Cursor / Codex / Windsurf configs,
-agent instruction docs, and GitHub Actions workflows for risky configuration.
-Offline by default. Single static Go binary, no `npm`/`pip`. Emits HTML,
-SARIF, and JSON reports.
+agent instruction docs, GitHub Actions workflows, package manifests, and local
+secret exposure for developer-machine risk. Offline by default. Single static
+Go binary, no `npm`/`pip`. Emits HTML, SARIF, and JSON reports.
 
 ```
 ==> Permission-loose agent + reachable secret = exfil chain.
@@ -54,23 +54,33 @@ reads the same config files Claude / Cursor / Codex / Windsurf actually load
 (`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
 `.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), scans
 package manifests, optionally runs OSV-Scanner for dependency vulnerabilities,
-runs built-in rules plus attack-chain correlations, and emits HTML for humans,
-SARIF for GitHub Code Scanning, JSON for everything else.
+optionally runs TruffleHog for secret exposure, runs built-in rules plus
+attack-chain correlations, and emits HTML for humans, SARIF for GitHub Code
+Scanning, JSON for everything else.
 
-Audr is not trying to rebuild a generic SCA scanner. It owns the single
+Audr is not trying to rebuild every specialist scanner. It owns the single
 local/CI command and the unified developer-machine report. For broad dependency
-vulnerability coverage, `audr scan` can call OSV-Scanner (Apache-2.0) under the
-hood. If OSV-Scanner is missing and Audr is running interactively, it prints the
-exact install command and asks before installing anything. In CI or
+vulnerability coverage, `audr scan` can call OSV-Scanner (Apache-2.0). For deep
+secret exposure, `audr scan --secrets` or `audr scan --deep` can call
+TruffleHog. If a scanner is missing and Audr is running interactively, it prints
+the exact install command and asks before installing anything. In CI or
 machine-output mode, Audr never prompts; use `audr doctor` for setup guidance,
-`audr update-scanners` to refresh the OSV-Scanner binary, or `--require-deps`
-to fail when OSV-Scanner is unavailable.
+`audr update-scanners` to refresh scanner binaries, `--require-deps` to fail
+when OSV-Scanner is unavailable, or `--require-secrets` to fail when TruffleHog
+is unavailable.
 
 Audr delegates broad dependency vulnerability coverage to OSV-Scanner instead
-of maintaining its own package CVE database. The former Audr-local
-agent-package advisory corpus has been removed from runtime scanning, so
-dependency results come from OSV and appear in the same Package vulnerabilities
-report section.
+of maintaining its own package CVE database, and delegates deep secret discovery
+to TruffleHog instead of duplicating hundreds of provider-specific detectors.
+Dependency results appear in the Package vulnerabilities section; TruffleHog
+results appear in the Secrets section with raw values redacted.
+
+For active npm supply-chain campaigns such as Mini Shai-Hulud, Audr uses
+OSV-Scanner to surface known malicious package versions from manifests and
+lockfiles, then layers Audr-native checks for local compromise indicators OSV
+cannot see: Claude Code `SessionStart` persistence hooks, VS Code folder-open
+persistence tasks, GitHub Actions workflows that serialize `toJSON(secrets)`,
+`gh-token-monitor` services/LaunchAgents, and known dropped payload filenames.
 
 ---
 
@@ -112,14 +122,18 @@ audr scan -f sarif -o scan.sarif    # GitHub Code Scanning compatible
 audr scan -f html  -o scan.html     # forensic-document HTML report
 audr scan -f json  -o -  | jq       # pipe JSON to stdout
 
-# Dependency scanners.
-audr doctor                         # check OSV-Scanner availability
-audr update-scanners                # dry-run: print OSV-Scanner update command
-audr update-scanners --yes          # update OSV-Scanner binary
+# External scanners.
+audr doctor                         # check OSV-Scanner + TruffleHog availability
+audr update-scanners                # dry-run: print scanner update commands
+audr update-scanners --yes          # update OSV-Scanner + TruffleHog binaries
 audr update-scanners --db-only      # dry-run: no-op for OSV-Scanner; no local DB cache
 audr scan --no-deps .               # Audr-native checks only
 audr scan --deps-only .             # OSV dependency vulnerability scan only
 audr scan --ci --require-deps .     # CI: no prompts; fail if OSV-Scanner is missing
+audr scan --secrets .               # include TruffleHog secret scanning
+audr scan --secrets-only .          # TruffleHog secret scan only
+audr scan --deep .                  # include deeper checks such as TruffleHog
+audr scan --ci --require-secrets .  # CI: fail if TruffleHog is missing/fails
 
 # Suppress findings (per-rule or per-path globs).
 echo 'mcp-unpinned-npx **/old-mcp.json' > .audrignore

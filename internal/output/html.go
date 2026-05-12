@@ -171,7 +171,8 @@ func HTML(w io.Writer, r Report) error {
 			c["total"] = len(findings)
 			return c
 		},
-		"packageVulns": packageVulnerabilityFindings,
+		"packageVulns":   packageVulnerabilityFindings,
+		"secretFindings": secretExposureFindings,
 		"shortPath": func(p string) string {
 			parts := strings.Split(p, "/")
 			if len(parts) <= 4 {
@@ -251,6 +252,11 @@ func HTML(w io.Writer, r Report) error {
 
 const osvVulnerabilityRuleID = "dependency-osv-vulnerability"
 
+const (
+	truffleHogVerifiedRuleID   = "secret-trufflehog-verified"
+	truffleHogUnverifiedRuleID = "secret-trufflehog-unverified"
+)
+
 func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding {
 	packageFindings := make([]finding.Finding, 0)
 	for _, f := range findings {
@@ -262,6 +268,19 @@ func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding 
 		return finding.Less(packageFindings[i], packageFindings[j])
 	})
 	return packageFindings
+}
+
+func secretExposureFindings(findings []finding.Finding) []finding.Finding {
+	secretFindings := make([]finding.Finding, 0)
+	for _, f := range findings {
+		if f.RuleID == truffleHogVerifiedRuleID || f.RuleID == truffleHogUnverifiedRuleID {
+			secretFindings = append(secretFindings, f)
+		}
+	}
+	sort.SliceStable(secretFindings, func(i, j int) bool {
+		return finding.Less(secretFindings[i], secretFindings[j])
+	})
+	return secretFindings
 }
 
 // Verdict returns the headline sentence for this Report. Used by both the
@@ -281,7 +300,7 @@ func (r Report) Verdict() Verdict {
 
 	if totalFindings == 0 {
 		return Verdict{
-			Lead:       "Clean. No agent-config violations found on this scan.",
+			Lead:       "Clean. No developer-machine security findings on this scan.",
 			Supporting: fmt.Sprintf("Scanned %d files across %d roots.", r.FilesParsed, len(r.Roots)),
 			Severity:   "clean",
 		}

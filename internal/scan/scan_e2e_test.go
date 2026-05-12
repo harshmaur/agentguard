@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/harshmaur/audr/internal/rules/builtin"
 	"github.com/harshmaur/audr/internal/output"
+	_ "github.com/harshmaur/audr/internal/rules/builtin"
 	"github.com/harshmaur/audr/internal/scan"
 )
 
@@ -53,9 +53,9 @@ func TestScan_DirtyFixture(t *testing.T) {
 	// Planted secrets must NOT appear in any output format.
 	plantedSecrets := []string{
 		"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // .mcp.json
-		"hunter2",   // postgres URL password
-		"ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // .zshrc
-		"AKIAIOSFODNN7EXAMPLE",                          // .zshrc
+		"hunter2", // postgres URL password
+		"ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",        // .zshrc
+		"AKIAIOSFODNN7EXAMPLE",                                // .zshrc
 		"sk-ant-api03-cccccccccccccccccccccccccccccccccccccc", // .zshrc
 	}
 
@@ -116,6 +116,41 @@ func TestScan_CleanFixture(t *testing.T) {
 			t.Logf("unexpected finding: %s — %s at %s", f.RuleID, f.Title, f.Path)
 		}
 		t.Fatalf("clean fixture produced %d findings; want 0", len(res.Findings))
+	}
+}
+
+// TestScan_MiniShaiHuludRouterInitUnderNodeModules asserts the default walker
+// keeps node_modules skipped for performance, but still checks known Mini
+// Shai-Hulud package-root payload filenames.
+func TestScan_MiniShaiHuludRouterInitUnderNodeModules(t *testing.T) {
+	root := t.TempDir()
+	payload := filepath.Join(root, "node_modules", "@tanstack", "router-core", "router_init.js")
+	if err := os.MkdirAll(filepath.Dir(payload), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(payload, []byte("/* obfuscated */"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ignored := filepath.Join(root, "node_modules", "@tanstack", "router-core", "dist", "router_init.js")
+	if err := os.MkdirAll(filepath.Dir(ignored), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ignored, []byte("/* nested ignored */"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := scan.Run(context.Background(), scan.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	got := 0
+	for _, f := range res.Findings {
+		if f.RuleID == "mini-shai-hulud-dropped-payload" {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("mini-shai-hulud-dropped-payload findings = %d, want 1; findings=%+v", got, res.Findings)
 	}
 }
 

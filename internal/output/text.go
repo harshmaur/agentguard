@@ -41,7 +41,7 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 	}
 
 	if len(r.Findings) == 0 {
-		bw.printf("\n✓ No findings. Your AI-agent configs look clean.\n")
+		bw.printf("\n✓ No findings. Your developer-machine posture looks clean.\n")
 		if htmlPath != "" {
 			bw.printf("\n  Report: %s\n", htmlPath)
 		}
@@ -72,6 +72,33 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 	)
 	if r.Suppressed > 0 {
 		bw.printf("  (%d suppressed by .audrignore)\n", r.Suppressed)
+	}
+
+	secretFindings := secretExposureFindings(r.Findings)
+	if len(secretFindings) > 0 {
+		bw.printf("\nSecrets (%d):\n", len(secretFindings))
+		max := 8
+		shown := secretFindings
+		if len(secretFindings) > max {
+			shown = secretFindings[:max]
+		}
+		for _, f := range shown {
+			loc := f.Path
+			if f.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", f.Path, f.Line)
+			}
+			bw.printf("  - [%s] %s\n", strings.ToUpper(f.Severity.String()), f.Title)
+			bw.printf("    %s\n", loc)
+			if f.Match != "" {
+				bw.printf("    Evidence: %s\n", f.Match)
+			}
+			if f.SuggestedFix != "" {
+				bw.printf("    Fix: %s\n", f.SuggestedFix)
+			}
+		}
+		if len(secretFindings) > max {
+			bw.printf("  ... and %d more secret findings (see HTML for full list)\n", len(secretFindings)-max)
+		}
 	}
 
 	packageFindings := packageVulnerabilityFindings(r.Findings)

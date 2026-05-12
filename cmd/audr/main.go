@@ -1,9 +1,8 @@
-// audr is a static-analysis scanner for AI-agent configurations.
+// audr is a developer-machine security scanner.
 //
-// Wedge: discover MCP servers, Claude Code skills, Cursor configs, agent
-// instruction docs, and GitHub Actions workflows on a developer machine or in
-// a repo. Compare findings against a built-in policy. Emit SARIF / HTML /
-// JSON reports.
+// Wedge: discover risky developer-tool and AI-agent configs, then augment
+// those native checks with focused external scanners for dependencies and
+// secrets. Emit SARIF / HTML / JSON reports.
 //
 // See https://github.com/harshmaur/audr for source + design doc.
 package main
@@ -31,6 +30,7 @@ import (
 	"github.com/harshmaur/audr/internal/output"
 	_ "github.com/harshmaur/audr/internal/rules/builtin"
 	"github.com/harshmaur/audr/internal/scan"
+	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/suppress"
 	"github.com/spf13/cobra"
 )
@@ -57,8 +57,8 @@ func main() {
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "audr",
-		Short:         "Static-analysis scanner for AI-agent configurations",
-		Long:          `audr scans MCP servers, agent skills, Claude/Cursor configs, agent instruction docs, and GitHub Actions workflows for risky configuration. It is offline-by-default and emits HTML, SARIF, and JSON reports.`,
+		Short:         "Developer-machine security scanner",
+		Long:          `audr scans developer-machine security posture: MCP servers, agent skills, Claude/Cursor configs, agent instruction docs, GitHub Actions workflows, package vulnerabilities, and exposed secrets. It keeps native checks offline-by-default and emits HTML, SARIF, and JSON reports.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       Version,
@@ -74,29 +74,33 @@ func newRootCmd() *cobra.Command {
 
 func newScanCmd() *cobra.Command {
 	var (
-		flagOutput      string
-		flagFormat      string
-		flagJobs        int
-		flagFileTimeout time.Duration
-		flagScanTimeout time.Duration
-		flagSizeLimit   int64
-		flagIgnore      string
-		flagVerbose     bool
-		flagDebug       bool
-		flagLogJSON     bool
-		flagOpen        string // "auto" | "always" | "never"
-		flagQuiet       bool
-		flagNoDeps      bool
-		flagDepsOnly    bool
-		flagDeep        bool
-		flagCI          bool
-		flagRequireDeps bool
-		flagDepsBackend string // "auto" | "osv-scanner"
+		flagOutput        string
+		flagFormat        string
+		flagJobs          int
+		flagFileTimeout   time.Duration
+		flagScanTimeout   time.Duration
+		flagSizeLimit     int64
+		flagIgnore        string
+		flagVerbose       bool
+		flagDebug         bool
+		flagLogJSON       bool
+		flagOpen          string // "auto" | "always" | "never"
+		flagQuiet         bool
+		flagNoDeps        bool
+		flagDepsOnly      bool
+		flagSecrets       bool
+		flagNoSecrets     bool
+		flagSecretsOnly   bool
+		flagDeep          bool
+		flagCI            bool
+		flagRequireDeps   bool
+		flagRequireSecret bool
+		flagDepsBackend   string // "auto" | "osv-scanner"
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
-		Short: "Scan paths for risky AI-agent configurations",
-		Long: `Scan one or more paths (default: $HOME) for risky AI-agent configurations.
+		Short: "Scan paths for developer-machine security issues",
+		Long: `Scan one or more paths (default: $HOME) for developer-machine security issues.
 
 By default audr writes an HTML report to a temp file, opens it in your
 default browser, and prints a readable summary to stdout.
@@ -115,25 +119,29 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
   audr scan -f json -o - | jq            # pipe JSON to jq`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(scanFlags{
-				roots:       args,
-				output:      flagOutput,
-				format:      flagFormat,
-				jobs:        flagJobs,
-				fileTimeout: flagFileTimeout,
-				scanTimeout: flagScanTimeout,
-				sizeLimit:   flagSizeLimit,
-				ignore:      flagIgnore,
-				verbose:     flagVerbose,
-				debug:       flagDebug,
-				logJSON:     flagLogJSON,
-				openMode:    flagOpen,
-				quiet:       flagQuiet,
-				noDeps:      flagNoDeps,
-				depsOnly:    flagDepsOnly,
-				deep:        flagDeep,
-				ci:          flagCI,
-				requireDeps: flagRequireDeps,
-				depsBackend: flagDepsBackend,
+				roots:         args,
+				output:        flagOutput,
+				format:        flagFormat,
+				jobs:          flagJobs,
+				fileTimeout:   flagFileTimeout,
+				scanTimeout:   flagScanTimeout,
+				sizeLimit:     flagSizeLimit,
+				ignore:        flagIgnore,
+				verbose:       flagVerbose,
+				debug:         flagDebug,
+				logJSON:       flagLogJSON,
+				openMode:      flagOpen,
+				quiet:         flagQuiet,
+				noDeps:        flagNoDeps,
+				depsOnly:      flagDepsOnly,
+				secrets:       flagSecrets,
+				noSecrets:     flagNoSecrets,
+				secretsOnly:   flagSecretsOnly,
+				deep:          flagDeep,
+				ci:            flagCI,
+				requireDeps:   flagRequireDeps,
+				requireSecret: flagRequireSecret,
+				depsBackend:   flagDepsBackend,
 			})
 		},
 	}
@@ -151,9 +159,13 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVar(&flagLogJSON, "log-json", false, "emit logs as JSON instead of text")
 	cmd.Flags().BoolVar(&flagNoDeps, "no-deps", false, "skip external dependency vulnerability scanners")
 	cmd.Flags().BoolVar(&flagDepsOnly, "deps-only", false, "run only external dependency vulnerability scanners")
-	cmd.Flags().BoolVar(&flagDeep, "deep", false, "compatibility flag; dependency vulnerability scanning remains OSV-only")
+	cmd.Flags().BoolVar(&flagSecrets, "secrets", false, "run external secret scanning with TruffleHog when available")
+	cmd.Flags().BoolVar(&flagNoSecrets, "no-secrets", false, "skip external secret scanning")
+	cmd.Flags().BoolVar(&flagSecretsOnly, "secrets-only", false, "run only external secret scanning")
+	cmd.Flags().BoolVar(&flagDeep, "deep", false, "include deeper developer-machine checks such as TruffleHog secret scanning")
 	cmd.Flags().BoolVar(&flagCI, "ci", false, "non-interactive CI mode; never prompt to install scanner backends")
 	cmd.Flags().BoolVar(&flagRequireDeps, "require-deps", false, "fail if requested dependency scanner backends are unavailable")
+	cmd.Flags().BoolVar(&flagRequireSecret, "require-secrets", false, "fail if requested secret scanner backend is unavailable")
 	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner")
 	return cmd
 }
@@ -169,25 +181,29 @@ func newVersionCmd() *cobra.Command {
 }
 
 type scanFlags struct {
-	roots       []string
-	output      string
-	format      string
-	jobs        int
-	fileTimeout time.Duration
-	scanTimeout time.Duration
-	sizeLimit   int64
-	ignore      string
-	verbose     bool
-	debug       bool
-	logJSON     bool
-	openMode    string // "auto" | "always" | "never"
-	quiet       bool
-	noDeps      bool
-	depsOnly    bool
-	deep        bool
-	ci          bool
-	requireDeps bool
-	depsBackend string
+	roots         []string
+	output        string
+	format        string
+	jobs          int
+	fileTimeout   time.Duration
+	scanTimeout   time.Duration
+	sizeLimit     int64
+	ignore        string
+	verbose       bool
+	debug         bool
+	logJSON       bool
+	openMode      string // "auto" | "always" | "never"
+	quiet         bool
+	noDeps        bool
+	depsOnly      bool
+	secrets       bool
+	noSecrets     bool
+	secretsOnly   bool
+	deep          bool
+	ci            bool
+	requireDeps   bool
+	requireSecret bool
+	depsBackend   string
 }
 
 // outPlan captures the resolved output decisions: where the report goes,
@@ -199,6 +215,16 @@ type outPlan struct {
 	printSummary   bool
 	summaryDest    io.Writer // os.Stdout or os.Stderr
 	openBrowser    bool
+}
+
+func validateScanModes(f scanFlags) error {
+	if f.secretsOnly && f.noSecrets {
+		return fmt.Errorf("--secrets-only conflicts with --no-secrets")
+	}
+	if f.secretsOnly && f.depsOnly {
+		return fmt.Errorf("--secrets-only conflicts with --deps-only")
+	}
+	return nil
 }
 
 func resolveOutput(f scanFlags) (outPlan, error) {
@@ -266,6 +292,10 @@ func resolveOutput(f scanFlags) (outPlan, error) {
 func runScan(f scanFlags) error {
 	logger := buildLogger(f)
 
+	if err := validateScanModes(f); err != nil {
+		return err
+	}
+
 	plan, err := resolveOutput(f)
 	if err != nil {
 		return err
@@ -312,7 +342,7 @@ func runScan(f scanFlags) error {
 	defer cancel()
 
 	res := &scan.Result{StartedAt: time.Now(), FinishedAt: time.Now()}
-	if !f.depsOnly {
+	if !f.depsOnly && !f.secretsOnly {
 		var scanErr error
 		res, scanErr = scan.Run(ctx, scan.Options{
 			Roots:         roots,
@@ -334,10 +364,15 @@ func runScan(f scanFlags) error {
 		return depErr
 	}
 	res.Findings = append(res.Findings, depFindings...)
+	secretFindings, secretErr := runSecretBackend(ctx, f, roots, plan)
+	if secretErr != nil {
+		return secretErr
+	}
+	res.Findings = append(res.Findings, secretFindings...)
 	sort.SliceStable(res.Findings, func(i, j int) bool {
 		return finding.Less(res.Findings[i], res.Findings[j])
 	})
-	if f.depsOnly {
+	if f.depsOnly || f.secretsOnly {
 		res.FinishedAt = time.Now()
 	}
 
@@ -477,7 +512,7 @@ func openBrowser(path string) error {
 }
 
 func runDependencyBackends(ctx context.Context, f scanFlags, roots []string, plan outPlan) ([]finding.Finding, error) {
-	if f.noDeps {
+	if f.noDeps || f.secretsOnly {
 		return nil, nil
 	}
 	backends, err := selectedDependencyBackends(f)
@@ -526,13 +561,74 @@ func selectedDependencyBackends(f scanFlags) ([]depscan.Backend, error) {
 	}
 }
 
-func selectedScannerBackends(raw string) ([]depscan.Backend, error) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "auto", "osv", "osv-scanner":
-		return []depscan.Backend{depscan.BackendOSVScanner}, nil
-	default:
-		return nil, fmt.Errorf("--backend must be auto | osv-scanner (got %q)", raw)
+func selectedSecretScan(f scanFlags) bool {
+	if f.noSecrets || f.depsOnly {
+		return false
 	}
+	return f.secrets || f.secretsOnly || f.deep
+}
+
+func runSecretBackend(ctx context.Context, f scanFlags, roots []string, plan outPlan) ([]finding.Finding, error) {
+	if !selectedSecretScan(f) {
+		return nil, nil
+	}
+	status := secretscan.BackendStatus()
+	if !status.Installed {
+		installed, err := maybeInstallSecretBackend(ctx, f, plan)
+		if err != nil {
+			return nil, err
+		}
+		if installed {
+			status = secretscan.BackendStatus()
+		}
+	}
+	if !status.Installed {
+		msg := "secret scanner trufflehog is not installed; run `audr doctor` for install instructions"
+		if f.requireSecret || f.secretsOnly {
+			return nil, errors.New(msg)
+		}
+		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
+		return nil, nil
+	}
+	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{Roots: roots})
+	if err != nil {
+		if f.requireSecret || f.secretsOnly {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "warning: secret scanner trufflehog failed: %v\n", err)
+		return nil, nil
+	}
+	return findings, nil
+}
+
+func maybeInstallSecretBackend(ctx context.Context, f scanFlags, plan outPlan) (bool, error) {
+	if f.ci || !isTerminal(os.Stdin) || !isTerminal(os.Stderr) || plan.reportToStdout {
+		return false, nil
+	}
+	install := secretscan.InstallPlan()
+	fmt.Fprintf(os.Stderr, "\nSecret scanner %s is not installed.\n", install.Name)
+	for _, cmd := range install.Commands {
+		fmt.Fprintf(os.Stderr, "  install option: %s\n", cmd)
+	}
+	fmt.Fprintf(os.Stderr, "Install %s now? [y/N] ", install.Name)
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	if answer != "y" && answer != "yes" {
+		return false, nil
+	}
+	cmdLine := firstRunnableInstallCommand(install.Commands)
+	if cmdLine == "" {
+		return false, fmt.Errorf("no install command available for %s on %s/%s", install.Name, runtime.GOOS, runtime.GOARCH)
+	}
+	fmt.Fprintf(os.Stderr, "Installing %s with: %s\n", install.Name, cmdLine)
+	cmd := exec.CommandContext(ctx, shellName(), shellFlag(), cmdLine)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("install %s: %w", install.Name, err)
+	}
+	return true, nil
 }
 
 func maybeInstallBackend(ctx context.Context, backend depscan.Backend, f scanFlags, plan outPlan) (bool, error) {
@@ -627,7 +723,24 @@ func newDoctorCmd() *cobra.Command {
 					fmt.Fprintf(w, "  note: %s\n", n)
 				}
 			}
-			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. Use `audr update-scanners --yes` to refresh the OSV-Scanner binary. OSV-Scanner queries OSV directly and does not require a local vulnerability DB cache.\n")
+			secretStatus := secretscan.BackendStatus()
+			secretInstall := secretscan.InstallPlan()
+			secretUpdate := secretscan.UpdatePlan()
+			if secretStatus.Installed {
+				fmt.Fprintf(w, "✓ %s installed: %s\n", secretInstall.Name, secretStatus.Path)
+			} else {
+				fmt.Fprintf(w, "! %s missing (%s)\n", secretInstall.Name, secretStatus.Binary)
+				for _, c := range secretInstall.Commands {
+					fmt.Fprintf(w, "  install: %s\n", c)
+				}
+			}
+			for _, c := range append(secretUpdate.BinaryCommands, secretUpdate.DatabaseCommands...) {
+				fmt.Fprintf(w, "  update: %s\n", c)
+			}
+			for _, n := range append(secretInstall.Notes, secretUpdate.Notes...) {
+				fmt.Fprintf(w, "  note: %s\n", n)
+			}
+			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --secrets` or `--deep` uses TruffleHog for secret scanning when available. Use `audr update-scanners --yes` to refresh scanner binaries. OSV-Scanner queries OSV directly and does not require a local vulnerability DB cache. TruffleHog for secret scanning has no separate DB cache.\n")
 			return nil
 		},
 	}
@@ -640,58 +753,88 @@ func newUpdateScannersCmd() *cobra.Command {
 	var dbOnly bool
 	cmd := &cobra.Command{
 		Use:   "update-scanners",
-		Short: "Update external dependency scanner backends",
-		Long:  "Update OSV-Scanner, the open-source dependency scanner used by audr scan. Without --yes, this command prints the commands it would run and exits without side effects.",
+		Short: "Update external scanner backends",
+		Long:  "Update open-source scanners used by audr scan: OSV-Scanner and TruffleHog. Without --yes, this command prints the commands it would run and exits without side effects.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			backends, err := selectedScannerBackends(backend)
-			if err != nil {
-				return err
+			rawBackend := strings.ToLower(strings.TrimSpace(backend))
+			if rawBackend == "" {
+				rawBackend = "auto"
 			}
+			if rawBackend != "auto" && rawBackend != "all" && rawBackend != "osv" && rawBackend != "osv-scanner" && rawBackend != "trufflehog" && rawBackend != "secrets" {
+				return fmt.Errorf("--backend must be auto | osv-scanner | trufflehog (got %q)", backend)
+			}
+			runOSV := rawBackend == "auto" || rawBackend == "all" || rawBackend == "osv" || rawBackend == "osv-scanner"
+			runSecrets := rawBackend == "auto" || rawBackend == "all" || rawBackend == "trufflehog" || rawBackend == "secrets"
 			w := cmd.OutOrStdout()
 			ctx := cmd.Context()
+			var backends []depscan.Backend
+			if runOSV {
+				backends = []depscan.Backend{depscan.BackendOSVScanner}
+			}
 			for _, b := range backends {
 				plan := depscan.UpdatePlan(b)
 				commands := append([]string(nil), plan.DatabaseCommands...)
 				if !dbOnly {
 					commands = append(append([]string(nil), plan.BinaryCommands...), plan.DatabaseCommands...)
 				}
-				fmt.Fprintf(w, "%s\n", plan.Name)
-				for _, c := range commands {
-					fmt.Fprintf(w, "  update: %s\n", c)
+				if err := runScannerUpdatePlan(cmd, w, ctx, plan.Name, commands, plan.Notes, yes, ci, func() error {
+					return depscan.RunUpdatePlan(ctx, plan, depscan.UpdateOptions{DBOnly: dbOnly})
+				}); err != nil {
+					return err
 				}
-				for _, n := range plan.Notes {
-					fmt.Fprintf(w, "  note: %s\n", n)
+			}
+			if runSecrets {
+				secretPlan := secretscan.UpdatePlan()
+				secretCommands := append([]string(nil), secretPlan.DatabaseCommands...)
+				if !dbOnly {
+					secretCommands = append(append([]string(nil), secretPlan.BinaryCommands...), secretPlan.DatabaseCommands...)
 				}
-				if len(commands) == 0 {
-					fmt.Fprintf(w, "  no update command available for this platform\n")
-					continue
+				if err := runScannerUpdatePlan(cmd, w, ctx, secretPlan.Name, secretCommands, secretPlan.Notes, yes, ci, func() error {
+					return secretscan.RunUpdatePlan(ctx, secretPlan, secretscan.UpdateOptions{})
+				}); err != nil {
+					return err
 				}
-				if !yes {
-					if ci || !isTerminal(os.Stdin) || !isTerminal(os.Stderr) {
-						fmt.Fprintf(w, "  dry-run: rerun with --yes to execute these updates.\n")
-						continue
-					}
-					fmt.Fprintf(os.Stderr, "Run these %s updates now? [y/N] ", plan.Name)
-					answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-					answer = strings.ToLower(strings.TrimSpace(answer))
-					if answer != "y" && answer != "yes" {
-						fmt.Fprintf(w, "  skipped\n")
-						continue
-					}
-				}
-				if err := depscan.RunUpdatePlan(ctx, plan, depscan.UpdateOptions{DBOnly: dbOnly}); err != nil {
-					return fmt.Errorf("update %s: %w", plan.Name, err)
-				}
-				fmt.Fprintf(w, "  updated\n")
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner")
+	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner | trufflehog")
 	cmd.Flags().BoolVar(&yes, "yes", false, "execute updates without prompting")
 	cmd.Flags().BoolVar(&ci, "ci", false, "non-interactive mode; print commands unless --yes is also set")
 	cmd.Flags().BoolVar(&dbOnly, "db-only", false, "refresh vulnerability database/cache only where supported; OSV-Scanner has no local DB cache")
 	return cmd
+}
+
+func runScannerUpdatePlan(cmd *cobra.Command, w io.Writer, ctx context.Context, name string, commands []string, notes []string, yes bool, ci bool, run func() error) error {
+	fmt.Fprintf(w, "%s\n", name)
+	for _, c := range commands {
+		fmt.Fprintf(w, "  update: %s\n", c)
+	}
+	for _, n := range notes {
+		fmt.Fprintf(w, "  note: %s\n", n)
+	}
+	if len(commands) == 0 {
+		fmt.Fprintf(w, "  no update command available for this platform\n")
+		return nil
+	}
+	if !yes {
+		if ci || !isTerminal(os.Stdin) || !isTerminal(os.Stderr) {
+			fmt.Fprintf(w, "  dry-run: rerun with --yes to execute these updates.\n")
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "Run these %s updates now? [y/N] ", name)
+		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Fprintf(w, "  skipped\n")
+			return nil
+		}
+	}
+	if err := run(); err != nil {
+		return fmt.Errorf("update %s: %w", name, err)
+	}
+	fmt.Fprintf(w, "  updated\n")
+	return nil
 }
 
 func buildLogger(f scanFlags) *slog.Logger {

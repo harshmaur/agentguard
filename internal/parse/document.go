@@ -13,19 +13,20 @@ import (
 type Format string
 
 const (
-	FormatMCPConfig          Format = "mcp-config"          // .mcp.json, .cursor/mcp.json
-	FormatClaudeSettings     Format = "claude-settings"     // .claude/settings.json, settings.local.json
-	FormatSkill              Format = "skill"               // .claude/skills/**/*.md
-	FormatAgentDoc           Format = "agent-doc"           // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
-	FormatGHAWorkflow        Format = "gha-workflow"        // .github/workflows/*.yml
-	FormatShellRC            Format = "shellrc"             // .bashrc, .zshrc, .profile, etc.
-	FormatEnv                Format = "env"                 // .env, .env.local, .env.example
-	FormatCodexConfig        Format = "codex-config"        // ~/.codex/config.toml, .codex/config.toml (v0.2)
-	FormatWindsurfMCP        Format = "windsurf-mcp"        // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
-	FormatCursorPermissions  Format = "cursor-permissions"  // ~/.cursor/permissions.json (v0.2.0-alpha.4)
-	FormatPackageJSON        Format = "package-json"        // package.json manifests for agent packages
-	FormatDependencyManifest Format = "dependency-manifest" // language manifests/lockfiles for agent package CVEs
-	FormatUnknown            Format = ""
+	FormatMCPConfig             Format = "mcp-config"               // .mcp.json, .cursor/mcp.json
+	FormatClaudeSettings        Format = "claude-settings"          // .claude/settings.json, settings.local.json
+	FormatSkill                 Format = "skill"                    // .claude/skills/**/*.md
+	FormatAgentDoc              Format = "agent-doc"                // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
+	FormatGHAWorkflow           Format = "gha-workflow"             // .github/workflows/*.yml
+	FormatShellRC               Format = "shellrc"                  // .bashrc, .zshrc, .profile, etc.
+	FormatEnv                   Format = "env"                      // .env, .env.local, .env.example
+	FormatCodexConfig           Format = "codex-config"             // ~/.codex/config.toml, .codex/config.toml (v0.2)
+	FormatWindsurfMCP           Format = "windsurf-mcp"             // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
+	FormatCursorPermissions     Format = "cursor-permissions"       // ~/.cursor/permissions.json (v0.2.0-alpha.4)
+	FormatPackageJSON           Format = "package-json"             // package.json manifests for agent packages
+	FormatDependencyManifest    Format = "dependency-manifest"      // language manifests/lockfiles for agent package CVEs
+	FormatMiniShaiHuludArtifact Format = "mini-shai-hulud-artifact" // known local IOC/persistence files
+	FormatUnknown               Format = ""
 )
 
 // Document is the generic container produced by parsers and consumed by rules.
@@ -329,6 +330,23 @@ func DetectFormat(path string) Format {
 	if strings.Contains(path, "/.github/workflows/") &&
 		(strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".yaml")) {
 		return FormatGHAWorkflow
+	}
+
+	// Mini Shai-Hulud persistence artifacts that are not otherwise parsed by
+	// Audr. GitHub Actions and Claude settings have dedicated formats above.
+	if strings.HasSuffix(path, "/.vscode/tasks.json") ||
+		strings.HasSuffix(path, "\\.vscode\\tasks.json") ||
+		strings.HasSuffix(path, "/.vscode/setup.mjs") ||
+		strings.HasSuffix(path, "\\.vscode\\setup.mjs") ||
+		strings.HasSuffix(path, "/.claude/setup.mjs") ||
+		strings.HasSuffix(path, "\\.claude\\setup.mjs") ||
+		strings.HasSuffix(path, "/.claude/router_runtime.js") ||
+		strings.HasSuffix(path, "\\.claude\\router_runtime.js") ||
+		(base == "router_init.js" && strings.Contains(path, "node_modules")) ||
+		(base == "tanstack_runner.js" && strings.Contains(path, "node_modules")) ||
+		base == "gh-token-monitor.service" ||
+		base == "com.user.gh-token-monitor.plist" {
+		return FormatMiniShaiHuludArtifact
 	}
 
 	// Shell rc.

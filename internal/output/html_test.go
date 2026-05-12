@@ -396,6 +396,77 @@ func TestHTML_RendersPackageVulnerabilitySection(t *testing.T) {
 	}
 }
 
+func TestText_RendersSecretExposureSection(t *testing.T) {
+	now := time.Now()
+	r := Report{Version: "v0.2.3-test", Roots: []string{"/repo"}, FilesParsed: 1, FilesSeen: 1, StartedAt: now, FinishedAt: now.Add(time.Second), Findings: []finding.Finding{
+		{
+			RuleID:       "secret-trufflehog-verified",
+			Severity:     finding.SeverityHigh,
+			Title:        "Secret detected by TruffleHog: GitHub",
+			Description:  "TruffleHog reported a secret-like value from detector GitHub (verified=true).",
+			Path:         "/repo/.env",
+			Line:         12,
+			Match:        "detector=GitHub secret=ghp_********SECRET",
+			Context:      "verified=true",
+			SuggestedFix: "Rotate or revoke the secret, remove it from local files and git history, then rescan.",
+		},
+	}}
+
+	var buf bytes.Buffer
+	if err := Text(&buf, r, "/tmp/x.html"); err != nil {
+		t.Fatalf("Text render: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Secrets (1)",
+		"Secret detected by TruffleHog: GitHub",
+		"/repo/.env:12",
+		"Evidence: detector=GitHub secret=ghp_********SECRET",
+		"Fix: Rotate or revoke the secret",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("CLI secret section missing %q in output:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "abcdefghijklmnopqrstuvwxyz1234567890") {
+		t.Fatalf("CLI output leaked raw secret-like payload: %s", out)
+	}
+}
+
+func TestHTML_RendersSecretExposureSection(t *testing.T) {
+	now := time.Now()
+	r := Report{Version: "v0.2.3-test", Roots: []string{"/repo"}, StartedAt: now, FinishedAt: now.Add(time.Second), Findings: []finding.Finding{
+		{
+			RuleID:       "secret-trufflehog-verified",
+			Severity:     finding.SeverityHigh,
+			Taxonomy:     finding.TaxDetectable,
+			Title:        "Secret detected by TruffleHog: GitHub",
+			Description:  "TruffleHog reported a secret-like value from detector GitHub (verified=true).",
+			Path:         "/repo/.env",
+			Line:         12,
+			Match:        "detector=GitHub secret=ghp_********SECRET",
+			SuggestedFix: "Rotate or revoke the secret, remove it from local files and git history, then rescan.",
+		},
+	}}
+	var buf bytes.Buffer
+	if err := HTML(&buf, r); err != nil {
+		t.Fatalf("HTML render: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Secrets",
+		"1 secret exposure",
+		"Secret detected by TruffleHog: GitHub",
+		"/repo/.env",
+		"ghp_********SECRET",
+		"Rotate or revoke the secret",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("HTML secret section missing %q", want)
+		}
+	}
+}
+
 func TestHTML_EmptyFindings(t *testing.T) {
 	r := Report{Version: "v0.2.2-test", Roots: []string{"/tmp"}, FilesParsed: 5, StartedAt: time.Now(), FinishedAt: time.Now()}
 	var buf bytes.Buffer
