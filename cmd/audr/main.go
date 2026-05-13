@@ -97,6 +97,7 @@ func newScanCmd() *cobra.Command {
 		flagRequireDeps   bool
 		flagRequireSecret bool
 		flagDepsBackend   string // "auto" | "osv-scanner"
+		flagRuntimeInfo   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
@@ -143,6 +144,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 				requireDeps:   flagRequireDeps,
 				requireSecret: flagRequireSecret,
 				depsBackend:   flagDepsBackend,
+				runtimeInfo:   flagRuntimeInfo,
 			})
 		},
 	}
@@ -168,6 +170,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVar(&flagRequireDeps, "require-deps", false, "fail if requested dependency scanner backends are unavailable")
 	cmd.Flags().BoolVar(&flagRequireSecret, "require-secrets", false, "fail if requested secret scanner backend is unavailable")
 	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner")
+	cmd.Flags().BoolVar(&flagRuntimeInfo, "runtime-info", false, "include container/VM/WSL detection and host-bound mount classification in the report")
 	return cmd
 }
 
@@ -205,6 +208,7 @@ type scanFlags struct {
 	requireDeps   bool
 	requireSecret bool
 	depsBackend   string
+	runtimeInfo   bool
 }
 
 // outPlan captures the resolved output decisions: where the report goes,
@@ -396,11 +400,12 @@ func runScan(f scanFlags) error {
 		SelfAudit:    "skipped",
 	}
 
-	// Runtime detection is environment-dependent (docker vs darwin vs CI vs
-	// dev box), so the docs/sample-report.html fixture is regenerated with
-	// AUDR_OMIT_RUNTIME_INFO=1 to keep the committed sample stable across
-	// reviewer machines and CI runners. Real scans always include it.
-	if os.Getenv("AUDR_OMIT_RUNTIME_INFO") != "1" {
+	// Runtime detection is opt-in via --runtime-info because its output
+	// varies across host machines (darwin vs linux, KVM vs bare-metal, etc.)
+	// — leaving it on by default makes docs/sample-report.html non-
+	// reproducible across reviewer environments. Maintainers can flip the
+	// default in a follow-up alongside the CI normalizer.
+	if f.runtimeInfo {
 		env := runtimeenv.Detect(ctx)
 		report.Environment = &env
 		report.ScanMounts = runtimeenv.ClassifyRoots(roots)
