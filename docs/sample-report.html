@@ -608,11 +608,111 @@
   footer a:hover { color: var(--ink); border-bottom-color: var(--ink); }
 
    
+   
+  .filters {
+    margin: 0 0 28px;
+    padding: 14px 16px;
+    border: 1px solid var(--rule-soft);
+    background: var(--card);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .filters-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+  }
+  .filters-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-muted);
+    min-width: 56px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid var(--rule-soft);
+    padding: 4px 10px;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.4;
+  }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip[data-on="1"] {
+    color: var(--ink);
+    border-color: var(--ink);
+    background: var(--card-tint);
+  }
+  .chip .count {
+    color: var(--ink-muted);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .chip[data-on="1"] .count { color: var(--ink-soft); }
+  .chip-sev.critical[data-on="1"] { color: var(--critical); border-color: var(--critical); }
+  .chip-sev.high[data-on="1"]     { color: var(--high);     border-color: var(--high); }
+  .chip-sev.medium[data-on="1"]   { color: var(--medium);   border-color: var(--medium); }
+  .chip-sev.low[data-on="1"]      { color: var(--low);      border-color: var(--low); }
+  .filters-search {
+    flex: 1 1 220px;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--rule-soft);
+    padding: 4px 2px;
+    outline: none;
+  }
+  .filters-search:focus { border-bottom-color: var(--ink); }
+  .filters-clear {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+  .filters-clear:hover { color: var(--ink); }
+
+  .is-filtered-out { display: none !important; }
+  .filter-empty {
+    display: none;
+    border: 1px dashed var(--rule);
+    padding: 24px 20px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    margin: 24px 0;
+  }
+  .filter-empty.is-shown { display: block; }
+
+   
   @media print {
     body { background: white; }
     .doc { max-width: 100%; padding: 0; }
     .chain, .finding-match, .finding-fix { break-inside: avoid; }
     a { color: inherit; }
+    .filters, .filter-empty { display: none !important; }
+     
+    .is-filtered-out { display: revert !important; }
   }
 </style>
 </head>
@@ -644,8 +744,8 @@
   <div class="meta-grid">
     <div><span class="k">Roots</span><span class="v">testdata/laptops/dirty</span></div>
     <div><span class="k">Files</span><span class="v">4 parsed / 4 seen</span></div>
-    <div><span class="k">Time</span><span class="v">1ms</span></div>
-    <div><span class="k">Started</span><span class="v">2026-05-13 07:44:48 IST</span></div>
+    <div><span class="k">Time</span><span class="v">2ms</span></div>
+    <div><span class="k">Started</span><span class="v">2026-05-12 23:25:42 EDT</span></div>
   </div>
 
   
@@ -663,19 +763,66 @@
     </ul>
   </section>
   
+  
+  <nav class="filters" id="filters" aria-label="Result filters">
+    <div class="filters-row">
+      <span class="filters-label">Show</span>
+      <label class="chip chip-kind" data-kind="chain" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle attack chains">
+        Chains <span class="count">0</span>
+      </label>
+      <label class="chip chip-kind" data-kind="secret" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle secret findings">
+        Secrets <span class="count">0</span>
+      </label>
+      <label class="chip chip-kind" data-kind="package" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle package vulnerabilities">
+        Packages <span class="count">0</span>
+      </label>
+      <label class="chip chip-kind" data-kind="other" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle other findings">
+        Other <span class="count">14</span>
+      </label>
+    </div>
+    <div class="filters-row">
+      <span class="filters-label">Severity</span>
+      <label class="chip chip-sev critical" data-sev="critical" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle critical findings">
+        Critical <span class="count">2</span>
+      </label>
+      <label class="chip chip-sev high" data-sev="high" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle high findings">
+        High <span class="count">12</span>
+      </label>
+      <label class="chip chip-sev medium" data-sev="medium" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle medium findings">
+        Medium <span class="count">0</span>
+      </label>
+      <label class="chip chip-sev low" data-sev="low" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle low findings">
+        Low <span class="count">0</span>
+      </label>
+      <input type="search" class="filters-search" id="filter-search" placeholder="filter by text — rule, path, or title" aria-label="Filter findings by text">
+      <button type="button" class="filters-clear" id="filter-clear">Reset</button>
+    </div>
+  </nav>
+  <div class="filter-empty" id="filter-empty">No findings match the current filters.</div>
+  
 
   
-  
+
   
 
   
-    <h2 class="section">
+
+  
+    <h2 class="section" data-kind="files">
       <span>Findings by file</span>
       <span class="count">14 across 4 files</span>
     </h2>
 
     
-    <details class="path-group" open id="path-testdata-laptops-dirty-mcp-json">
+    <details class="path-group" open id="path-testdata-laptops-dirty-mcp-json" data-pathgroup="1">
       <summary class="path-group-head">
         <span class="path-name">testdata/laptops/dirty/.mcp.json</span>
         <span class="path-counts">
@@ -688,7 +835,7 @@
 
       <ul class="findings">
         
-        <li>
+        <li data-kind="other" data-sev="critical" data-search="plaintext api key in mcp server env mcp-plaintext-api-key testdata/laptops/dirty/.mcp.json server &#34;github-prod&#34; (in mcp-config) has env key &#34;github_token&#34; whose value matches a known credential pattern. plaintext credentials in version-controllable config files are a common breach vector.">
           <details class="finding critical">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -715,7 +862,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="critical" data-search="production secret exposed to mcp server mcp-prod-secret-env testdata/laptops/dirty/.mcp.json server &#34;github-prod&#34; receives env var &#34;prod_database_url&#34; whose name suggests a production credential. agents with broad capability surface should never receive prod credentials.">
           <details class="finding critical">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -742,7 +889,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="mcp server launched via unpinned npx mcp-unpinned-npx testdata/laptops/dirty/.mcp.json server &#34;filesystem&#34; (in mcp-config) runs `npx -y @modelcontextprotocol/server-filesystem /tmp` without a pinned package version. the package can change between runs, exposing the agent to supply-chain risk.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -769,7 +916,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="mcp server launched via unpinned npx mcp-unpinned-npx testdata/laptops/dirty/.mcp.json server &#34;github-prod&#34; (in mcp-config) runs `npx -y @modelcontextprotocol/server-github` without a pinned package version. the package can change between runs, exposing the agent to supply-chain risk.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -796,7 +943,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="mcp server launched via shell pipeline mcp-shell-pipeline-command testdata/laptops/dirty/.mcp.json server &#34;shell-injection&#34; is launched through `bash -c` or a shell pipeline. this widens attack surface (arbitrary command injection) and bypasses argument-level review.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -823,7 +970,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="mcp server loads code from network at runtime mcp-dynamic-config-injection testdata/laptops/dirty/.mcp.json server &#34;dynamic-loader&#34;&#39;s command pipes a network fetch into the shell, meaning every launch may execute different code than was reviewed.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -850,7 +997,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="mcp server launched via shell pipeline mcp-shell-pipeline-command testdata/laptops/dirty/.mcp.json server &#34;dynamic-loader&#34; is launched through `bash -c` or a shell pipeline. this widens attack surface (arbitrary command injection) and bypasses argument-level review.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -880,7 +1027,7 @@
       </ul>
     </details>
     
-    <details class="path-group" open id="path-testdata-laptops-dirty-github-workflows-agent-yml">
+    <details class="path-group" open id="path-testdata-laptops-dirty-github-workflows-agent-yml" data-pathgroup="1">
       <summary class="path-group-head">
         <span class="path-name">testdata/laptops/dirty/.github/workflows/agent.yml</span>
         <span class="path-counts">
@@ -893,7 +1040,7 @@
 
       <ul class="findings">
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="secret passed to step that invokes an ai coding agent gha-secrets-in-agent-step testdata/laptops/dirty/.github/workflows/agent.yml step in job &#34;review&#34; invokes an agent (claude review anthropics/claude-code-action@v1) and exposes anthropic_api_key via env. agents with shell access plus secret access are a single misconfiguration away from leaking credentials.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -920,7 +1067,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="secret passed to step that invokes an ai coding agent gha-secrets-in-agent-step testdata/laptops/dirty/.github/workflows/agent.yml step in job &#34;review&#34; invokes an agent (claude review anthropics/claude-code-action@v1) and exposes deploy_token via env. agents with shell access plus secret access are a single misconfiguration away from leaking credentials.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -947,7 +1094,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="workflow grants write-all permissions (workflow level) gha-write-all-permissions testdata/laptops/dirty/.github/workflows/agent.yml `permissions: write-all` at workflow level grants the github_token maximum scope for the duration of the run. a compromised step has full repo write &#43; secret read.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -977,7 +1124,7 @@
       </ul>
     </details>
     
-    <details class="path-group" open id="path-testdata-laptops-dirty-zshrc">
+    <details class="path-group" open id="path-testdata-laptops-dirty-zshrc" data-pathgroup="1">
       <summary class="path-group-head">
         <span class="path-name">testdata/laptops/dirty/.zshrc</span>
         <span class="path-counts">
@@ -990,7 +1137,7 @@
 
       <ul class="findings">
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="credential exported in shell rc shellrc-secret-export testdata/laptops/dirty/.zshrc `testdata/laptops/dirty/.zshrc` exports gh_token with a value matching a known credential pattern. any agent or process inheriting the user&#39;s shell environment receives this credential.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -1017,7 +1164,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="credential exported in shell rc shellrc-secret-export testdata/laptops/dirty/.zshrc `testdata/laptops/dirty/.zshrc` exports aws_access_key_id with a value matching a known credential pattern. any agent or process inheriting the user&#39;s shell environment receives this credential.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -1044,7 +1191,7 @@
           </details>
         </li>
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="credential exported in shell rc shellrc-secret-export testdata/laptops/dirty/.zshrc `testdata/laptops/dirty/.zshrc` exports anthropic_api_key with a value matching a known credential pattern. any agent or process inheriting the user&#39;s shell environment receives this credential.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -1074,7 +1221,7 @@
       </ul>
     </details>
     
-    <details class="path-group" open id="path-testdata-laptops-dirty-claude-skills-risky-skill-md">
+    <details class="path-group" open id="path-testdata-laptops-dirty-claude-skills-risky-skill-md" data-pathgroup="1">
       <summary class="path-group-head">
         <span class="path-name">testdata/laptops/dirty/.claude/skills/risky/SKILL.md</span>
         <span class="path-counts">
@@ -1087,7 +1234,7 @@
 
       <ul class="findings">
         
-        <li>
+        <li data-kind="other" data-sev="high" data-search="skill contains shell-hijack pattern skill-shell-hijack testdata/laptops/dirty/.claude/skills/risky/skill.md skill &#34;risky-installer&#34; includes a shell pattern (curl|bash, eval, base64-decode) that can run arbitrary code outside the agent&#39;s tool allowlist.">
           <details class="finding high">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -1124,5 +1271,114 @@
     <span>14 findings · 0 chains · 4 files</span>
   </footer>
 </div>
+<script>
+(function () {
+  var bar = document.getElementById('filters');
+  if (!bar) return;
+  var search = document.getElementById('filter-search');
+  var clearBtn = document.getElementById('filter-clear');
+  var emptyState = document.getElementById('filter-empty');
+
+  var kindOn = { chain: true, secret: true, package: true, other: true };
+  var sevOn  = { critical: true, high: true, medium: true, low: true };
+  var query  = '';
+
+  var items = document.querySelectorAll('[data-kind][data-sev]');
+  var pathGroups = document.querySelectorAll('[data-pathgroup]');
+  var sections = document.querySelectorAll('h2.section[data-kind]');
+
+  function matches(el) {
+    var kind = el.getAttribute('data-kind');
+    var sev = el.getAttribute('data-sev');
+    if (kindOn[kind] === false) return false;
+    if (sevOn[sev] === false) return false;
+    if (query) {
+      var hay = (el.getAttribute('data-search') || '').toLowerCase();
+      if (hay.indexOf(query) === -1) return false;
+    }
+    return true;
+  }
+
+  function apply() {
+    var anyVisible = false;
+    var kindHasVisible = { chain: false, secret: false, package: false, other: false };
+
+    for (var i = 0; i < items.length; i++) {
+      var el = items[i];
+      if (matches(el)) {
+        el.classList.remove('is-filtered-out');
+        anyVisible = true;
+        kindHasVisible[el.getAttribute('data-kind')] = true;
+      } else {
+        el.classList.add('is-filtered-out');
+      }
+    }
+
+    for (var g = 0; g < pathGroups.length; g++) {
+      var group = pathGroups[g];
+      var visible = group.querySelectorAll('li[data-kind]:not(.is-filtered-out)');
+      group.classList.toggle('is-filtered-out', visible.length === 0);
+    }
+
+    for (var s = 0; s < sections.length; s++) {
+      var sec = sections[s];
+      var sk = sec.getAttribute('data-kind');
+      var hide = false;
+      if (sk === 'chain' && !kindHasVisible.chain) hide = true;
+      else if (sk === 'secret' && !kindHasVisible.secret) hide = true;
+      else if (sk === 'package' && !kindHasVisible.package) hide = true;
+      else if (sk === 'files') {
+        hide = !(kindHasVisible.secret || kindHasVisible.package || kindHasVisible.other);
+      }
+      sec.classList.toggle('is-filtered-out', hide);
+    }
+
+    if (emptyState) emptyState.classList.toggle('is-shown', !anyVisible);
+  }
+
+  function bindChip(chip, store, key) {
+    var input = chip.querySelector('input');
+    chip.addEventListener('click', function (ev) {
+      if (ev.target !== input) {
+        ev.preventDefault();
+        input.checked = !input.checked;
+      }
+      store[key] = !!input.checked;
+      chip.setAttribute('data-on', input.checked ? '1' : '0');
+      apply();
+    });
+  }
+
+  var kindChips = bar.querySelectorAll('.chip-kind');
+  for (var k = 0; k < kindChips.length; k++) {
+    bindChip(kindChips[k], kindOn, kindChips[k].getAttribute('data-kind'));
+  }
+  var sevChips = bar.querySelectorAll('.chip-sev');
+  for (var v = 0; v < sevChips.length; v++) {
+    bindChip(sevChips[v], sevOn, sevChips[v].getAttribute('data-sev'));
+  }
+
+  if (search) {
+    search.addEventListener('input', function () {
+      query = search.value.trim().toLowerCase();
+      apply();
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      Object.keys(kindOn).forEach(function (k) { kindOn[k] = true; });
+      Object.keys(sevOn).forEach(function (s) { sevOn[s] = true; });
+      var chips = bar.querySelectorAll('.chip');
+      for (var i = 0; i < chips.length; i++) {
+        chips[i].setAttribute('data-on', '1');
+        var input = chips[i].querySelector('input');
+        if (input) input.checked = true;
+      }
+      if (search) { search.value = ''; query = ''; }
+      apply();
+    });
+  }
+})();
+</script>
 </body>
 </html>

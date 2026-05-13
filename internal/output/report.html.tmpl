@@ -609,12 +609,113 @@
   }
   footer a:hover { color: var(--ink); border-bottom-color: var(--ink); }
 
+  /* --- Filter toolbar -------------------------------------------------- */
+  /* Progressive: with no JS the chips render but do nothing and every
+     section stays visible — matches pre-filter behavior. */
+  .filters {
+    margin: 0 0 28px;
+    padding: 14px 16px;
+    border: 1px solid var(--rule-soft);
+    background: var(--card);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .filters-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+  }
+  .filters-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-muted);
+    min-width: 56px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid var(--rule-soft);
+    padding: 4px 10px;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.4;
+  }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip[data-on="1"] {
+    color: var(--ink);
+    border-color: var(--ink);
+    background: var(--card-tint);
+  }
+  .chip .count {
+    color: var(--ink-muted);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .chip[data-on="1"] .count { color: var(--ink-soft); }
+  .chip-sev.critical[data-on="1"] { color: var(--critical); border-color: var(--critical); }
+  .chip-sev.high[data-on="1"]     { color: var(--high);     border-color: var(--high); }
+  .chip-sev.medium[data-on="1"]   { color: var(--medium);   border-color: var(--medium); }
+  .chip-sev.low[data-on="1"]      { color: var(--low);      border-color: var(--low); }
+  .filters-search {
+    flex: 1 1 220px;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--rule-soft);
+    padding: 4px 2px;
+    outline: none;
+  }
+  .filters-search:focus { border-bottom-color: var(--ink); }
+  .filters-clear {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+  .filters-clear:hover { color: var(--ink); }
+
+  .is-filtered-out { display: none !important; }
+  .filter-empty {
+    display: none;
+    border: 1px dashed var(--rule);
+    padding: 24px 20px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    margin: 24px 0;
+  }
+  .filter-empty.is-shown { display: block; }
+
   /* --- Print ----------------------------------------------------------- */
   @media print {
     body { background: white; }
     .doc { max-width: 100%; padding: 0; }
     .chain, .finding-match, .finding-fix { break-inside: avoid; }
     a { color: inherit; }
+    .filters, .filter-empty { display: none !important; }
+    /* Print view restores everything — toolbar state is screen-only. */
+    .is-filtered-out { display: revert !important; }
   }
 </style>
 </head>
@@ -666,14 +767,63 @@
   </section>
   {{end}}
 
+  {{- $secretFindingsAll := secretFindings .Findings }}
+  {{- $packageFindingsAll := packageVulns .Findings }}
+  {{- $otherFindings := otherFindings .Findings }}
+  {{if or .AttackChains .Findings}}
+  <nav class="filters" id="filters" aria-label="Result filters">
+    <div class="filters-row">
+      <span class="filters-label">Show</span>
+      <label class="chip chip-kind" data-kind="chain" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle attack chains">
+        Chains <span class="count">{{len .AttackChains}}</span>
+      </label>
+      <label class="chip chip-kind" data-kind="secret" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle secret findings">
+        Secrets <span class="count">{{len $secretFindingsAll}}</span>
+      </label>
+      <label class="chip chip-kind" data-kind="package" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle package vulnerabilities">
+        Packages <span class="count">{{len $packageFindingsAll}}</span>
+      </label>
+      <label class="chip chip-kind" data-kind="other" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle other findings">
+        Other <span class="count">{{len $otherFindings}}</span>
+      </label>
+    </div>
+    <div class="filters-row">
+      <span class="filters-label">Severity</span>
+      <label class="chip chip-sev critical" data-sev="critical" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle critical findings">
+        Critical <span class="count">{{index $c "critical"}}</span>
+      </label>
+      <label class="chip chip-sev high" data-sev="high" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle high findings">
+        High <span class="count">{{index $c "high"}}</span>
+      </label>
+      <label class="chip chip-sev medium" data-sev="medium" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle medium findings">
+        Medium <span class="count">{{index $c "medium"}}</span>
+      </label>
+      <label class="chip chip-sev low" data-sev="low" data-on="1">
+        <input type="checkbox" checked aria-label="Toggle low findings">
+        Low <span class="count">{{index $c "low"}}</span>
+      </label>
+      <input type="search" class="filters-search" id="filter-search" placeholder="filter by text — rule, path, or title" aria-label="Filter findings by text">
+      <button type="button" class="filters-clear" id="filter-clear">Reset</button>
+    </div>
+  </nav>
+  <div class="filter-empty" id="filter-empty">No findings match the current filters.</div>
+  {{end}}
+
   {{if .AttackChains}}
-  <h2 class="section">
+  <h2 class="section" data-kind="chain">
     <span>Attack Chains</span>
     <span class="count">{{len .AttackChains}} fired</span>
   </h2>
 
   {{range .AttackChains}}
-  <article class="chain {{sevClass .Severity}}">
+  <article class="chain {{sevClass .Severity}}" data-kind="chain" data-sev="{{sevClass .Severity}}" data-search="{{searchText .Title .Outcome .Narrative}}">
     <div class="chain-head">
       <h3 class="chain-title">{{md .Title}}</h3>
       <span class="pill {{sevClass .Severity}}">{{sevLabel .Severity}}</span>
@@ -712,16 +862,15 @@
   {{end}}
   {{end}}
 
-  {{- $secretFindings := secretFindings .Findings }}
-  {{if $secretFindings}}
-  <h2 class="section">
+  {{if $secretFindingsAll}}
+  <h2 class="section" data-kind="secret">
     <span>Secrets</span>
-    <span class="count">{{len $secretFindings}} secret exposure{{if ne (len $secretFindings) 1}}s{{end}}</span>
+    <span class="count">{{len $secretFindingsAll}} secret exposure{{if ne (len $secretFindingsAll) 1}}s{{end}}</span>
   </h2>
 
   <ul class="findings secret-exposures">
-    {{range $secretFindings}}
-    <li>
+    {{range $secretFindingsAll}}
+    <li data-kind="secret" data-sev="{{sevClass .Severity}}" data-search="{{searchText .Title .RuleID .Path .Description}}">
       <details class="finding {{sevClass .Severity}}" open>
         <summary class="finding-summary">
           <div class="finding-summary-row">
@@ -752,16 +901,15 @@
   </ul>
   {{end}}
 
-  {{- $packageFindings := packageVulns .Findings }}
-  {{if $packageFindings}}
-  <h2 class="section">
+  {{if $packageFindingsAll}}
+  <h2 class="section" data-kind="package">
     <span>Package vulnerabilities</span>
-    <span class="count">{{len $packageFindings}} vulnerable package manifest{{if ne (len $packageFindings) 1}}s{{end}}</span>
+    <span class="count">{{len $packageFindingsAll}} vulnerable package manifest{{if ne (len $packageFindingsAll) 1}}s{{end}}</span>
   </h2>
 
   <ul class="findings package-vulnerabilities">
-    {{range $packageFindings}}
-    <li>
+    {{range $packageFindingsAll}}
+    <li data-kind="package" data-sev="{{sevClass .Severity}}" data-search="{{searchText .Title .RuleID .Path .Description}}">
       <details class="finding {{sevClass .Severity}}" open>
         <summary class="finding-summary">
           <div class="finding-summary-row">
@@ -805,13 +953,13 @@
       {{end}}
     </section>
   {{else}}
-    <h2 class="section">
+    <h2 class="section" data-kind="files">
       <span>Findings by file</span>
       <span class="count">{{index $c "total"}} across {{len (groupByPath .Findings)}} files</span>
     </h2>
 
     {{range groupByPath .Findings}}
-    <details class="path-group" open id="path-{{slug .Path}}">
+    <details class="path-group" open id="path-{{slug .Path}}" data-pathgroup="1">
       <summary class="path-group-head">
         <span class="path-name">{{.Path}}</span>
         <span class="path-counts">
@@ -824,7 +972,7 @@
 
       <ul class="findings">
         {{range .Findings}}
-        <li>
+        <li data-kind="{{findingKind .}}" data-sev="{{sevClass .Severity}}" data-search="{{searchText .Title .RuleID .Path .Description}}">
           <details class="finding {{sevClass .Severity}}">
             <summary class="finding-summary">
               <div class="finding-summary-row">
@@ -861,5 +1009,114 @@
     <span>{{index $c "total"}} {{if eq (index $c "total") 1}}finding{{else}}findings{{end}} · {{len .AttackChains}} {{if eq (len .AttackChains) 1}}chain{{else}}chains{{end}} · {{.FilesParsed}} files</span>
   </footer>
 </div>
+<script>
+(function () {
+  var bar = document.getElementById('filters');
+  if (!bar) return;
+  var search = document.getElementById('filter-search');
+  var clearBtn = document.getElementById('filter-clear');
+  var emptyState = document.getElementById('filter-empty');
+
+  var kindOn = { chain: true, secret: true, package: true, other: true };
+  var sevOn  = { critical: true, high: true, medium: true, low: true };
+  var query  = '';
+
+  var items = document.querySelectorAll('[data-kind][data-sev]');
+  var pathGroups = document.querySelectorAll('[data-pathgroup]');
+  var sections = document.querySelectorAll('h2.section[data-kind]');
+
+  function matches(el) {
+    var kind = el.getAttribute('data-kind');
+    var sev = el.getAttribute('data-sev');
+    if (kindOn[kind] === false) return false;
+    if (sevOn[sev] === false) return false;
+    if (query) {
+      var hay = (el.getAttribute('data-search') || '').toLowerCase();
+      if (hay.indexOf(query) === -1) return false;
+    }
+    return true;
+  }
+
+  function apply() {
+    var anyVisible = false;
+    var kindHasVisible = { chain: false, secret: false, package: false, other: false };
+
+    for (var i = 0; i < items.length; i++) {
+      var el = items[i];
+      if (matches(el)) {
+        el.classList.remove('is-filtered-out');
+        anyVisible = true;
+        kindHasVisible[el.getAttribute('data-kind')] = true;
+      } else {
+        el.classList.add('is-filtered-out');
+      }
+    }
+
+    for (var g = 0; g < pathGroups.length; g++) {
+      var group = pathGroups[g];
+      var visible = group.querySelectorAll('li[data-kind]:not(.is-filtered-out)');
+      group.classList.toggle('is-filtered-out', visible.length === 0);
+    }
+
+    for (var s = 0; s < sections.length; s++) {
+      var sec = sections[s];
+      var sk = sec.getAttribute('data-kind');
+      var hide = false;
+      if (sk === 'chain' && !kindHasVisible.chain) hide = true;
+      else if (sk === 'secret' && !kindHasVisible.secret) hide = true;
+      else if (sk === 'package' && !kindHasVisible.package) hide = true;
+      else if (sk === 'files') {
+        hide = !(kindHasVisible.secret || kindHasVisible.package || kindHasVisible.other);
+      }
+      sec.classList.toggle('is-filtered-out', hide);
+    }
+
+    if (emptyState) emptyState.classList.toggle('is-shown', !anyVisible);
+  }
+
+  function bindChip(chip, store, key) {
+    var input = chip.querySelector('input');
+    chip.addEventListener('click', function (ev) {
+      if (ev.target !== input) {
+        ev.preventDefault();
+        input.checked = !input.checked;
+      }
+      store[key] = !!input.checked;
+      chip.setAttribute('data-on', input.checked ? '1' : '0');
+      apply();
+    });
+  }
+
+  var kindChips = bar.querySelectorAll('.chip-kind');
+  for (var k = 0; k < kindChips.length; k++) {
+    bindChip(kindChips[k], kindOn, kindChips[k].getAttribute('data-kind'));
+  }
+  var sevChips = bar.querySelectorAll('.chip-sev');
+  for (var v = 0; v < sevChips.length; v++) {
+    bindChip(sevChips[v], sevOn, sevChips[v].getAttribute('data-sev'));
+  }
+
+  if (search) {
+    search.addEventListener('input', function () {
+      query = search.value.trim().toLowerCase();
+      apply();
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      Object.keys(kindOn).forEach(function (k) { kindOn[k] = true; });
+      Object.keys(sevOn).forEach(function (s) { sevOn[s] = true; });
+      var chips = bar.querySelectorAll('.chip');
+      for (var i = 0; i < chips.length; i++) {
+        chips[i].setAttribute('data-on', '1');
+        var input = chips[i].querySelector('input');
+        if (input) input.checked = true;
+      }
+      if (search) { search.value = ''; query = ''; }
+      apply();
+    });
+  }
+})();
+</script>
 </body>
 </html>
