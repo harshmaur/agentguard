@@ -77,6 +77,7 @@ func newScanCmd() *cobra.Command {
 		flagOutput        string
 		flagFormat        string
 		flagJobs          int
+		flagScannerJobs   int
 		flagFileTimeout   time.Duration
 		flagScanTimeout   time.Duration
 		flagSizeLimit     int64
@@ -123,6 +124,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 				output:        flagOutput,
 				format:        flagFormat,
 				jobs:          flagJobs,
+				scannerJobs:   flagScannerJobs,
 				fileTimeout:   flagFileTimeout,
 				scanTimeout:   flagScanTimeout,
 				sizeLimit:     flagSizeLimit,
@@ -150,6 +152,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().StringVar(&flagOpen, "open", "auto", "open HTML report in browser: auto | always | never")
 	cmd.Flags().BoolVarP(&flagQuiet, "quiet", "q", false, "suppress the readable summary on stdout")
 	cmd.Flags().IntVar(&flagJobs, "jobs", 0, "worker pool size (default: GOMAXPROCS)")
+	cmd.Flags().IntVar(&flagScannerJobs, "scanner-jobs", secretscan.DefaultJobs(), "cap external scanner (TruffleHog) worker pool; 0 = uncapped")
 	cmd.Flags().DurationVar(&flagFileTimeout, "file-timeout", 5*time.Second, "per-file parse + rule timeout")
 	cmd.Flags().DurationVar(&flagScanTimeout, "scan-timeout", 60*time.Second, "total scan timeout")
 	cmd.Flags().Int64Var(&flagSizeLimit, "file-size-limit", 10<<20, "skip files larger than this byte size")
@@ -185,6 +188,7 @@ type scanFlags struct {
 	output        string
 	format        string
 	jobs          int
+	scannerJobs   int
 	fileTimeout   time.Duration
 	scanTimeout   time.Duration
 	sizeLimit     int64
@@ -223,6 +227,9 @@ func validateScanModes(f scanFlags) error {
 	}
 	if f.secretsOnly && f.depsOnly {
 		return fmt.Errorf("--secrets-only conflicts with --deps-only")
+	}
+	if f.scannerJobs < 0 {
+		return fmt.Errorf("--scanner-jobs must be >= 0 (got %d; 0 means uncapped)", f.scannerJobs)
 	}
 	return nil
 }
@@ -594,7 +601,7 @@ func runSecretBackend(ctx context.Context, f scanFlags, roots []string, plan out
 		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
 		return nil, nil
 	}
-	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{Roots: roots})
+	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{Roots: roots, Jobs: f.scannerJobs})
 	if err != nil {
 		if f.requireSecret || f.secretsOnly {
 			return nil, err

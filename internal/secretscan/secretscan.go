@@ -54,8 +54,23 @@ func formatCommandError(name string, err error, stderr []byte) error {
 }
 
 type RunOptions struct {
-	Roots  []string
+	Roots []string
+	// Jobs caps TruffleHog's internal worker pool via --concurrency. Zero or
+	// negative leaves the scanner uncapped (TruffleHog defaults to NumCPU,
+	// which pegs every core on a large tree).
+	Jobs   int
 	Runner CommandRunner
+}
+
+// DefaultJobs returns the worker cap audr applies when --scanner-jobs is
+// not set: half the cores, minimum 1, leaving the rest of the machine usable
+// during a long scan.
+func DefaultJobs() int {
+	n := runtime.NumCPU() / 2
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 type Status struct {
@@ -142,6 +157,9 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 		roots = []string{"."}
 	}
 	args := []string{"filesystem", "--json", "--no-update"}
+	if opts.Jobs > 0 {
+		args = append(args, fmt.Sprintf("--concurrency=%d", opts.Jobs))
+	}
 	args = append(args, roots...)
 	out, err := runner.Run(ctx, binaryName(), args...)
 	findings, parseErr := ParseTruffleHogJSONL(out)

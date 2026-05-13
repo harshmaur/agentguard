@@ -86,6 +86,38 @@ func TestRunBackendUsesInjectedRunner(t *testing.T) {
 			t.Fatalf("called = %q, missing %q", called, want)
 		}
 	}
+	if strings.Contains(called, "--concurrency") {
+		t.Fatalf("called = %q, must not pass --concurrency when Jobs is zero", called)
+	}
+}
+
+func TestRunBackendPassesConcurrencyFlag(t *testing.T) {
+	dir := t.TempDir()
+	var called string
+	runner := CommandRunnerFunc(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		called = name + " " + strings.Join(args, " ")
+		return nil, nil
+	})
+
+	if _, err := RunBackend(context.Background(), RunOptions{Roots: []string{dir}, Jobs: 3, Runner: runner}); err != nil {
+		t.Fatalf("RunBackend err: %v", err)
+	}
+	if !strings.Contains(called, "--concurrency=3") {
+		t.Fatalf("called = %q, want --concurrency=3", called)
+	}
+	// Roots must follow the flag, not get re-ordered ahead of it (TruffleHog
+	// treats trailing positional args as scan targets).
+	flagIdx := strings.Index(called, "--concurrency=3")
+	rootIdx := strings.Index(called, dir)
+	if flagIdx < 0 || rootIdx < 0 || flagIdx > rootIdx {
+		t.Fatalf("called = %q, expected --concurrency=3 before %s", called, dir)
+	}
+}
+
+func TestDefaultJobsAtLeastOne(t *testing.T) {
+	if got := DefaultJobs(); got < 1 {
+		t.Fatalf("DefaultJobs() = %d, want >= 1", got)
+	}
 }
 
 func TestInstallAndUpdatePlans(t *testing.T) {
