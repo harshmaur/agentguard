@@ -381,9 +381,6 @@ func runScan(f scanFlags) error {
 	// narratives that render at the top of the report.
 	chains := correlate.Run(res.Findings, res.Documents)
 
-	env := runtimeenv.Detect(ctx)
-	mounts := runtimeenv.ClassifyRoots(roots)
-
 	report := output.Report{
 		Findings:     res.Findings,
 		AttackChains: chains,
@@ -397,8 +394,16 @@ func runScan(f scanFlags) error {
 		Skipped:      res.Skipped,
 		Version:      Version,
 		SelfAudit:    "skipped",
-		Environment:  &env,
-		ScanMounts:   mounts,
+	}
+
+	// Runtime detection is environment-dependent (docker vs darwin vs CI vs
+	// dev box), so the docs/sample-report.html fixture is regenerated with
+	// AUDR_OMIT_RUNTIME_INFO=1 to keep the committed sample stable across
+	// reviewer machines and CI runners. Real scans always include it.
+	if os.Getenv("AUDR_OMIT_RUNTIME_INFO") != "1" {
+		env := runtimeenv.Detect(ctx)
+		report.Environment = &env
+		report.ScanMounts = runtimeenv.ClassifyRoots(roots)
 	}
 
 	// Write the format output to its destination.
