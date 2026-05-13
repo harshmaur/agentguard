@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/scanignore"
 )
 
 const rawSecret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890SECRET"
@@ -81,10 +82,86 @@ func TestRunBackendUsesInjectedRunner(t *testing.T) {
 	if len(findings) != 1 {
 		t.Fatalf("findings = %d, want 1", len(findings))
 	}
-	for _, want := range []string{"trufflehog", "filesystem", "--json", "--no-update", dir} {
+	for _, want := range []string{"trufflehog", "filesystem", "--json", "--no-update", "--exclude-paths", "--concurrency=", dir} {
 		if !strings.Contains(called, want) {
 			t.Fatalf("called = %q, missing %q", called, want)
 		}
+	}
+}
+
+// TestRunBackendPassesScanignoreExcludeFile asserts the stopgap wiring: the
+// TruffleHog invocation must include --exclude-paths pointing at a file
+// whose contents match scanignore.Defaults() patterns. Without this, the
+// scan walks node_modules and friends and pegs the laptop (the bug this
+// stopgap fixes).
+//
+// The exclude file is captured + inspected inside the runner callback
+// because RunBackend defers cleanup that removes the file before returning.
+func TestRunBackendPassesScanignoreExcludeFile(t *testing.T) {
+	var (
+		capturedArgs        []string
+		capturedExcludeBody string
+		readErr             error
+	)
+	runner := CommandRunnerFunc(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		capturedArgs = append([]string(nil), args...)
+		// Find --exclude-paths value and slurp it while the file still exists.
+		for i, a := range args {
+			if a == "--exclude-paths" && i+1 < len(args) {
+				raw, err := os.ReadFile(args[i+1])
+				if err != nil {
+					readErr = err
+				} else {
+					capturedExcludeBody = string(raw)
+				}
+				break
+			}
+		}
+		return nil, nil
+	})
+
+	_, err := RunBackend(context.Background(), RunOptions{Roots: []string{t.TempDir()}, Runner: runner})
+	if err != nil {
+		t.Fatalf("RunBackend err: %v", err)
+	}
+	if readErr != nil {
+		t.Fatalf("read exclude file inside runner: %v", readErr)
+	}
+
+	// --exclude-paths must be present in args.
+	hasExcludePathsFlag := false
+	for _, a := range capturedArgs {
+		if a == "--exclude-paths" {
+			hasExcludePathsFlag = true
+			break
+		}
+	}
+	if !hasExcludePathsFlag {
+		t.Fatalf("--exclude-paths not in args: %v", capturedArgs)
+	}
+	if capturedExcludeBody == "" {
+		t.Fatalf("exclude file body was empty")
+	}
+
+	for _, segment := range scanignore.Defaults() {
+		if !strings.Contains(capturedExcludeBody, segment) {
+			t.Fatalf("exclude file missing segment %q; body:\n%s", segment, capturedExcludeBody)
+		}
+	}
+
+	// Confirm --concurrency= is set to a positive integer.
+	var concurrencyArg string
+	for _, a := range capturedArgs {
+		if strings.HasPrefix(a, "--concurrency=") {
+			concurrencyArg = a
+			break
+		}
+	}
+	if concurrencyArg == "" {
+		t.Fatalf("--concurrency=<n> not in args: %v", capturedArgs)
+	}
+	if concurrencyArg == "--concurrency=0" {
+		t.Fatalf("concurrency must be >= 1, got %q", concurrencyArg)
 	}
 }
 

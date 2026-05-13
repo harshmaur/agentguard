@@ -15,6 +15,7 @@ import (
 
 	"github.com/harshmaur/audr/internal/finding"
 	"github.com/harshmaur/audr/internal/redact"
+	"github.com/harshmaur/audr/internal/scanignore"
 )
 
 const (
@@ -141,7 +142,20 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 	if len(roots) == 0 {
 		roots = []string{"."}
 	}
-	args := []string{"filesystem", "--json", "--no-update"}
+
+	excludeFile, cleanupExcludes, err := scanignore.WriteTruffleHogExcludeFile()
+	if err != nil {
+		return nil, fmt.Errorf("prepare trufflehog exclude file: %w", err)
+	}
+	defer cleanupExcludes()
+
+	args := []string{
+		"filesystem",
+		"--json",
+		"--no-update",
+		"--exclude-paths", excludeFile,
+		fmt.Sprintf("--concurrency=%d", concurrency()),
+	}
 	args = append(args, roots...)
 	out, err := runner.Run(ctx, binaryName(), args...)
 	findings, parseErr := ParseTruffleHogJSONL(out)
@@ -152,6 +166,16 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 		return nil, err
 	}
 	return findings, parseErr
+}
+
+// concurrency returns the TruffleHog --concurrency value: half the logical
+// CPUs, never below 1. Keeps the scan from monopolizing every core.
+func concurrency() int {
+	n := runtime.NumCPU() / 2
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 type truffleHogFinding struct {
