@@ -55,6 +55,7 @@ func init() {
 type Report struct {
 	Findings     []finding.Finding
 	AttackChains []AttackChain // v0.2.0-alpha.5 — narrative scenarios across multiple findings
+	Warnings     []string      // scanner coverage warnings that must be visible in every report
 	Roots        []string
 	StartedAt    time.Time
 	FinishedAt   time.Time
@@ -299,6 +300,13 @@ func (r Report) Verdict() Verdict {
 	totalChains := len(r.AttackChains)
 
 	if totalFindings == 0 {
+		if len(r.Warnings) > 0 {
+			return Verdict{
+				Lead:       "Scan incomplete. No findings in the checks that completed.",
+				Supporting: fmt.Sprintf("%d coverage warning%s require attention before treating this report as clean.", len(r.Warnings), pluralS(len(r.Warnings))),
+				Severity:   "medium",
+			}
+		}
 		return Verdict{
 			Lead:       "Clean. No developer-machine security findings on this scan.",
 			Supporting: fmt.Sprintf("Scanned %d files across %d roots.", r.FilesParsed, len(r.Roots)),

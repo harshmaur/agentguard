@@ -17,6 +17,7 @@ type jsonReport struct {
 	GeneratedAt  time.Time         `json:"generated_at"`
 	Roots        []string          `json:"roots,omitempty"`
 	SelfAudit    string            `json:"self_audit,omitempty"`
+	Warnings     []string          `json:"warnings,omitempty"`
 	Stats        jsonStats         `json:"stats"`
 	AttackChains []AttackChain     `json:"attack_chains,omitempty"` // v0.2.0-alpha.5
 	Findings     []finding.Finding `json:"findings"`
@@ -36,20 +37,25 @@ type jsonStats struct {
 
 // JSON writes the report as pretty-printed JSON.
 func JSON(w io.Writer, r Report) error {
+	findings := r.Findings
+	if findings == nil {
+		findings = []finding.Finding{}
+	}
 	jr := jsonReport{
 		Schema:       "https://audr.dev/schema/report.v1.json",
 		Version:      nonEmpty(r.Version, "0.0.0-dev"),
 		GeneratedAt:  r.FinishedAt,
 		Roots:        r.Roots,
 		SelfAudit:    r.SelfAudit,
+		Warnings:     r.Warnings,
 		AttackChains: r.AttackChains,
-		Findings:     r.Findings,
+		Findings:     findings,
 	}
 	jr.Stats.FilesSeen = r.FilesSeen
 	jr.Stats.FilesParsed = r.FilesParsed
 	jr.Stats.Suppressed = r.Suppressed
 	jr.Stats.Skipped = r.Skipped
-	for _, f := range r.Findings {
+	for _, f := range findings {
 		jr.Stats.Total++
 		switch f.Severity {
 		case finding.SeverityCritical:

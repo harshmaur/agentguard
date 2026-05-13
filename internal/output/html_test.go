@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,68 @@ func TestBuildVerdict_Clean(t *testing.T) {
 	}
 	if !strings.Contains(v.Lead, "Clean") {
 		t.Errorf("lead = %q", v.Lead)
+	}
+}
+
+func TestBuildVerdict_IncompleteWhenWarningsExist(t *testing.T) {
+	r := Report{Warnings: []string{"dependency scanner osv-scanner is not installed"}, FilesParsed: 12, Roots: []string{"/tmp"}}
+	v := r.Verdict()
+	if v.Severity != "medium" {
+		t.Errorf("severity = %q, want medium", v.Severity)
+	}
+	if !strings.Contains(v.Lead, "Scan incomplete") {
+		t.Errorf("lead = %q, want incomplete scan", v.Lead)
+	}
+}
+
+func TestWarningsRenderInHumanAndMachineReports(t *testing.T) {
+	r := Report{
+		Warnings:   []string{"dependency scanner osv-scanner is not installed"},
+		Roots:      []string{"/tmp"},
+		StartedAt:  time.Unix(0, 0),
+		FinishedAt: time.Unix(1, 0),
+		SelfAudit:  "skipped",
+	}
+
+	var htmlBuf bytes.Buffer
+	if err := HTML(&htmlBuf, r); err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	for _, want := range []string{"Coverage warnings", "Scan incomplete", "No findings in completed checks", "dependency scanner osv-scanner is not installed"} {
+		if !strings.Contains(htmlBuf.String(), want) {
+			t.Fatalf("HTML missing %q:\n%s", want, htmlBuf.String())
+		}
+	}
+
+	var textBuf bytes.Buffer
+	if err := Text(&textBuf, r, ""); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	if !strings.Contains(textBuf.String(), "Warnings:") || !strings.Contains(textBuf.String(), "scanner coverage was incomplete") {
+		t.Fatalf("Text missing warning UX:\n%s", textBuf.String())
+	}
+
+	var jsonBuf bytes.Buffer
+	if err := JSON(&jsonBuf, r); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	var parsed struct {
+		Warnings []string          `json:"warnings"`
+		Findings []finding.Finding `json:"findings"`
+	}
+	if err := json.Unmarshal(jsonBuf.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal JSON: %v", err)
+	}
+	if len(parsed.Warnings) != 1 || len(parsed.Findings) != 0 {
+		t.Fatalf("JSON warnings/findings = %d/%d, want 1/0", len(parsed.Warnings), len(parsed.Findings))
+	}
+
+	var sarifBuf bytes.Buffer
+	if err := SARIF(&sarifBuf, r); err != nil {
+		t.Fatalf("SARIF: %v", err)
+	}
+	if !strings.Contains(sarifBuf.String(), "audr-scan-incomplete") || !strings.Contains(sarifBuf.String(), "dependency scanner osv-scanner is not installed") {
+		t.Fatalf("SARIF missing warning result:\n%s", sarifBuf.String())
 	}
 }
 

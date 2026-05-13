@@ -42,6 +42,29 @@ func SARIF(w io.Writer, r Report) error {
 	}
 	// Build rule index so we can include `rules:` once per fired rule.
 	seenRule := map[string]bool{}
+	if len(r.Warnings) > 0 {
+		const warningRuleID = "audr-scan-incomplete"
+		seenRule[warningRuleID] = true
+		root.Runs[0].Tool.Driver.Rules = append(root.Runs[0].Tool.Driver.Rules, sarifRuleDef{
+			ID:               warningRuleID,
+			Name:             warningRuleID,
+			ShortDescription: sarifText{Text: "Audr scan coverage incomplete"},
+			FullDescription:  sarifText{Text: "One or more scanner backends were unavailable or failed, so this report must not be treated as complete."},
+			Help:             sarifText{Text: "Run `audr doctor`, install or update the missing scanner backend, then rerun Audr. In CI, use `audr scan --ci --require-deps` to fail instead of producing a partial package-vulnerability report."},
+			DefaultConfig:    sarifDefaultConfig{Level: "warning"},
+			Properties:       sarifRuleProps{Tags: []string{"coverage", "scanner", "incomplete"}, Taxonomy: "advisory"},
+		})
+		for _, warning := range r.Warnings {
+			root.Runs[0].Results = append(root.Runs[0].Results, sarifResult{
+				RuleID:  warningRuleID,
+				Level:   "warning",
+				Message: sarifMessage{Text: warning},
+				Properties: sarifResultProps{
+					Taxonomy: "advisory",
+				},
+			})
+		}
+	}
 
 	for _, f := range r.Findings {
 		if !seenRule[f.RuleID] {

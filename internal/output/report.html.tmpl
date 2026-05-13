@@ -232,6 +232,25 @@
   .self-audit.skipped  { color: var(--ink-muted); }
   .self-audit .k { text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; }
 
+  .warnings {
+    border: 2px solid var(--high);
+    background: var(--high-bg);
+    color: var(--ink);
+    padding: 14px 16px;
+    margin: 0 0 28px;
+  }
+  .warnings-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--high);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .warnings ul { margin: 0; padding-left: 20px; }
+  .warnings li { margin: 4px 0; color: var(--ink-soft); }
+
   /* --- Section heading (small caps eyebrow) ---------------------------- */
   h2.section {
     font-family: var(--font-mono);
@@ -638,6 +657,15 @@
   </div>
   {{end}}
 
+  {{if .Warnings}}
+  <section class="warnings">
+    <div class="warnings-title">Coverage warnings</div>
+    <ul>
+      {{range .Warnings}}<li>{{.}}</li>{{end}}
+    </ul>
+  </section>
+  {{end}}
+
   {{if .AttackChains}}
   <h2 class="section">
     <span>Attack Chains</span>
@@ -766,9 +794,15 @@
 
   {{if eq (index $c "total") 0}}
     <section class="empty">
+      {{if .Warnings}}
+      <div class="empty-mark">!</div>
+      <h2 class="empty-title">No findings in completed checks</h2>
+      <p class="empty-body">Scanner coverage was incomplete. Resolve the coverage warnings above before treating this as a clean package-vulnerability report.</p>
+      {{else}}
       <div class="empty-mark">✓</div>
       <h2 class="empty-title">No findings</h2>
       <p class="empty-body">Audr scanned {{.FilesParsed}} files and didn't find any developer-machine security findings.</p>
+      {{end}}
     </section>
   {{else}}
     <h2 class="section">

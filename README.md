@@ -73,7 +73,11 @@ Audr delegates broad dependency vulnerability coverage to OSV-Scanner instead
 of maintaining its own package CVE database, and delegates deep secret discovery
 to TruffleHog instead of duplicating hundreds of provider-specific detectors.
 Dependency results appear in the Package vulnerabilities section; TruffleHog
-results appear in the Secrets section with raw values redacted.
+results appear in the Secrets section with raw values redacted. If OSV-Scanner
+is unavailable or fails, the HTML/JSON/text report now includes a visible
+coverage warning and labels the result as incomplete instead of clean; use
+`audr scan --ci --require-deps .` when CI must fail rather than emit a partial
+package-vulnerability report.
 
 For active npm supply-chain campaigns such as Mini Shai-Hulud, Audr uses
 OSV-Scanner to surface known malicious package versions from manifests and

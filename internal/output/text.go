@@ -34,6 +34,12 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 	if r.SelfAudit != "" && r.SelfAudit != "skipped" {
 		bw.printf("self-audit: %s\n", r.SelfAudit)
 	}
+	if len(r.Warnings) > 0 {
+		bw.printf("\nWarnings:\n")
+		for _, warning := range r.Warnings {
+			bw.printf("  - %s\n", warning)
+		}
+	}
 
 	counts := map[finding.Severity]int{}
 	for _, f := range r.Findings {
@@ -41,7 +47,11 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 	}
 
 	if len(r.Findings) == 0 {
-		bw.printf("\n✓ No findings. Your developer-machine posture looks clean.\n")
+		if len(r.Warnings) > 0 {
+			bw.printf("\n! No findings in completed checks, but scanner coverage was incomplete. Do not treat this as a clean package-vulnerability report yet.\n")
+		} else {
+			bw.printf("\n✓ No findings. Your developer-machine posture looks clean.\n")
+		}
 		if htmlPath != "" {
 			bw.printf("\n  Report: %s\n", htmlPath)
 		}

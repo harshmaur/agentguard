@@ -164,12 +164,15 @@ func TestSecretScanSelection(t *testing.T) {
 }
 
 func TestRunDependencyBackendsSkipsWhenSecretsOnly(t *testing.T) {
-	findings, err := runDependencyBackends(context.Background(), scanFlags{secretsOnly: true}, []string{"/path/that/does/not/exist"}, outPlan{})
+	findings, warnings, err := runDependencyBackends(context.Background(), scanFlags{secretsOnly: true}, []string{"/path/that/does/not/exist"}, outPlan{})
 	if err != nil {
 		t.Fatalf("runDependencyBackends secrets-only err = %v, want nil", err)
 	}
 	if len(findings) != 0 {
 		t.Fatalf("findings = %d, want 0", len(findings))
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %d, want 0", len(warnings))
 	}
 }
 

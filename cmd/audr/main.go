@@ -359,7 +359,7 @@ func runScan(f scanFlags) error {
 		}
 	}
 
-	depFindings, depErr := runDependencyBackends(ctx, f, roots, plan)
+	depFindings, depWarnings, depErr := runDependencyBackends(ctx, f, roots, plan)
 	if depErr != nil {
 		return depErr
 	}
@@ -383,6 +383,7 @@ func runScan(f scanFlags) error {
 	report := output.Report{
 		Findings:     res.Findings,
 		AttackChains: chains,
+		Warnings:     depWarnings,
 		Roots:        roots,
 		StartedAt:    res.StartedAt,
 		FinishedAt:   res.FinishedAt,
@@ -511,21 +512,22 @@ func openBrowser(path string) error {
 	return nil
 }
 
-func runDependencyBackends(ctx context.Context, f scanFlags, roots []string, plan outPlan) ([]finding.Finding, error) {
+func runDependencyBackends(ctx context.Context, f scanFlags, roots []string, plan outPlan) ([]finding.Finding, []string, error) {
 	if f.noDeps || f.secretsOnly {
-		return nil, nil
+		return nil, nil, nil
 	}
 	backends, err := selectedDependencyBackends(f)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var all []finding.Finding
+	var warnings []string
 	for _, backend := range backends {
 		status := depscan.BackendStatus(backend)
 		if !status.Installed {
 			installed, err := maybeInstallBackend(ctx, backend, f, plan)
 			if err != nil {
-				return nil, err
+				return nil, warnings, err
 			}
 			if installed {
 				status = depscan.BackendStatus(backend)
@@ -534,22 +536,24 @@ func runDependencyBackends(ctx context.Context, f scanFlags, roots []string, pla
 		if !status.Installed {
 			msg := fmt.Sprintf("dependency scanner %s is not installed; run `audr doctor` for install instructions", backend)
 			if f.requireDeps || f.depsOnly {
-				return nil, errors.New(msg)
+				return nil, warnings, errors.New(msg)
 			}
 			fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
+			warnings = append(warnings, msg+". Package vulnerability findings are incomplete until this scanner is installed.")
 			continue
 		}
 		findings, err := depscan.RunBackend(ctx, depscan.RunOptions{Backend: backend, Roots: roots})
 		if err != nil {
 			if f.requireDeps || f.depsOnly {
-				return nil, err
+				return nil, warnings, err
 			}
 			fmt.Fprintf(os.Stderr, "warning: dependency scanner %s failed: %v\n", backend, err)
+			warnings = append(warnings, fmt.Sprintf("dependency scanner %s failed: %v. Package vulnerability findings are incomplete.", backend, err))
 			continue
 		}
 		all = append(all, findings...)
 	}
-	return all, nil
+	return all, warnings, nil
 }
 
 func selectedDependencyBackends(f scanFlags) ([]depscan.Backend, error) {
