@@ -71,10 +71,14 @@ func TestInstallSh_BinaryPathExtractsFromArchiveDir(t *testing.T) {
 }
 
 func TestInstallSh_NoLegacyReferences(t *testing.T) {
-	// Once renamed, no legacy "agentguard" references should leak back into
-	// install.sh — any commit that re-introduces the string fails CI.
+	// Once renamed, no legacy product-name references should leak back into
+	// install.sh — any commit that re-introduces the old name fails CI.
+	legacyLower := "agent" + "guard"
+	legacyTitle := "Agent" + "Guard"
+	legacyUpper := "AGENT" + "GUARD"
+
 	script := installScript(t)
-	for _, banned := range []string{"agentguard", "AgentGuard", "AGENTGUARD"} {
+	for _, banned := range []string{legacyLower, legacyTitle, legacyUpper} {
 		if strings.Contains(script, banned) {
 			t.Errorf("install.sh contains banned legacy substring %q", banned)
 		}
