@@ -174,6 +174,11 @@ func HTML(w io.Writer, r Report) error {
 		},
 		"packageVulns":   packageVulnerabilityFindings,
 		"secretFindings": secretExposureFindings,
+		"otherFindings":  otherCategoryFindings,
+		"findingKind":    findingKind,
+		"searchText": func(parts ...string) string {
+			return strings.ToLower(strings.Join(parts, " "))
+		},
 		"shortPath": func(p string) string {
 			parts := strings.Split(p, "/")
 			if len(parts) <= 4 {
@@ -269,6 +274,29 @@ func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding 
 		return finding.Less(packageFindings[i], packageFindings[j])
 	})
 	return packageFindings
+}
+
+// findingKind tags a finding with the same kind as its dedicated section
+// (if any) so the HTML filter chips can hide it everywhere — including
+// the "Findings by file" grouping where mixed kinds are interleaved.
+func findingKind(f finding.Finding) string {
+	switch f.RuleID {
+	case osvVulnerabilityRuleID:
+		return "package"
+	case truffleHogVerifiedRuleID, truffleHogUnverifiedRuleID:
+		return "secret"
+	}
+	return "other"
+}
+
+func otherCategoryFindings(findings []finding.Finding) []finding.Finding {
+	other := make([]finding.Finding, 0)
+	for _, f := range findings {
+		if findingKind(f) == "other" {
+			other = append(other, f)
+		}
+	}
+	return other
 }
 
 func secretExposureFindings(findings []finding.Finding) []finding.Finding {
