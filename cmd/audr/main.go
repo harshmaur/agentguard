@@ -29,6 +29,7 @@ import (
 	"github.com/harshmaur/audr/internal/finding"
 	"github.com/harshmaur/audr/internal/output"
 	_ "github.com/harshmaur/audr/internal/rules/builtin"
+	"github.com/harshmaur/audr/internal/runtimeenv"
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/suppress"
@@ -380,6 +381,9 @@ func runScan(f scanFlags) error {
 	// narratives that render at the top of the report.
 	chains := correlate.Run(res.Findings, res.Documents)
 
+	env := runtimeenv.Detect(ctx)
+	mounts := runtimeenv.ClassifyRoots(roots)
+
 	report := output.Report{
 		Findings:     res.Findings,
 		AttackChains: chains,
@@ -393,6 +397,8 @@ func runScan(f scanFlags) error {
 		Skipped:      res.Skipped,
 		Version:      Version,
 		SelfAudit:    "skipped",
+		Environment:  &env,
+		ScanMounts:   mounts,
 	}
 
 	// Write the format output to its destination.

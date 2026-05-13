@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/runtimeenv"
 )
 
 //go:embed report.html.tmpl
@@ -65,6 +66,12 @@ type Report struct {
 	Skipped      int
 	Version      string
 	SelfAudit    string // "clean (cosign-verified)" / "clean (unverified)" / "TAMPERED" / "skipped"
+	// Environment captures whether audr ran on bare metal, in a container,
+	// in a VM, or under WSL. ScanMounts classifies each scan root as
+	// host-bound or container-local — answers "is this report about the
+	// developer machine or about a throwaway container fs?"
+	Environment *runtimeenv.Info  `json:"environment,omitempty"`
+	ScanMounts  []runtimeenv.Mount `json:"scan_mounts,omitempty"`
 }
 
 // AttackChain is an attacker-POV narrative that fires when a specific
@@ -171,6 +178,28 @@ func HTML(w io.Writer, r Report) error {
 			}
 			c["total"] = len(findings)
 			return c
+		},
+		"hasHostBoundMount": func(ms []runtimeenv.Mount) bool {
+			for _, m := range ms {
+				if m.HostBound {
+					return true
+				}
+			}
+			return false
+		},
+		"hostBoundMountSummary": func(ms []runtimeenv.Mount) string {
+			var parts []string
+			for _, m := range ms {
+				if !m.HostBound {
+					continue
+				}
+				detail := m.Path
+				if m.FSType != "" {
+					detail += " (" + m.FSType + ")"
+				}
+				parts = append(parts, detail)
+			}
+			return strings.Join(parts, " · ")
 		},
 		"packageVulns":   packageVulnerabilityFindings,
 		"secretFindings": secretExposureFindings,
