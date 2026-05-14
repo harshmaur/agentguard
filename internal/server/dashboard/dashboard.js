@@ -309,6 +309,24 @@
     renderFindings();
   }
 
+  // scheduleRender coalesces multiple render() requests within a
+  // single animation frame. SSE deltas land at burst rates (one event
+  // per new/updated/resolved finding); with 1990+ findings during a
+  // first-run scan, calling render() directly per event made the page
+  // unresponsive — each render rebuilds the full finding list DOM. By
+  // queuing render() onto the next rAF and dropping subsequent
+  // schedule calls until that frame fires, we cap render frequency
+  // at ~60Hz regardless of event burst rate.
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      render();
+    });
+  }
+
   // ----- Banner stack ---------------------------------------------
   // Stacks below the top bar. Scanner banners surface when a backend
   // is "unavailable" (sidecar not installed) or "error" (last scan
@@ -443,7 +461,12 @@
     if (state.scanActive) {
       labelNode.textContent = state.firstScanCompleted ? 'SCANNING' : 'FIRST SCAN';
     } else {
-      labelNode.textContent = 'INITIALIZING';
+      // "INITIALIZING" was confusing in v0.4.0 — users saw the
+      // daemon's child scanners actively running in their process
+      // monitor while the dashboard still claimed initialization.
+      // "WAITING FOR FIRST SCAN" is honest about what the state
+      // actually represents.
+      labelNode.textContent = 'WAITING FOR FIRST SCAN';
     }
 
     const ol = $('scan-progress-categories');
@@ -458,9 +481,16 @@
       const stateName = byCategory[cat];
       let cls = 'pending';
       let stateLabel = 'PENDING';
-      if (state.scanActive && !stateName) {
+      if (stateName === 'running') {
         cls = 'running';
         stateLabel = 'RUNNING';
+      } else if (state.scanActive && !stateName) {
+        // Scan is active but this category hasn't reported any
+        // status yet — assume it's queued, render pending. Replaced
+        // by an explicit "running" status from the orchestrator
+        // once that category's backend starts.
+        cls = 'pending';
+        stateLabel = 'QUEUED';
       } else if (stateName === 'ok')          { cls = 'ok';          stateLabel = 'OK'; }
       else if (stateName === 'error')         { cls = 'error';       stateLabel = 'ERROR'; }
       else if (stateName === 'unavailable' || stateName === 'missing') {
@@ -511,7 +541,7 @@
       if (!f) return;
       upsertFinding(f);
       recomputeMetrics();
-      render();
+      scheduleRender();
     });
 
     src.addEventListener('finding-updated', (e) => {
@@ -519,7 +549,7 @@
       if (!f) return;
       upsertFinding(f);
       recomputeMetrics();
-      render();
+      scheduleRender();
     });
 
     src.addEventListener('finding-resolved', (e) => {
@@ -611,7 +641,7 @@
     state.expanded.delete(fingerprint);
     state.resolving.delete(fingerprint);
     recomputeMetrics();
-    render();
+    scheduleRender();
   }
 
   // cssEscape escapes a fingerprint for use in a querySelector
@@ -670,6 +700,14 @@
       // event flips scanActive.
       if (state.scanners.length > 0) {
         state.firstScanCompleted = true;
+      }
+      // If a scan is in flight when the dashboard loads, set
+      // scanActive directly from the snapshot — we'd otherwise miss
+      // the scan-started SSE event of an already-running scan and
+      // wrongly show "WAITING FOR FIRST SCAN" until the scan
+      // completed.
+      if (state.daemon && state.daemon.scan_in_progress) {
+        state.scanActive = true;
       }
       render();
     } catch (e) {
