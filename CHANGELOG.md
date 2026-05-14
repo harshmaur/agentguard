@@ -3,6 +3,18 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.2] - 2026-05-14
+
+Smarter `audr update-scanners` and a OSV-Scanner Linux fix.
+
+### Added
+- **`audr update-scanners` skips already-up-to-date scanners.** Before running an installer, queries GitHub Releases for the latest tag of osv-scanner / trufflehog, probes the installed binary via `--version`, and skips the entire install plan when installed >= latest. No more re-downloading or rebuilding when nothing changed. Network failures fall through to the install path (no silent stale-stranding). New `--force` flag bypasses the check for reinstalling corrupted binaries or when the version probe can't reach GitHub.
+- **`internal/updater.LatestReleaseTag(ctx, owner, repo)`** — generic GitHub Releases query helper that the update-scanners flow uses. Filters draft + prerelease tags.
+
+### Fixed
+- **OSV-Scanner on Linux: prefer brew over go install.** The Linux update plan only listed `go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest`. brew-installed users still hit go install, which can fail with `/tmp/go-build` disk exhaustion (the user reported this) or with replace-directive errors. Added `brew upgrade osv-scanner || brew install osv-scanner` as the first option; go install becomes the fallback for no-brew systems.
+- **depscan's `RunUpdatePlan` now treats `BinaryCommands` as fallbacks**, matching the secretscan fix from v0.5.1. First success wins; remaining commands are skipped. `DatabaseCommands` still iterate as a sequential chain (DB-refresh steps that all must complete).
+
 ## [0.5.1] - 2026-05-14
 
 Two hotfixes for v0.5.0 bugs surfaced by first use.
