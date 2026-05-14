@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/state"
 )
 
 //go:embed dashboard
@@ -26,6 +27,17 @@ type Options struct {
 	// Paths controls where the state file (port + token) lives.
 	// Required.
 	Paths daemon.Paths
+
+	// Store is the audr state store the server reads findings + scans
+	// + scanner statuses from, and subscribes to for live SSE deltas.
+	// Required.
+	Store *state.Store
+
+	// Remediation looks up a (human_steps, ai_prompt) pair for a
+	// fingerprint. Phase 6 ships a real template library backed by
+	// rule-id / ecosystem / detector dispatch; Phase 2 ships a demo
+	// map. Required.
+	Remediation RemediationLookup
 
 	// ListenHost defaults to "127.0.0.1". The server hard-fails at
 	// construction time if anything tries to bind 0.0.0.0 — the auth
@@ -47,6 +59,14 @@ type Options struct {
 	shutdownTimeout time.Duration
 }
 
+// RemediationLookup resolves a finding fingerprint to its (manual
+// steps, AI prompt) pair. Phase 2 ships a static demo map; Phase 6
+// swaps in the real template library. The interface is intentionally
+// minimal so the swap is one line in cmd/audr/daemon.go.
+type RemediationLookup interface {
+	Lookup(fingerprint string) (humanSteps, aiPrompt string, ok bool)
+}
+
 // Server is the audr daemon's local HTTP surface. Implements
 // daemon.Subsystem so it slots straight into daemon.Lifecycle.
 type Server struct {
@@ -66,6 +86,12 @@ type Server struct {
 func NewServer(opts Options) (*Server, error) {
 	if opts.Paths.State == "" {
 		return nil, errors.New("server: Paths.State is required")
+	}
+	if opts.Store == nil {
+		return nil, errors.New("server: Store is required")
+	}
+	if opts.Remediation == nil {
+		return nil, errors.New("server: Remediation is required")
 	}
 	if opts.ListenHost == "" {
 		opts.ListenHost = "127.0.0.1"
@@ -256,38 +282,76 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
-func (s *Server) handleFindings(w http.ResponseWriter, _ *http.Request) {
-	findings := demoFindings()
+func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	rows, err := s.opts.Store.SnapshotFindings(ctx)
+	if err != nil {
+		http.Error(w, "snapshot findings: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	statuses, err := s.opts.Store.SnapshotScannerStatuses(ctx)
+	if err != nil {
+		http.Error(w, "snapshot scanner statuses: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	findings := make([]FindingView, 0, len(rows))
+	for _, f := range rows {
+		if !f.Open() {
+			continue // dashboard only renders open findings in the initial snapshot
+		}
+		findings = append(findings, findingToView(f))
+	}
 	resp := SnapshotResponse{
 		Findings: findings,
-		Metrics:  demoMetrics(findings),
+		Metrics:  computeMetrics(rows),
 		Daemon: DaemonInfo{
 			State:   "RUN",
 			Version: s.opts.Version,
 		},
-		Scanners: []ScannerInfo{
-			{Name: "osv-scanner", State: "ok", FoundVersion: "1.8.2", MinVersion: "1.8.0"},
-			{Name: "trufflehog", State: "ok", FoundVersion: "3.81.0", MinVersion: "3.63.0"},
-		},
+		Scanners: scannerStatusesToInfo(statuses),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleRemediation(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fp")
-	rem, ok := demoRemediation(fp)
+	human, ai, ok := s.opts.Remediation.Lookup(fp)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no remediation for fingerprint " + fp})
 		return
 	}
-	writeJSON(w, http.StatusOK, rem)
+	writeJSON(w, http.StatusOK, RemediationResponse{
+		Fingerprint: fp,
+		HumanSteps:  human,
+		AIPrompt:    ai,
+	})
 }
 
-// handleEvents sends one initial "snapshot ready" SSE frame so the
-// browser establishes the stream, then heartbeats every 15s. Phase 2
-// visual slice doesn't push live deltas — that's Phase 3+ once the
-// watch+poll engine produces them. The retry hint enables the
-// exponential backoff Phase 2 designed.
+// handleEvents subscribes to the state store's event bus and forwards
+// events as SSE frames until the request context cancels (browser
+// tab closed, daemon shutting down). Per-connection ctx + cancel
+// guarantees we never leak the subscriber after the consumer is gone.
+//
+// SSE wire shape:
+//
+//   retry: 5000
+//
+//   event: hello
+//   data: {"v":1}
+//
+//   event: scan-started
+//   data: {"id":42,"category":"all","started_at":1700000000,"status":"in_progress"}
+//
+//   event: finding-opened
+//   data: {"fingerprint":"abc","rule_id":"r","severity":"high",...}
+//
+//   event: heartbeat
+//   data: {"ts":1700000000}
+//
+// The retry hint is the entry into the design's exponential-backoff
+// reconnect protocol (D2): the dashboard JS reads the field and
+// doubles per reconnect failure up to 60s.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -298,28 +362,133 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// retry: in milliseconds — server-driven exponential backoff
-	// (per /plan-eng-review D2). 5s initial, dashboard JS doubles
-	// per failure up to 60s.
+	// Initial protocol frame: retry hint + hello so the JS can
+	// distinguish "I'm connected" from "I'm waiting on snapshot."
 	_, _ = fmt.Fprintf(w, "retry: 5000\n\n")
 	_, _ = fmt.Fprintf(w, "event: hello\ndata: {\"v\":1}\n\n")
 	flusher.Flush()
 
-	tick := time.NewTicker(15 * time.Second)
-	defer tick.Stop()
+	// Subscribe BEFORE we read the initial snapshot so we don't miss
+	// any events that fire while the snapshot serializes. (The
+	// snapshot itself is the dashboard's /api/findings call; this
+	// SSE stream is the delta.)
+	events, unsub := s.opts.Store.Subscribe()
+	defer unsub()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case t := <-tick.C:
-			_, err := fmt.Fprintf(w, "event: heartbeat\ndata: {\"ts\":%d}\n\n", t.Unix())
-			if err != nil {
+		case e, ok := <-events:
+			if !ok {
+				// Subscriber was dropped by the store (slow consumer);
+				// closing our writer lets the client SSE retry with
+				// the exponential-backoff hint.
+				return
+			}
+			if err := writeSSEFrame(w, flusher, e); err != nil {
+				return
+			}
+		case t := <-heartbeat.C:
+			if _, err := fmt.Fprintf(w, "event: heartbeat\ndata: {\"ts\":%d}\n\n", t.Unix()); err != nil {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+// writeSSEFrame serializes a store Event into SSE wire shape. Payloads
+// go through json.Marshal directly; FindingView / Scan / ScannerStatus
+// shapes are kept stable so the dashboard JS doesn't drift.
+func writeSSEFrame(w http.ResponseWriter, flusher http.Flusher, e state.Event) error {
+	var payload any
+	switch v := e.Payload.(type) {
+	case state.Finding:
+		payload = findingToView(v)
+	case state.Scan:
+		payload = v
+	case state.ScannerStatus:
+		payload = scannerStatusToInfo(v)
+	default:
+		payload = v
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Kind, body); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
+}
+
+// findingToView lifts the persistence row into the wire shape the
+// dashboard JS expects. The wire schema is intentionally separate from
+// the storage schema (D17) — wire keys are camelCase-via-json-tags;
+// storage uses snake_case columns; the two evolve on different
+// cadences.
+func findingToView(f state.Finding) FindingView {
+	var locator map[string]any
+	if len(f.Locator) > 0 {
+		_ = json.Unmarshal(f.Locator, &locator)
+	}
+	firstSeen := time.Unix(f.FirstSeenAt, 0).UTC().Format(time.RFC3339)
+	return FindingView{
+		Fingerprint:   f.Fingerprint,
+		RuleID:        f.RuleID,
+		Severity:      f.Severity,
+		Category:      f.Category,
+		Kind:          f.Kind,
+		Locator:       locator,
+		Title:         f.Title,
+		Description:   f.Description,
+		MatchRedacted: f.MatchRedacted,
+		FirstSeen:     firstSeen,
+	}
+}
+
+func computeMetrics(findings []state.Finding) SnapshotMetrics {
+	var m SnapshotMetrics
+	cutoffResolvedToday := time.Now().Add(-24 * time.Hour).Unix()
+	for _, f := range findings {
+		if f.Open() {
+			m.OpenTotal++
+			switch f.Severity {
+			case "critical":
+				m.OpenCritical++
+			case "high":
+				m.OpenHigh++
+			case "medium":
+				m.OpenMedium++
+			case "low":
+				m.OpenLow++
+			}
+		} else if f.ResolvedAt != nil && *f.ResolvedAt >= cutoffResolvedToday {
+			m.ResolvedToday++
+		}
+	}
+	return m
+}
+
+func scannerStatusToInfo(s state.ScannerStatus) ScannerInfo {
+	return ScannerInfo{
+		Name:      s.Category,
+		State:     s.Status,
+		ErrorText: s.ErrorText,
+	}
+}
+
+func scannerStatusesToInfo(in []state.ScannerStatus) []ScannerInfo {
+	out := make([]ScannerInfo, 0, len(in))
+	for _, ss := range in {
+		out = append(out, scannerStatusToInfo(ss))
+	}
+	return out
 }
 
 // hostCheck enforces strict Host-header validation: only requests

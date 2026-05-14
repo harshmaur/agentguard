@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/state"
 )
 
 func newTestServer(t *testing.T) *Server {
@@ -25,7 +26,33 @@ func newTestServer(t *testing.T) *Server {
 	if err := p.Ensure(); err != nil {
 		t.Fatalf("ensure paths: %v", err)
 	}
-	s, err := NewServer(Options{Paths: p, ListenHost: "127.0.0.1", Version: "test"})
+
+	store, err := state.Open(state.Options{Path: filepath.Join(p.State, "audr.db")})
+	if err != nil {
+		t.Fatalf("state.Open: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+	go func() { _ = store.Run(ctx) }()
+	time.Sleep(5 * time.Millisecond)
+	t.Cleanup(func() { _ = store.Close() })
+
+	if err := SeedDemoFindings(context.Background(), store); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rem, err := NewDemoRemediation()
+	if err != nil {
+		t.Fatalf("NewDemoRemediation: %v", err)
+	}
+
+	s, err := NewServer(Options{
+		Paths:       p,
+		Store:       store,
+		Remediation: rem,
+		ListenHost:  "127.0.0.1",
+		Version:     "test",
+	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -37,14 +64,28 @@ func newTestServer(t *testing.T) *Server {
 }
 
 func TestNewServerRejectsNonLoopbackHost(t *testing.T) {
+	// Use a real store + remediation so the loopback check is the
+	// reason for the error, not a missing-dependency check.
+	store, err := state.Open(state.Options{Path: filepath.Join(t.TempDir(), "test.db")})
+	if err != nil {
+		t.Fatalf("state.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rem, _ := NewDemoRemediation()
+
 	for _, host := range []string{"0.0.0.0", "192.168.1.1", "::"} {
 		t.Run(host, func(t *testing.T) {
 			_, err := NewServer(Options{
-				Paths:      daemon.Paths{State: t.TempDir(), Logs: t.TempDir()},
-				ListenHost: host,
+				Paths:       daemon.Paths{State: t.TempDir(), Logs: t.TempDir()},
+				Store:       store,
+				Remediation: rem,
+				ListenHost:  host,
 			})
 			if err == nil {
 				t.Fatalf("expected error binding to %q", host)
+			}
+			if !strings.Contains(err.Error(), "loopback") {
+				t.Errorf("err = %v, want it to mention loopback", err)
 			}
 		})
 	}
@@ -149,8 +190,19 @@ func TestRemediationRoute(t *testing.T) {
 	go func() { _ = s.Run(context.Background()) }()
 	t.Cleanup(func() { _ = s.Close() })
 
-	// Known fingerprint -> 200 + body.
-	resp := mustDo(t, s, "GET", "/api/remediation/demo-codex-trust?t="+s.Token(), "")
+	// Get a real fingerprint from the demo data so the lookup actually
+	// hits a row. Fingerprints are SHA-256 hashes now, not the old
+	// "demo-foo" strings.
+	demo, err := DemoFindings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(demo) == 0 {
+		t.Fatal("no demo findings")
+	}
+	knownFP := demo[0].Fingerprint
+
+	resp := mustDo(t, s, "GET", "/api/remediation/"+knownFP+"?t="+s.Token(), "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -159,11 +211,83 @@ func TestRemediationRoute(t *testing.T) {
 	if rem.AIPrompt == "" || rem.HumanSteps == "" {
 		t.Errorf("missing remediation fields: %+v", rem)
 	}
+	if rem.Fingerprint != knownFP {
+		t.Errorf("Fingerprint = %q, want %q", rem.Fingerprint, knownFP)
+	}
 
 	// Unknown fingerprint -> 404.
 	resp = mustDo(t, s, "GET", "/api/remediation/does-not-exist?t="+s.Token(), "")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unknown fp status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestSSEStreamForwardsStoreEvents(t *testing.T) {
+	// Verifies the real /api/events behavior: subscribe, fire a finding
+	// resolution, see the SSE frame on the wire.
+	s := newTestServer(t)
+	go func() { _ = s.Run(context.Background()) }()
+	t.Cleanup(func() { _ = s.Close() })
+
+	// Open the SSE stream.
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/api/events?t=%s", s.Addr(), s.Token()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	// The initial frame includes retry hint + hello — read those first
+	// so subsequent reads target the real event.
+	readUntil(t, resp.Body, "event: hello", time.Second)
+
+	// Resolve the first demo finding; the SSE handler must forward.
+	demo, _ := DemoFindings()
+	if _, err := s.opts.Store.ResolveFinding(demo[0].Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readUntil(t, resp.Body, "event: finding-resolved", 2*time.Second)
+	if !strings.Contains(got, demo[0].Fingerprint) {
+		t.Errorf("resolve event body missing fingerprint %q:\n%s", demo[0].Fingerprint, got)
+	}
+}
+
+// readUntil reads from r until it sees `marker` in the accumulated
+// output or timeout. Returns whatever was read.
+func readUntil(t *testing.T, r io.Reader, marker string, timeout time.Duration) string {
+	t.Helper()
+	done := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 0, 4096)
+		tmp := make([]byte, 256)
+		for {
+			n, err := r.Read(tmp)
+			if n > 0 {
+				buf = append(buf, tmp[:n]...)
+				if strings.Contains(string(buf), marker) {
+					done <- string(buf)
+					return
+				}
+			}
+			if err != nil {
+				done <- string(buf)
+				return
+			}
+		}
+	}()
+	select {
+	case s := <-done:
+		if !strings.Contains(s, marker) {
+			t.Fatalf("did not see %q before stream ended:\n%s", marker, s)
+		}
+		return s
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for %q", marker)
+		return ""
 	}
 }
 

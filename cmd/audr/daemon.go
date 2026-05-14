@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/server"
+	"github.com/harshmaur/audr/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -151,9 +153,9 @@ func newDaemonRunInternalCmd() *cobra.Command {
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, err := daemon.NewService(daemon.DefaultServiceConfig(), func(ctx context.Context) error {
-				// Resolve paths up front so both the daemon and the
-				// server share the same view. Ensure is idempotent
-				// (daemon.Run calls it again; that's fine).
+				// Resolve paths up front so all subsystems share the
+				// same view. Ensure is idempotent (daemon.Run calls
+				// it again; that's fine).
 				paths, err := daemon.Resolve()
 				if err != nil {
 					return fmt.Errorf("resolve paths: %w", err)
@@ -162,20 +164,52 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("ensure paths: %w", err)
 				}
 
-				// Build the HTTP server subsystem. ListenPort=0 lets
-				// the kernel assign a free port; the daemon publishes
-				// the chosen port via the state file.
+				// State store: SQLite-backed persistent findings, scans,
+				// scanner statuses, file_cache. Open() applies
+				// migrations, reconciles crashed scans, and starts the
+				// writer goroutine — so the store is immediately
+				// usable for writes before Lifecycle.Run begins.
+				store, err := state.Open(state.Options{Path: filepath.Join(paths.State, "audr.db")})
+				if err != nil {
+					return fmt.Errorf("open state store: %w", err)
+				}
+
+				// Phase 2 demo seed: insert the 8 demo findings so the
+				// dashboard has content. Phase 4 will replace this
+				// with real scan results from the watch+poll engine.
+				if err := server.SeedDemoFindings(ctx, store); err != nil {
+					_ = store.Close()
+					return fmt.Errorf("seed demo findings: %w", err)
+				}
+
+				// Remediation library — Phase 6 swaps for real templates.
+				rem, err := server.NewDemoRemediation()
+				if err != nil {
+					_ = store.Close()
+					return fmt.Errorf("build remediation: %w", err)
+				}
+
+				// HTTP server subsystem. ListenPort=0 lets the kernel
+				// assign a free port; the daemon publishes the chosen
+				// port via the daemon.state file.
 				srv, err := server.NewServer(server.Options{
-					Paths:   paths,
-					Version: Version,
+					Paths:       paths,
+					Store:       store,
+					Remediation: rem,
+					Version:     Version,
 				})
 				if err != nil {
+					_ = store.Close()
 					return fmt.Errorf("build server: %w", err)
 				}
 
+				// Register store first so it Closes LAST (reverse-order
+				// shutdown — see daemon.Lifecycle.closeAll). The server
+				// depends on the store; cleanly drain server first,
+				// then close the DB.
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{srv},
+					Subsystems: []daemon.Subsystem{store, srv},
 				})
 			})
 			if err != nil {
