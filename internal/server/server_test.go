@@ -185,6 +185,87 @@ func TestFindingsReturnsSnapshot(t *testing.T) {
 	}
 }
 
+// stubWatcherProbe lets tests drive the WatcherProbe surface without
+// spinning up a real fsnotify watcher.
+type stubWatcherProbe struct {
+	mode  string
+	roots []string
+}
+
+func (s stubWatcherProbe) InotifyMode() string   { return s.mode }
+func (s stubWatcherProbe) RemoteRoots() []string { return s.roots }
+
+// TestFindingsSurfacesWatcherBanners verifies the daemon→banner data
+// wire-up: when the WatcherProbe reports inotify "degraded" or a
+// non-empty RemoteRoots slice, the snapshot's DaemonInfo carries the
+// corresponding banner flags so the dashboard JS can render them.
+func TestFindingsSurfacesWatcherBanners(t *testing.T) {
+	cases := []struct {
+		name            string
+		probe           WatcherProbe
+		wantInotifyLow  bool
+		wantRemoteSkip  int
+	}{
+		{
+			name:           "no probe → no banner data",
+			probe:          nil,
+			wantInotifyLow: false,
+			wantRemoteSkip: 0,
+		},
+		{
+			name:           "full inotify mode → no banner",
+			probe:          stubWatcherProbe{mode: "full"},
+			wantInotifyLow: false,
+			wantRemoteSkip: 0,
+		},
+		{
+			name:           "degraded inotify mode → banner fires",
+			probe:          stubWatcherProbe{mode: "degraded"},
+			wantInotifyLow: true,
+			wantRemoteSkip: 0,
+		},
+		{
+			name:           "n/a mode (non-Linux) → no banner",
+			probe:          stubWatcherProbe{mode: "n/a"},
+			wantInotifyLow: false,
+			wantRemoteSkip: 0,
+		},
+		{
+			name:           "two remote roots → count surfaces",
+			probe:          stubWatcherProbe{mode: "full", roots: []string{"/mnt/nfs", "/mnt/smb"}},
+			wantInotifyLow: false,
+			wantRemoteSkip: 2,
+		},
+		{
+			name:           "both signals fire together",
+			probe:          stubWatcherProbe{mode: "degraded", roots: []string{"/mnt/wsl"}},
+			wantInotifyLow: true,
+			wantRemoteSkip: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestServer(t)
+			s.opts.WatcherProbe = tc.probe
+			go func() { _ = s.Run(context.Background()) }()
+			t.Cleanup(func() { _ = s.Close() })
+
+			resp := mustDo(t, s, "GET", "/api/findings?t="+s.Token(), "")
+			defer resp.Body.Close()
+			var snap SnapshotResponse
+			if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if snap.Daemon.InotifyLow != tc.wantInotifyLow {
+				t.Errorf("InotifyLow = %v, want %v", snap.Daemon.InotifyLow, tc.wantInotifyLow)
+			}
+			if snap.Daemon.RemoteFsSkipped != tc.wantRemoteSkip {
+				t.Errorf("RemoteFsSkipped = %d, want %d", snap.Daemon.RemoteFsSkipped, tc.wantRemoteSkip)
+			}
+		})
+	}
+}
+
 func TestRemediationRoute(t *testing.T) {
 	s := newTestServer(t)
 	go func() { _ = s.Run(context.Background()) }()

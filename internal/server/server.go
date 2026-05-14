@@ -54,6 +54,18 @@ type Options struct {
 	// footer.
 	Version string
 
+	// UpdateProbe, when non-nil, is queried on each /api/findings
+	// snapshot to determine whether the daemon should advertise an
+	// "update available" banner. nil disables the banner — useful
+	// for tests + for users who pin their version.
+	UpdateProbe UpdateProbe
+
+	// WatcherProbe, when non-nil, surfaces watcher-side limitations
+	// to the dashboard (inotify limit, remote-FS roots). nil
+	// disables those two banners — useful for tests + for the
+	// one-shot CLI path which doesn't have a long-running watcher.
+	WatcherProbe WatcherProbe
+
 	// shutdownTimeout caps how long Close() waits for in-flight
 	// requests after the listener is closed. 5s default.
 	shutdownTimeout time.Duration
@@ -66,6 +78,28 @@ type Options struct {
 // category without re-fetching the row.
 type RemediationLookup interface {
 	Lookup(f state.Finding) (humanSteps, aiPrompt string, ok bool)
+}
+
+// UpdateProbe reports whether a newer audr release is available. The
+// concrete implementation is internal/updater.Checker; the server
+// only needs the read API so tests can fake it without spinning up
+// HTTP machinery. Returning nil means "no update available."
+type UpdateProbe interface {
+	Latest() *UpdateAvailable
+}
+
+// WatcherProbe is the read-side surface the server needs from the
+// watch subsystem. internal/watch.Watcher satisfies it natively;
+// the indirection keeps server independent of the watch package.
+//
+// InotifyMode returns one of "full" / "degraded" / "n/a" — the
+// server maps "degraded" to DaemonInfo.InotifyLow=true.
+// RemoteRoots returns the slice of scope paths that resolved to a
+// remote filesystem at watcher startup; the server reports the
+// count on DaemonInfo.RemoteFsSkipped.
+type WatcherProbe interface {
+	InotifyMode() string
+	RemoteRoots() []string
 }
 
 // Server is the audr daemon's local HTTP surface. Implements
@@ -303,13 +337,23 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		}
 		findings = append(findings, findingToView(f))
 	}
+	daemonInfo := DaemonInfo{
+		State:   "RUN",
+		Version: s.opts.Version,
+	}
+	if s.opts.UpdateProbe != nil {
+		daemonInfo.UpdateAvailable = s.opts.UpdateProbe.Latest()
+	}
+	if s.opts.WatcherProbe != nil {
+		if s.opts.WatcherProbe.InotifyMode() == "degraded" {
+			daemonInfo.InotifyLow = true
+		}
+		daemonInfo.RemoteFsSkipped = len(s.opts.WatcherProbe.RemoteRoots())
+	}
 	resp := SnapshotResponse{
 		Findings: findings,
 		Metrics:  computeMetrics(rows),
-		Daemon: DaemonInfo{
-			State:   "RUN",
-			Version: s.opts.Version,
-		},
+		Daemon:   daemonInfo,
 		Scanners: scannerStatusesToInfo(statuses),
 	}
 	writeJSON(w, http.StatusOK, resp)

@@ -13,6 +13,7 @@ import (
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
 	"github.com/harshmaur/audr/internal/templates"
+	"github.com/harshmaur/audr/internal/updater"
 	"github.com/harshmaur/audr/internal/watch"
 	"github.com/spf13/cobra"
 )
@@ -252,14 +253,31 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build remediation: %w", err)
 				}
 
+				// Update checker subsystem. Polls GitHub Releases once
+				// per 24h and surfaces "update available" hints on the
+				// dashboard banner. No telemetry — only outbound call
+				// is the public Releases API. Build before the server
+				// so the server can read its Latest() result on every
+				// snapshot.
+				upd, err := updater.New(updater.Options{
+					CurrentVersion: Version,
+					CacheDir:       paths.State,
+				})
+				if err != nil {
+					_ = store.Close()
+					return fmt.Errorf("build updater: %w", err)
+				}
+
 				// HTTP server subsystem. ListenPort=0 lets the kernel
 				// assign a free port; the daemon publishes the chosen
 				// port via the daemon.state file.
 				srv, err := server.NewServer(server.Options{
-					Paths:       paths,
-					Store:       store,
-					Remediation: rem,
-					Version:     Version,
+					Paths:        paths,
+					Store:        store,
+					Remediation:  rem,
+					Version:      Version,
+					UpdateProbe:  updaterProbe{upd},
+					WatcherProbe: watcher,
 				})
 				if err != nil {
 					_ = store.Close()
@@ -272,10 +290,11 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				//   2. orchestrator drains in-flight scan + sees the
 				//      watcher channel close, falls back to ticker-only
 				//   3. server drains in-flight HTTP requests
-				//   4. store closes the DB last
+				//   4. updater stops (just halts the poll loop)
+				//   5. store closes the DB last
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{store, srv, orch, watcher},
+					Subsystems: []daemon.Subsystem{store, upd, srv, orch, watcher},
 				})
 			})
 			if err != nil {
@@ -341,4 +360,22 @@ func (c chainedRemediation) Lookup(f state.Finding) (string, string, bool) {
 // flow that needs the callback wired up.
 func newDaemonService() (*daemon.Service, error) {
 	return daemon.NewService(daemon.DefaultServiceConfig(), nil)
+}
+
+// updaterProbe adapts updater.Checker (which returns its own
+// *updater.Available shape) to server.UpdateProbe (which expects
+// *server.UpdateAvailable). The two types carry identical fields;
+// keeping them separate avoids server→updater import coupling.
+type updaterProbe struct{ c *updater.Checker }
+
+func (p updaterProbe) Latest() *server.UpdateAvailable {
+	a := p.c.Latest()
+	if a == nil {
+		return nil
+	}
+	return &server.UpdateAvailable{
+		Version:     a.Version,
+		URL:         a.URL,
+		PublishedAt: a.PublishedAt,
+	}
 }

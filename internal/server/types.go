@@ -48,12 +48,36 @@ type SnapshotMetrics struct {
 // returns a fixed value; the adaptive backoff state machine in Phase 3
 // will start emitting transitions.
 type DaemonInfo struct {
-	State      string `json:"state"`        // "RUN" | "SLOW" | "PAUSE" | "OFFLINE"
-	StateNote  string `json:"state_note"`   // e.g., "battery", "load 5.2", or ""
-	ScanTarget string `json:"scan_target"`  // current file being scanned, or ""
-	ScanDone   int    `json:"scan_done"`    // files scanned in current cycle
-	ScanTotal  int    `json:"scan_total"`   // approximate total this cycle
-	Version    string `json:"version"`
+	State           string           `json:"state"`        // "RUN" | "SLOW" | "PAUSE" | "OFFLINE"
+	StateNote       string           `json:"state_note"`   // e.g., "battery", "load 5.2", or ""
+	ScanTarget      string           `json:"scan_target"`  // current file being scanned, or ""
+	ScanDone        int              `json:"scan_done"`    // files scanned in current cycle
+	ScanTotal       int              `json:"scan_total"`   // approximate total this cycle
+	Version         string           `json:"version"`
+	UpdateAvailable *UpdateAvailable `json:"update_available,omitempty"`
+
+	// InotifyLow signals that the watcher ran into the kernel's
+	// fs.inotify.max_user_watches budget and demoted some scope to
+	// poll-only. Linux-only; always false elsewhere. Dashboard
+	// renders a banner with the sysctl fix command when true.
+	InotifyLow bool `json:"inotify_low,omitempty"`
+
+	// RemoteFsSkipped counts scope roots that resolved to a remote
+	// filesystem (NFS / SMB / 9P / FUSE / WSL host mount) and were
+	// excluded from tight-watch. Dashboard renders an info banner
+	// when > 0 acknowledging the intentional skip.
+	RemoteFsSkipped int `json:"remote_fs_skipped,omitempty"`
+}
+
+// UpdateAvailable is surfaced by the dashboard banner stack when the
+// background updater finds a newer release. Always nil when the
+// daemon is running the latest version (or the check hasn't run
+// yet). Mirrors updater.Available — separate type to keep the wire
+// contract independent of the internal package layout.
+type UpdateAvailable struct {
+	Version     string `json:"version"`      // e.g., "v0.3.0"
+	URL         string `json:"url"`          // GitHub release page
+	PublishedAt string `json:"published_at"` // RFC3339
 }
 
 // ScannerInfo mirrors daemon.SidecarStatus on the wire. The dashboard
