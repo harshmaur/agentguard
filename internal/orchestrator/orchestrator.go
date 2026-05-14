@@ -38,6 +38,19 @@ import (
 type Orchestrator struct {
 	opts Options
 	log  *slog.Logger
+
+	// autoSecrets / autoDeps / autoOSPkg flag whether each scanner
+	// was at its auto-default (Options.Run* nil) at construction
+	// time. In auto mode the orchestrator re-probes the sidecar
+	// status before every scan cycle, so installing trufflehog /
+	// osv-scanner externally takes effect within one scan interval
+	// instead of requiring a daemon restart (D15 from eng review).
+	// When the caller pinned a value explicitly (tests, future
+	// user-config override), auto mode is off and the pinned value
+	// sticks.
+	autoSecrets bool
+	autoDeps    bool
+	autoOSPkg   bool
 }
 
 // Options configures an Orchestrator. Most fields default sanely.
@@ -108,6 +121,14 @@ func New(opts Options) (*Orchestrator, error) {
 	if len(opts.Roots) == 0 {
 		opts.Roots = []string{opts.HomeDir}
 	}
+	// Track which fields were at auto-default so runOnce can
+	// re-probe them on every cycle (D15: installing a sidecar
+	// externally should take effect within one scan interval, not
+	// require a daemon restart).
+	autoSecrets := opts.RunSecrets == nil
+	autoDeps := opts.RunDeps == nil
+	autoOSPkg := opts.RunOSPkg == nil
+
 	if opts.RunSecrets == nil {
 		// Default: true iff trufflehog is on PATH. Avoids surprising
 		// the user with a scanner-missing banner on a default boot.
@@ -133,7 +154,46 @@ func New(opts Options) (*Orchestrator, error) {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelError}))
 	}
-	return &Orchestrator{opts: opts, log: logger}, nil
+	return &Orchestrator{
+		opts:        opts,
+		log:         logger,
+		autoSecrets: autoSecrets,
+		autoDeps:    autoDeps,
+		autoOSPkg:   autoOSPkg,
+	}, nil
+}
+
+// reprobeSidecars re-checks sidecar availability for any scanner
+// that was at its auto-default at construction time. Called at the
+// top of every runOnce cycle so a freshly-installed trufflehog /
+// osv-scanner takes effect within one scan interval. Logs the
+// transition when a sidecar flips from unavailable→available (or
+// vice versa) so the daemon's log shows the moment audr noticed.
+func (o *Orchestrator) reprobeSidecars() {
+	if o.autoSecrets {
+		newVal := secretscan.BackendStatus().Installed
+		if *o.opts.RunSecrets != newVal {
+			o.log.Info("sidecar transition (secrets)",
+				"from", *o.opts.RunSecrets, "to", newVal)
+			*o.opts.RunSecrets = newVal
+		}
+	}
+	if o.autoDeps {
+		newVal := depscan.BackendStatus(depscan.BackendOSVScanner).Installed
+		if *o.opts.RunDeps != newVal {
+			o.log.Info("sidecar transition (deps)",
+				"from", *o.opts.RunDeps, "to", newVal)
+			*o.opts.RunDeps = newVal
+		}
+	}
+	if o.autoOSPkg {
+		newVal, _ := ospkg.Available()
+		if *o.opts.RunOSPkg != newVal {
+			o.log.Info("sidecar transition (os-pkg)",
+				"from", *o.opts.RunOSPkg, "to", newVal)
+			*o.opts.RunOSPkg = newVal
+		}
+	}
 }
 
 // Name implements daemon.Subsystem.
@@ -221,6 +281,13 @@ var runMu sync.Mutex
 func (o *Orchestrator) runOnce(ctx context.Context) error {
 	runMu.Lock()
 	defer runMu.Unlock()
+
+	// Before anything else: if any scanner was at auto-default at
+	// construction, re-probe its sidecar. Catches the
+	// "user installed trufflehog after daemon started" case so the
+	// dashboard reflects it within one scan interval rather than
+	// requiring a daemon restart (D15).
+	o.reprobeSidecars()
 
 	cycleStart := time.Now()
 	scanID, err := o.opts.Store.OpenScan("all")
