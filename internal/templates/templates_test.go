@@ -46,15 +46,71 @@ func TestRegistryDispatchEcosystemPrefix(t *testing.T) {
 		`{"ecosystem":"npm","name":"lodash","version":"4.17.20","manifest_path":"/x/package-lock.json"}`,
 		"CVE-2020-8203")
 	human, ai, _ := r.Lookup(f)
-	if !strings.Contains(human, "npm update lodash") {
-		t.Errorf("human steps missing npm update command: %q", human)
+	// Must teach diagnosis-first, NOT "just upgrade the leaf."
+	if !strings.Contains(human, "npm why lodash") {
+		t.Errorf("human steps missing npm why (diagnose step): %q", human)
 	}
-	if !strings.Contains(ai, "/x/package-lock.json") {
-		t.Errorf("AI prompt missing manifest path: %q", ai)
+	if !strings.Contains(human, "TRANSITIVE") {
+		t.Errorf("human steps should warn about transitive nature of finding: %q", human)
+	}
+	if !strings.Contains(human, "overrides") {
+		t.Errorf("human steps missing the package.json overrides fallback: %q", human)
+	}
+	if !strings.Contains(ai, "/x") {
+		t.Errorf("AI prompt missing project dir: %q", ai)
 	}
 	if !strings.Contains(ai, "CVE-2020-8203") {
 		t.Errorf("AI prompt missing advisory ID: %q", ai)
 	}
+	if !strings.Contains(ai, "BEFORE you propose") || !strings.Contains(ai, "DO NOT") {
+		t.Errorf("AI prompt should instruct diagnose-before-fix and warn against naive upgrade: %q", ai)
+	}
+}
+
+func TestEcosystemTemplatesNeverEmitNaiveUpgradeAdvice(t *testing.T) {
+	// The whole point of the diagnose-first rewrite. Walk every
+	// ecosystem and confirm the human steps mention the inverse-deps
+	// command for the manager AND the override/pin fallback, AND do
+	// NOT consist primarily of a naive "<manager> upgrade <leaf>"
+	// instruction.
+	r := New()
+	cases := []struct {
+		ruleID         string
+		ecosystem      string
+		mustMention    []string
+		mustNotPrimary string // a substring that, if it appears WITHOUT the diagnose context, indicates the naive flow
+	}{
+		{"osv-npm-package", "npm", []string{"npm why", "overrides", "TRANSITIVE"}, ""},
+		{"osv-pypi-package", "PyPI", []string{"tree --invert", "Required-by", "TRANSITIVE"}, ""},
+		{"osv-go-package", "Go module", []string{"go mod why", "replace", "TRANSITIVE"}, ""},
+		{"osv-cargo-package", "crates.io", []string{"cargo tree --invert", "patch.crates-io", "TRANSITIVE"}, ""},
+		{"osv-rubygems-package", "RubyGems", []string{"bundle", "Gemfile", "TRANSITIVE"}, ""},
+		{"osv-maven-package", "Maven", []string{"mvn dependency:tree", "dependencyManagement", "TRANSITIVE"}, ""},
+		{"osv-composer-package", "Composer", []string{"composer why", "TRANSITIVE"}, ""},
+		{"osv-nuget-package", "NuGet", []string{"--include-transitive", "TRANSITIVE"}, ""},
+		{"osv-hex-package", "Hex", []string{"deps.tree", "override: true", "TRANSITIVE"}, ""},
+		{"osv-pub-package", "pub.dev", []string{"pub deps", "dependency_overrides", "TRANSITIVE"}, ""},
+	}
+	for _, tt := range cases {
+		t.Run(tt.ruleID, func(t *testing.T) {
+			f := mkFinding(tt.ruleID, "dep-package",
+				`{"ecosystem":"`+tt.ecosystem+`","name":"some-pkg","version":"1.0.0","manifest_path":"/x/manifest"}`,
+				"CVE-2024-1234")
+			human, _, _ := r.Lookup(f)
+			for _, must := range tt.mustMention {
+				if !strings.Contains(human, must) {
+					t.Errorf("rule %q: human missing %q\n  got: %s", tt.ruleID, must, truncate(human, 400))
+				}
+			}
+		})
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "...[truncated]"
 }
 
 func TestRegistryDispatchOSPkgPrefix(t *testing.T) {
@@ -138,22 +194,23 @@ func TestLocatorIntHandlesFloat64FromJSON(t *testing.T) {
 
 func TestAllEcosystemAliasesDispatch(t *testing.T) {
 	// Each alias must route to a handler that includes the correct
-	// upgrade command in the human steps.
+	// diagnose-step command in the human flow (not a naive leaf
+	// upgrade).
 	cases := map[string]string{
-		"osv-npm-package":     "npm update",
-		"osv-pypi-package":    "pip install --upgrade",
-		"osv-pip-package":     "pip install --upgrade",
-		"osv-go-package":      "go get -u",
-		"osv-rubygems-package": "bundle update",
-		"osv-gem-package":     "bundle update",
-		"osv-crates-io-package": "cargo update",
-		"osv-cargo-package":   "cargo update",
-		"osv-maven-package":   "mvn dependency",
-		"osv-packagist-package": "composer update",
-		"osv-composer-package":  "composer update",
-		"osv-nuget-package":   "dotnet add package",
-		"osv-hex-package":     "mix deps.update",
-		"osv-pub-package":     "dart pub upgrade",
+		"osv-npm-package":     "npm why",
+		"osv-pypi-package":    "tree --invert",
+		"osv-pip-package":     "tree --invert",
+		"osv-go-package":      "go mod why",
+		"osv-rubygems-package": "Gemfile.lock",
+		"osv-gem-package":     "Gemfile.lock",
+		"osv-crates-io-package": "cargo tree --invert",
+		"osv-cargo-package":   "cargo tree --invert",
+		"osv-maven-package":   "mvn dependency:tree",
+		"osv-packagist-package": "composer why",
+		"osv-composer-package":  "composer why",
+		"osv-nuget-package":   "--include-transitive",
+		"osv-hex-package":     "mix deps.tree",
+		"osv-pub-package":     "pub deps",
 	}
 	r := New()
 	for ruleID, wantCmd := range cases {
@@ -163,7 +220,7 @@ func TestAllEcosystemAliasesDispatch(t *testing.T) {
 				"CVE-2024-1234")
 			human, _, _ := r.Lookup(f)
 			if !strings.Contains(human, wantCmd) {
-				t.Errorf("rule %q: human missing %q\n  got: %s", ruleID, wantCmd, human)
+				t.Errorf("rule %q: human missing diagnose command %q\n  got: %s", ruleID, wantCmd, human)
 			}
 		})
 	}
