@@ -3,6 +3,21 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.5] - 2026-05-14
+
+Sidecar scanners now run at low CPU + IO priority so the daemon doesn't hog the laptop. Closes one of the spec's day-one promises.
+
+### Fixed
+- **TruffleHog + OSV-Scanner no longer compete with the user's interactive work for CPU.** Observed in the wild 2026-05-14: TruffleHog at 80% CPU, OSV-Scanner at 56% during a first-run $HOME scan made the machine unusable. New `internal/lowprio` package wraps sidecar `exec.Command` invocations with cross-OS priority drops:
+  - Linux: `nice 19` (via `setpriority`) + `ionice IDLE` (via raw `ioprio_set` syscall) — the scanner only gets CPU/IO time when nothing else needs it.
+  - macOS: `nice 19` (`setpriority`). Darwin doesn't expose ioprio_set through Go's syscall package, but the CPU drop alone is enough for the observed pain.
+  - Windows: `BELOW_NORMAL_PRIORITY_CLASS` via creation flags. Matches the spec.
+  - BSDs / other Unix: `nice 19`; ionice is a no-op.
+
+  Applied to the daemon's secretscan / depscan / ospkg child processes. The one-shot `audr scan` CLI is unchanged — explicit user invocations stay at normal priority so they finish fast.
+
+  Scans take longer in absolute terms (the trade the spec accepts: "Hours acceptable; resource hogging is not"), but the user's editor / browser stay responsive throughout.
+
 ## [0.5.4] - 2026-05-14
 
 Hotfix: the daemon now finds sidecars installed via Homebrew, Linuxbrew, Cargo, and `go install` even when started by systemd-user with a stripped PATH.
