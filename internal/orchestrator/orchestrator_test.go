@@ -58,6 +58,7 @@ trust_level = "trusted"
 		// and we don't need it for this assertion.
 		RunSecrets: ptr(false),
 		RunOSPkg:   ptr(false),
+		RunDeps:    ptr(false),
 		Interval:   time.Hour, // we drive runOnce directly; Run won't tick
 	})
 	if err != nil {
@@ -121,6 +122,7 @@ trust_level = "trusted"
 		HomeDir:    root,
 		RunSecrets: ptr(false),
 		RunOSPkg:   ptr(false),
+		RunDeps:    ptr(false),
 		Interval:   time.Hour,
 	})
 	if err != nil {
@@ -168,6 +170,7 @@ func TestOrchestratorRecordsScannerStatusForEveryCategory(t *testing.T) {
 		HomeDir:    t.TempDir(),
 		RunSecrets: ptr(false),
 		RunOSPkg:   ptr(false),
+		RunDeps:    ptr(false),
 		Interval:   time.Hour,
 	})
 	if err != nil {

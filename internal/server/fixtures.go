@@ -261,12 +261,14 @@ func NewDemoRemediation() (*DemoRemediation, error) {
 	return out, nil
 }
 
-// Lookup implements RemediationLookup.
-func (d *DemoRemediation) Lookup(fp string) (string, string, bool) {
+// Lookup implements RemediationLookup. The full state.Finding is
+// passed in but DemoRemediation only uses the Fingerprint — its
+// canned entries are keyed exactly by hash.
+func (d *DemoRemediation) Lookup(f state.Finding) (string, string, bool) {
 	if d == nil {
 		return "", "", false
 	}
-	e, ok := d.byFingerprint[fp]
+	e, ok := d.byFingerprint[f.Fingerprint]
 	if !ok {
 		return "", "", false
 	}

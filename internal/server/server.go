@@ -59,12 +59,13 @@ type Options struct {
 	shutdownTimeout time.Duration
 }
 
-// RemediationLookup resolves a finding fingerprint to its (manual
-// steps, AI prompt) pair. Phase 2 ships a static demo map; Phase 6
-// swaps in the real template library. The interface is intentionally
-// minimal so the swap is one line in cmd/audr/daemon.go.
+// RemediationLookup resolves a finding to its (manual steps, AI
+// prompt) pair. Phase 6 ships the real template library via
+// internal/templates; the Lookup contract takes a full state.Finding
+// so handlers can parameterize templates on the locator + severity +
+// category without re-fetching the row.
 type RemediationLookup interface {
-	Lookup(fingerprint string) (humanSteps, aiPrompt string, ok bool)
+	Lookup(f state.Finding) (humanSteps, aiPrompt string, ok bool)
 }
 
 // Server is the audr daemon's local HTTP surface. Implements
@@ -316,9 +317,18 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemediation(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fp")
-	human, ai, ok := s.opts.Remediation.Lookup(fp)
+	f, err := s.opts.Store.FindingByFingerprint(r.Context(), fp)
+	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no finding for fingerprint " + fp})
+			return
+		}
+		http.Error(w, "lookup finding: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	human, ai, ok := s.opts.Remediation.Lookup(f)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no remediation for fingerprint " + fp})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no remediation handler matched fingerprint " + fp})
 		return
 	}
 	writeJSON(w, http.StatusOK, RemediationResponse{

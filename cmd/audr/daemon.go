@@ -12,6 +12,7 @@ import (
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
+	"github.com/harshmaur/audr/internal/templates"
 	"github.com/harshmaur/audr/internal/watch"
 	"github.com/spf13/cobra"
 )
@@ -238,8 +239,14 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build orchestrator: %w", err)
 				}
 
-				// Remediation library — Phase 6 swaps for real templates.
-				rem, err := server.NewDemoRemediation()
+				// Remediation: the real templates library (per-rule +
+				// per-ecosystem + per-OS-pkg-manager + secret-rotation
+				// + generic fallback) is the canonical lookup. The
+				// demo registry is only consulted when --demo seeded
+				// the canned 8 findings AND the templates library
+				// returns "no match" — i.e., DemoRemediation acts as
+				// a fallback for the canned fingerprints.
+				rem, err := buildRemediation(demo)
 				if err != nil {
 					_ = store.Close()
 					return fmt.Errorf("build remediation: %w", err)
@@ -291,6 +298,40 @@ func newDaemonRunInternalCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&demo, "demo", false, "additionally seed 8 hand-crafted demo findings on startup (visual testing)")
 	return cmd
+}
+
+// buildRemediation composes the production remediation lookup: the
+// per-rule template library is the primary, with the demo registry
+// layered behind it so --demo's canned findings still resolve when
+// the templates library doesn't claim them. The fallback in the
+// templates registry always claims, so in practice the demo layer
+// only matters for the few demo fingerprints whose canned text we
+// want to preserve.
+func buildRemediation(includeDemo bool) (server.RemediationLookup, error) {
+	tmpl := templates.New()
+	if !includeDemo {
+		return tmpl, nil
+	}
+	demo, err := server.NewDemoRemediation()
+	if err != nil {
+		return nil, err
+	}
+	return chainedRemediation{first: tmpl, second: demo}, nil
+}
+
+// chainedRemediation tries the first lookup; if it returns ok=false
+// (which the production templates registry never does — fallback
+// always claims), falls through to the second. Used to keep the demo
+// findings' hand-authored text when --demo seeded them.
+type chainedRemediation struct {
+	first, second server.RemediationLookup
+}
+
+func (c chainedRemediation) Lookup(f state.Finding) (string, string, bool) {
+	if h, ai, ok := c.first.Lookup(f); ok {
+		return h, ai, true
+	}
+	return c.second.Lookup(f)
 }
 
 // newDaemonService constructs a daemon.Service the install/uninstall/

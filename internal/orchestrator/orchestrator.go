@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harshmaur/audr/internal/depscan"
 	"github.com/harshmaur/audr/internal/finding"
 	"github.com/harshmaur/audr/internal/ospkg"
 	"github.com/harshmaur/audr/internal/scan"
@@ -74,6 +75,11 @@ type Options struct {
 	// pin to false so they don't shell out to real dpkg/rpm/osv-scanner.
 	RunOSPkg *bool
 
+	// RunDeps enables language-package CVE detection via osv-scanner
+	// (npm / pip / cargo / maven / etc.). Defaults to true iff
+	// osv-scanner is on PATH; tests pin to false.
+	RunDeps *bool
+
 	// HomeDir is used to discover AI chat transcript paths. Empty
 	// defaults to os.UserHomeDir().
 	HomeDir string
@@ -114,6 +120,14 @@ func New(opts Options) (*Orchestrator, error) {
 		// covered distro and osv-scanner installed). Tests pin false.
 		available, _ := ospkg.Available()
 		opts.RunOSPkg = &available
+	}
+	if opts.RunDeps == nil {
+		// Default: true iff osv-scanner is on PATH. The package
+		// ecosystem dispatch (npm/pip/etc.) is fully handled by
+		// osv-scanner; we just need to provide it filesystem roots.
+		status := depscan.BackendStatus(depscan.BackendOSVScanner)
+		b := status.Installed
+		opts.RunDeps = &b
 	}
 	logger := opts.Logger
 	if logger == nil {
@@ -261,12 +275,21 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	}
 
 	// --- OSV dependency scanner (Deps category) ----------------------
-	// Phase 4 records unavailable; v1.1 wires depscan into the orchestrator.
-	depsStatus := state.ScannerStatus{
-		ScanID:    scanID,
-		Category:  "deps",
-		Status:    "unavailable",
-		ErrorText: "dep scanning runs in `audr scan` for now; daemon integration ships in v1.1",
+	// Calls osv-scanner against the configured roots; converts each
+	// returned vulnerability into a kind="dep-package" state.Finding
+	// with {ecosystem, name, version, manifest_path} locator.
+	depsStatus := state.ScannerStatus{ScanID: scanID, Category: "deps"}
+	if !*o.opts.RunDeps {
+		depsStatus.Status = "unavailable"
+		depsStatus.ErrorText = "osv-scanner not installed; run `audr update-scanners --backend osv-scanner --yes`"
+	} else {
+		if err := o.runDeps(ctx, scanID, seen); err != nil {
+			depsStatus.Status = "error"
+			depsStatus.ErrorText = err.Error()
+			o.log.Error("deps scan failed", "err", err)
+		} else {
+			depsStatus.Status = "ok"
+		}
 	}
 	if err := o.opts.Store.RecordScannerStatus(depsStatus); err != nil {
 		o.log.Warn("record scanner status (deps)", "err", err)
@@ -448,6 +471,43 @@ func (o *Orchestrator) runOSPkg(ctx context.Context, scanID int64, seen map[stri
 		seen[fp] = struct{}{}
 		if _, err := o.opts.Store.UpsertFinding(sf); err != nil {
 			o.log.Warn("os-pkg: upsert finding", "rule_id", sf.RuleID, "err", err)
+		}
+	}
+	return nil
+}
+
+// runDeps invokes osv-scanner against the orchestrator's configured
+// roots and persists each returned vulnerability as a state.Finding
+// with kind="dep-package" and {ecosystem, name, version, manifest_path}
+// locator. Each (package, advisory) pair becomes its own finding so
+// they're individually resolvable.
+//
+// Differs from runOSPkg in that we don't build a synthetic SBOM —
+// osv-scanner walks the filesystem itself looking for manifest files
+// (package.json, requirements.txt, Cargo.toml, etc.) and reports
+// what it finds.
+func (o *Orchestrator) runDeps(ctx context.Context, scanID int64, seen map[string]struct{}) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	findings, err := depscan.RunBackend(ctx, depscan.RunOptions{
+		Backend: depscan.BackendOSVScanner,
+		Roots:   o.opts.Roots,
+	})
+	if err != nil {
+		return err
+	}
+	o.log.Info("deps scan", "vulnerabilities", len(findings))
+
+	for _, f := range findings {
+		sf, err := depscanFindingToState(f, scanID)
+		if err != nil {
+			o.log.Warn("deps: convert finding", "rule_id", f.RuleID, "err", err)
+			continue
+		}
+		seen[sf.Fingerprint] = struct{}{}
+		if _, err := o.opts.Store.UpsertFinding(sf); err != nil {
+			o.log.Warn("deps: upsert finding", "fingerprint", sf.Fingerprint, "err", err)
 		}
 	}
 	return nil
