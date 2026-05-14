@@ -64,6 +64,38 @@ var migrations = []string{
 		scanned_at INTEGER NOT NULL
 	);
 	`,
+
+	// v2 (2026-05-14): widen scanner_statuses.status to include
+	// 'running' (the orchestrator marks a category as RUNNING at
+	// the start of each backend) and 'disabled' (user-controllable
+	// kill switch via `audr daemon scanners --off`).
+	//
+	// The v1 CHECK silently rejected both values for several
+	// releases — orchestrator writes errored, the SSE/dashboard
+	// never saw the running/disabled state. SQLite doesn't support
+	// dropping a single CHECK; the standard idiom is rename →
+	// recreate → copy → drop the old table. Pragma toggles ensure
+	// FKs don't trip during the rebuild.
+	`
+	PRAGMA foreign_keys = OFF;
+
+	CREATE TABLE scanner_statuses_v2 (
+		scan_id    INTEGER NOT NULL REFERENCES scans(id),
+		category   TEXT    NOT NULL,
+		status     TEXT    NOT NULL CHECK(status IN ('ok','error','unavailable','outdated','running','disabled')),
+		error_text TEXT,
+		scanned_at INTEGER NOT NULL,
+		PRIMARY KEY (scan_id, category)
+	);
+
+	INSERT INTO scanner_statuses_v2 (scan_id, category, status, error_text, scanned_at)
+	SELECT scan_id, category, status, error_text, scanned_at FROM scanner_statuses;
+
+	DROP TABLE scanner_statuses;
+	ALTER TABLE scanner_statuses_v2 RENAME TO scanner_statuses;
+
+	PRAGMA foreign_keys = ON;
+	`,
 }
 
 // runMigrations applies any migrations newer than the current schema

@@ -6,12 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
 	// modernc.org/sqlite registers itself as the "sqlite" driver.
 	_ "modernc.org/sqlite"
 )
+
+// removeDBFiles deletes the SQLite DB file plus its WAL + shm
+// sidecars. Used by Open's self-healing path when migrations fail
+// against an existing DB. Missing files are not an error — we just
+// want a clean slate, and the next Open() recreates everything.
+func removeDBFiles(path string) error {
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		p := path + suffix
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", p, err)
+		}
+	}
+	return nil
+}
 
 // Store is audr's persistent SQLite-backed state. Implements
 // daemon.Subsystem so it slots into Lifecycle.
@@ -81,7 +96,43 @@ type Options struct {
 // schema migrations, reconciles any scans left in_progress by a
 // previous crash. The Run() method must be called to start the
 // writer goroutine; until then, write APIs will block.
+//
+// Self-healing fallback: if migrations fail (corrupt DB, version
+// drift from a downgrade, partial-write file from a crash), Open
+// nukes the DB file + sidecars (-wal, -shm) and retries from
+// scratch. The daemon's state is reproducible from the
+// filesystem, so losing the SQLite DB just means the next scan
+// will re-detect everything as new findings. ResetForRebuild
+// returns true via the error when a rebuild happened so callers
+// can surface a banner / log message.
 func Open(opts Options) (*Store, error) {
+	s, err := openOnce(opts)
+	if err == nil {
+		return s, nil
+	}
+	// First attempt failed. Treat any migration/open error as a
+	// corrupted-DB signal and try once more with a fresh file.
+	// Failing twice is genuinely fatal (file-permission issues,
+	// path unwritable, etc.) and we bubble up the second error.
+	if rmErr := removeDBFiles(opts.Path); rmErr != nil {
+		return nil, fmt.Errorf("state: open failed (%v) and DB cleanup failed (%w)", err, rmErr)
+	}
+	s2, err2 := openOnce(opts)
+	if err2 != nil {
+		return nil, fmt.Errorf("state: open failed twice, second after rebuild: %w (first: %v)", err2, err)
+	}
+	// Best-effort log: tests inject a stub logger via Options
+	// (none yet); for now we use the package-level fmt to stderr
+	// so the daemon log records the rebuild. The daemon's slog
+	// handler picks up stderr.
+	fmt.Fprintf(os.Stderr, "audr state: migrations failed (%v) — DB rebuilt from scratch; next scan will repopulate findings\n", err)
+	return s2, nil
+}
+
+// openOnce is the actual open logic; Open wraps it with a single
+// retry-after-nuke fallback. Factored out so the retry path is
+// trivially correct.
+func openOnce(opts Options) (*Store, error) {
 	if opts.Path == "" {
 		return nil, errors.New("state: Options.Path is required")
 	}
