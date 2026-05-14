@@ -3,6 +3,13 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.3] - 2026-05-14
+
+Hotfix for a PID-lock safety bug observed in the wild.
+
+### Fixed
+- **Stale daemon's shutdown no longer deletes the live daemon's PID lock file.** When two audr daemons ran simultaneously (a known but rare path-vs-inode flock race), shutting down the stale one would unlink the active one's PID file. The live daemon's `flock` survived, but `audr daemon status`, the "another daemon is running" contention check, and CLI invocations that rely on the PID file all broke until a manual restart. The user-visible symptom: scanner toggles via `audr daemon scanners --off` or the dashboard click-to-toggle were ineffective because two daemons were writing conflicting `scanner_statuses` rows to the same SQLite DB (one wrote DISABLED, the other wrote UNAVAILABLE — dashboard rendered both). `PIDLock.Release` now reads the file and only `os.Remove`'s when the contained PID matches our own.
+
 ## [0.5.2] - 2026-05-14
 
 Smarter `audr update-scanners` and a OSV-Scanner Linux fix.
