@@ -21,6 +21,7 @@ import (
 	"github.com/harshmaur/audr/internal/templates"
 	"github.com/harshmaur/audr/internal/updater"
 	"github.com/harshmaur/audr/internal/watch"
+	"github.com/gen2brain/beeep"
 	"github.com/spf13/cobra"
 )
 
@@ -164,7 +165,7 @@ User-disabled scanners show 'disabled' and point back to this command.`,
 // re-reads on every event. No subcommand: --off / --on / --status as
 // flags so the muscle memory is `audr daemon notify --off`.
 func newDaemonNotifyCmd() *cobra.Command {
-	var off, on, showStatus bool
+	var off, on, showStatus, runTest bool
 	cmd := &cobra.Command{
 		Use:   "notify",
 		Short: "Manage OS notifications (toasts on new CRITICAL findings)",
@@ -180,10 +181,18 @@ Notifications are on by default. v0.4.2 batching:
     per-finding toasts
 
 Disabling does NOT halt the daemon — findings still appear on the
-dashboard. It only suppresses the OS-level toast surface.`,
+dashboard. It only suppresses the OS-level toast surface.
+
+Use --test to fire an on-demand verification toast that bypasses
+the cooldown + rate-cap + first-scan-suppression logic. If you see
+the toast, the OS-level pipeline (Linux notify-send / macOS
+osascript / Windows toast) works. If you don't, the command will
+print the underlying error (permission denied, missing notify-send
+binary, Focus mode, etc.) — which is what gets written to
+pending-notify.json in normal operation.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			set := 0
-			for _, b := range []bool{off, on, showStatus} {
+			for _, b := range []bool{off, on, showStatus, runTest} {
 				if b {
 					set++
 				}
@@ -192,11 +201,35 @@ dashboard. It only suppresses the OS-level toast surface.`,
 				showStatus = true
 			}
 			if set > 1 {
-				return fmt.Errorf("specify exactly one of --off / --on / --status")
+				return fmt.Errorf("specify exactly one of --off / --on / --status / --test")
 			}
 			paths, err := daemon.Resolve()
 			if err != nil {
 				return fmt.Errorf("resolve daemon paths: %w", err)
+			}
+			if runTest {
+				// Fire an on-demand toast via beeep directly. Skips the
+				// notifier's Subsystem / event-bus / batching paths so
+				// this works whether the daemon is running or not — and
+				// surfaces the underlying OS error cleanly when toasts
+				// are blocked.
+				err := beeep.Notify(
+					"audr",
+					"Test notification · if you see this, OS notifications work. Run \"audr daemon notify --off\" to suppress real alerts.",
+					"",
+				)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"audr: test toast failed: %v\n"+
+							"Hints:\n"+
+							"  Linux: ensure libnotify is installed (apt install libnotify-bin) and a notification daemon is running.\n"+
+							"  macOS: check System Settings → Notifications → audr is allowed.\n"+
+							"  Windows: ensure Focus Assist isn't suppressing notifications for audr.\n",
+						err)
+					return err
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "audr: test toast dispatched. Check your notification area.")
+				return nil
 			}
 			if off {
 				if err := notify.WriteConfig(paths.State, notify.Config{Enabled: false}); err != nil {
@@ -222,12 +255,23 @@ dashboard. It only suppresses the OS-level toast surface.`,
 				state = "disabled"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "audr: OS notifications %s.\n", state)
+			// Also surface any drops from pending-notify.json. The
+			// dashboard banner reads from the same file; printing here
+			// gives CLI users the same diagnostic surface.
+			if pending, err := notify.ReadPending(paths.State); err == nil && len(pending) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"audr: %d dropped notification(s) in pending-notify.json — toasts the OS suppressed.\n",
+					len(pending))
+				fmt.Fprintln(cmd.OutOrStdout(),
+					"      Run `audr daemon notify --test` to verify the OS pipeline.")
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&off, "off", false, "disable OS notifications")
 	cmd.Flags().BoolVar(&on, "on", false, "enable OS notifications")
 	cmd.Flags().BoolVar(&showStatus, "status", false, "print current notification status (default if no flag passed)")
+	cmd.Flags().BoolVar(&runTest, "test", false, "fire an on-demand test toast (bypasses all batching/cooldown to verify the OS pipeline)")
 	return cmd
 }
 
