@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -32,6 +33,7 @@ import (
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/suppress"
+	"github.com/harshmaur/audr/internal/updater"
 	"github.com/spf13/cobra"
 )
 
@@ -757,10 +759,21 @@ func newUpdateScannersCmd() *cobra.Command {
 	var yes bool
 	var ci bool
 	var dbOnly bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "update-scanners",
 		Short: "Update external scanner backends",
-		Long:  "Update open-source scanners used by audr scan: OSV-Scanner and TruffleHog. Without --yes, this command prints the commands it would run and exits without side effects.",
+		Long: `Update open-source scanners used by audr scan: OSV-Scanner and TruffleHog.
+
+By default the command checks the installed version against the latest
+GitHub release tag and SKIPS the update entirely when they match — no
+shell commands run, no /tmp/go-build cache gets filled, no Homebrew
+churn. Use --force to bypass the check and run the installer anyway
+(useful for reinstalling a corrupted binary, or when the version probe
+can't reach GitHub).
+
+Without --yes, prints the commands it would run and exits without
+side effects (dry run). With --yes, executes them.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			rawBackend := strings.ToLower(strings.TrimSpace(backend))
 			if rawBackend == "" {
@@ -778,6 +791,15 @@ func newUpdateScannersCmd() *cobra.Command {
 				backends = []depscan.Backend{depscan.BackendOSVScanner}
 			}
 			for _, b := range backends {
+				if !force && b == depscan.BackendOSVScanner {
+					st := depscan.BackendStatus(b)
+					installed := probeBinaryVersion(ctx, st.Binary)
+					if skip, latest, _ := scannerAlreadyLatest(ctx, "google", "osv-scanner", installed); skip {
+						fmt.Fprintf(w, "OSV-Scanner\n  installed: %s\n  latest:    %s\n  already up to date — use --force to reinstall anyway\n",
+							installed, latest)
+						continue
+					}
+				}
 				plan := depscan.UpdatePlan(b)
 				commands := append([]string(nil), plan.DatabaseCommands...)
 				if !dbOnly {
@@ -790,6 +812,15 @@ func newUpdateScannersCmd() *cobra.Command {
 				}
 			}
 			if runSecrets {
+				if !force {
+					st := secretscan.BackendStatus()
+					installed := probeBinaryVersion(ctx, st.Binary)
+					if skip, latest, _ := scannerAlreadyLatest(ctx, "trufflesecurity", "trufflehog", installed); skip {
+						fmt.Fprintf(w, "TruffleHog\n  installed: %s\n  latest:    %s\n  already up to date — use --force to reinstall anyway\n",
+							installed, latest)
+						return nil
+					}
+				}
 				secretPlan := secretscan.UpdatePlan()
 				secretCommands := append([]string(nil), secretPlan.DatabaseCommands...)
 				if !dbOnly {
@@ -808,8 +839,65 @@ func newUpdateScannersCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "execute updates without prompting")
 	cmd.Flags().BoolVar(&ci, "ci", false, "non-interactive mode; print commands unless --yes is also set")
 	cmd.Flags().BoolVar(&dbOnly, "db-only", false, "refresh vulnerability database/cache only where supported; OSV-Scanner has no local DB cache")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the installed-vs-latest check and run the installer anyway")
 	return cmd
 }
+
+// scannerAlreadyLatest queries GitHub Releases for the latest tag of
+// (owner, repo) and compares with installed. Returns (skip=true,
+// latest, installed) when no upgrade is needed. Network or parse
+// failures return skip=false so we err on the side of running the
+// installer rather than silently leaving a user on an old version.
+//
+// Empty installed version → skip=false (not installed → installer
+// must run). Empty latest (couldn't reach GitHub) → skip=false.
+func scannerAlreadyLatest(ctx context.Context, owner, repo, installed string) (bool, string, string) {
+	if installed == "" {
+		return false, "", ""
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	latest, err := updater.LatestReleaseTag(probeCtx, owner, repo)
+	if err != nil || latest == "" {
+		return false, "", installed
+	}
+	// updater.IsNewer reports "is candidate strictly newer than
+	// current". When latest is NOT newer than installed, we're at
+	// or above the latest tag — safe to skip.
+	if updater.IsNewer(installed, latest) {
+		return false, latest, installed
+	}
+	return true, latest, installed
+}
+
+// probeBinaryVersion runs `binary --version` with a short timeout and
+// returns the first semver-shaped token found in stdout/stderr.
+// Returns "" on any failure (missing binary, exec error, no
+// recognizable version). Used by the update-scanners flow to decide
+// whether to skip the installer.
+//
+// Lives here (instead of leaning on internal/daemon's sidecar
+// probe) because the CLI runs outside the daemon and importing
+// daemon from cmd would skip a layer of separation we want to keep.
+// Keeping this small + duplicated is cheaper than the alternative.
+func probeBinaryVersion(ctx context.Context, binary string) string {
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(probeCtx, binary, "--version").CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+	// Both osv-scanner and trufflehog print versions matched by this
+	// regex: an optional name prefix, then a dotted semver-ish token,
+	// optionally with a pre-release / build suffix.
+	m := scannerVersionRE.FindStringSubmatch(string(out))
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+var scannerVersionRE = regexp.MustCompile(`(?m)(?:version[:\s]*)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9.+]+)?)`)
 
 func runScannerUpdatePlan(cmd *cobra.Command, w io.Writer, ctx context.Context, name string, commands []string, notes []string, yes bool, ci bool, run func() error) error {
 	fmt.Fprintf(w, "%s\n", name)

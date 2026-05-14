@@ -344,6 +344,56 @@ func IsNewer(current, candidate string) bool {
 	return false
 }
 
+// LatestReleaseTag returns the tag_name of the latest non-prerelease
+// non-draft release for owner/repo. Returns ("", nil) when the repo
+// has no published releases (404). Returns an error only on transport
+// or parse failures — callers should treat both as "couldn't check"
+// and fall back to running the update plan anyway.
+//
+// Used by `audr update-scanners` to skip the installer when the
+// installed version of a sidecar (osv-scanner, trufflehog, etc.)
+// already matches the latest tag — avoids re-downloading + rebuilding
+// gigabytes of go-build cache for a no-op upgrade. Pairs with
+// IsNewer: caller compares the returned tag against the installed
+// FoundVersion and decides whether to skip.
+func LatestReleaseTag(ctx context.Context, owner, repo string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "audr")
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return "", nil
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("updater: GitHub returned %d for %s/%s", resp.StatusCode, owner, repo)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	var rel struct {
+		TagName    string `json:"tag_name"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	if err := json.Unmarshal(body, &rel); err != nil {
+		return "", err
+	}
+	if rel.Draft || rel.Prerelease || rel.TagName == "" {
+		return "", nil
+	}
+	return rel.TagName, nil
+}
+
 func splitVersion(v string) []string {
 	if v == "" {
 		return nil

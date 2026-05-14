@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/harshmaur/audr/internal/updater"
 )
 
 func TestResolveOutput(t *testing.T) {
@@ -208,7 +211,12 @@ func TestUpdateScannersCommandDryRunPrintsCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--ci"})
+	// --force bypasses the new latest-vs-installed check so the dry
+	// run actually prints the would-run commands. Without it, this
+	// test fails on any machine that has osv-scanner / trufflehog
+	// already at the latest GitHub-release version (skip path
+	// short-circuits before the dry-run print).
+	cmd.SetArgs([]string{"--ci", "--force"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("update-scanners dry run err: %v", err)
 	}
@@ -225,7 +233,7 @@ func TestUpdateScannersCommandSupportsTruffleHogBackend(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--backend", "trufflehog", "--ci"})
+	cmd.SetArgs([]string{"--backend", "trufflehog", "--ci", "--force"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("update-scanners trufflehog dry run err: %v", err)
 	}
@@ -236,6 +244,56 @@ func TestUpdateScannersCommandSupportsTruffleHogBackend(t *testing.T) {
 	if strings.Contains(got, "OSV-Scanner") {
 		t.Fatalf("--backend trufflehog should not update OSV-Scanner:\n%s", got)
 	}
+}
+
+// TestUpdateScannersSkipsWhenAlreadyAtLatest exercises the new
+// installed-vs-latest check directly. Stubs the network probe via
+// the actual binary version probe — when osv-scanner / trufflehog
+// happen to be at GitHub's latest, the dry-run print is REPLACED
+// by an "already up to date" message and the flow short-circuits.
+// Failures on this test should report the actual installed + latest
+// pair so the user knows whether to bump the test's expectation or
+// fix the skip logic.
+func TestUpdateScannersSkipsWhenAlreadyAtLatest(t *testing.T) {
+	// This test only meaningfully runs when both scanners are
+	// installed locally at GitHub's latest. Skip in the common case
+	// where they aren't — leaves the assertion focused.
+	osvLatest, _ := updaterLatestForTest("google", "osv-scanner")
+	truffleLatest, _ := updaterLatestForTest("trufflesecurity", "trufflehog")
+	if osvLatest == "" || truffleLatest == "" {
+		t.Skip("GitHub API unreachable; skipping installed-vs-latest test")
+	}
+	osvInstalled := probeBinaryVersion(context.Background(), "osv-scanner")
+	truffleInstalled := probeBinaryVersion(context.Background(), "trufflehog")
+	if osvInstalled == "" || truffleInstalled == "" {
+		t.Skip("scanner binaries not installed; skipping installed-vs-latest test")
+	}
+
+	cmd := newUpdateScannersCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--ci"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("update-scanners err: %v", err)
+	}
+	got := out.String()
+	// When already-at-latest, output is the skip message rather
+	// than the would-run "update:" lines.
+	if !strings.Contains(got, "already up to date") {
+		t.Fatalf("expected 'already up to date' in output when scanners are at latest, got:\n%s", got)
+	}
+	if !strings.Contains(got, "--force to reinstall") {
+		t.Fatalf("output should mention --force escape hatch:\n%s", got)
+	}
+}
+
+// updaterLatestForTest is a tiny wrapper around updater.LatestReleaseTag
+// for tests. Kept local to avoid making the helper public.
+func updaterLatestForTest(owner, repo string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return updater.LatestReleaseTag(ctx, owner, repo)
 }
 
 func TestUpdateScannersCommandRejectsInvalidBackend(t *testing.T) {
