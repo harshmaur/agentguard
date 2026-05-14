@@ -51,12 +51,32 @@ import (
 )
 
 // Toaster is the interface the notifier uses to actually display a
-// toast. Real production uses beeepToaster which calls
-// gen2brain/beeep; tests inject a fake that records calls without
-// touching the OS.
+// toast. Real production uses beeepToaster (macOS/Windows) or
+// linuxToaster (godbus); tests inject a fake that records calls
+// without touching the OS.
 type Toaster interface {
 	Toast(title, body string) error
 }
+
+// LifecycleToaster is implemented by toasters that need a goroutine
+// running during the daemon's life (e.g. the Linux dbus toaster
+// listens for ActionInvoked signals). The Notifier's Run method
+// type-asserts and starts/stops the lifecycle automatically.
+//
+// Run blocks until ctx cancels. Close releases the underlying OS
+// resources (dbus connection, etc.).
+type LifecycleToaster interface {
+	Toaster
+	Run(ctx context.Context) error
+	Close() error
+}
+
+// OnClick is the callback fired when the user clicks an audr
+// notification. On platforms where the OS notification supports
+// click actions (Linux dbus), the toaster invokes this. On other
+// platforms it stays a no-op until the per-OS click plumbing
+// lands.
+type OnClick func()
 
 // Options configures a Notifier. Sensible defaults are provided by
 // New(); callers usually only set Logger + StateDir + Store.
@@ -75,8 +95,17 @@ type Options struct {
 	// slog.Default().
 	Logger *slog.Logger
 
-	// Toaster overrides the OS-toast implementation. nil → beeep.
+	// Toaster overrides the OS-toast implementation. nil → the
+	// platform default: linuxToaster on Linux (dbus, supports
+	// click-to-open), beeepToaster elsewhere.
 	Toaster Toaster
+
+	// OnClick is invoked when the user clicks an audr notification.
+	// Only fires on platforms whose default Toaster implements
+	// click handling — Linux today; macOS/Windows are no-ops until
+	// terminal-notifier / AppUserModelID work lands. The Notifier
+	// passes this to the Toaster at construction time.
+	OnClick OnClick
 
 	// CooldownPerFingerprint is how long a given fingerprint stays
 	// silent after a toast has fired for it. Default 24h.
@@ -147,7 +176,7 @@ func New(opts Options) (*Notifier, error) {
 		opts.Logger = slog.Default()
 	}
 	if opts.Toaster == nil {
-		opts.Toaster = beeepToaster{}
+		opts.Toaster = defaultToaster(opts.OnClick)
 	}
 	if opts.CooldownPerFingerprint == 0 {
 		opts.CooldownPerFingerprint = 24 * time.Hour
@@ -171,8 +200,10 @@ func New(opts Options) (*Notifier, error) {
 func (n *Notifier) Name() string { return "notify" }
 
 // Run implements daemon.Subsystem. Subscribes to the store's event
-// bus and dispatches events to handleEvent until ctx cancels.
-// Returns nil on graceful shutdown.
+// bus and dispatches events to handleEvent until ctx cancels. If
+// the Toaster implements LifecycleToaster (Linux dbus path), also
+// spawns a goroutine running its signal listener so click actions
+// route through. Returns nil on graceful shutdown.
 func (n *Notifier) Run(ctx context.Context) error {
 	events, unsub := n.opts.Store.Subscribe()
 	defer unsub()
@@ -187,6 +218,18 @@ func (n *Notifier) Run(ctx context.Context) error {
 			}
 		}
 	}
+	// Toaster lifecycle: when the Toaster needs its own goroutine
+	// (Linux dbus listener), kick it off here. Its Run blocks on
+	// the same ctx so cancellation tears everything down together.
+	// Errors from the listener are logged but not fatal — toasts
+	// still display, just clicks stop working.
+	if lc, ok := n.opts.Toaster.(LifecycleToaster); ok {
+		go func() {
+			if err := lc.Run(ctx); err != nil {
+				n.opts.Logger.Warn("toaster lifecycle exited with error", "err", err)
+			}
+		}()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -200,8 +243,15 @@ func (n *Notifier) Run(ctx context.Context) error {
 	}
 }
 
-// Close implements daemon.Subsystem.
-func (n *Notifier) Close() error { return nil }
+// Close implements daemon.Subsystem. Releases the Toaster's
+// resources when it implements LifecycleToaster (Linux: closes the
+// dbus connection).
+func (n *Notifier) Close() error {
+	if lc, ok := n.opts.Toaster.(LifecycleToaster); ok {
+		return lc.Close()
+	}
+	return nil
+}
 
 // handleEvent routes a store event through the policy: only
 // finding-opened with severity=critical and scan-completed are
@@ -488,7 +538,14 @@ func ClearPending(stateDir string) error {
 }
 
 // ----- OS toast adapter -----------------------------------------
+//
+// Default Toaster selection is in toaster_linux.go / toaster_other.go
+// (build-tagged). Linux uses a direct dbus client that supports click
+// actions; other platforms fall back to beeep for now.
 
+// beeepToaster is the cross-platform fallback. macOS/Windows use it.
+// Linux historically did too — v0.5.8 replaced it on Linux with the
+// dbus-based linuxToaster (toaster_linux.go) so click actions work.
 type beeepToaster struct{}
 
 func (beeepToaster) Toast(title, body string) error {

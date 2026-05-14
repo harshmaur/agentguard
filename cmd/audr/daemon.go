@@ -208,6 +208,20 @@ pending-notify.json in normal operation.`,
 				return fmt.Errorf("resolve daemon paths: %w", err)
 			}
 			if runTest {
+				// Preflight diagnostics that detect common silent-
+				// failure modes BEFORE we send the toast — saves the
+				// user the "beeep said success but I saw nothing"
+				// confusion.
+				w := cmd.OutOrStdout()
+				if warnings := preflightNotifications(); len(warnings) > 0 {
+					fmt.Fprintln(w, "audr: notification preflight detected potential issues:")
+					for _, msg := range warnings {
+						fmt.Fprintf(w, "  - %s\n", msg)
+					}
+					fmt.Fprintln(w, "audr: continuing with test toast anyway. If you don't see it,")
+					fmt.Fprintln(w, "      address the items above and re-run `audr daemon notify --test`.")
+					fmt.Fprintln(w)
+				}
 				// Fire an on-demand toast via beeep directly. Skips the
 				// notifier's Subsystem / event-bus / batching paths so
 				// this works whether the daemon is running or not — and
@@ -532,10 +546,27 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				// not stop the subsystem — it just no-ops the toast
 				// call, so the user can flip with `audr daemon
 				// notify --off` without restarting.
+				//
+				// OnClick (Linux only today) opens the dashboard on
+				// notification click. Reads the live state file each
+				// time so token rotation across daemon restarts
+				// doesn't strand stale URLs.
 				notifier, err := notify.New(notify.Options{
 					Store:    store,
 					StateDir: paths.State,
 					Logger:   orchLogger,
+					OnClick: func() {
+						st, found, err := daemon.ReadStateFile(paths.StateFile())
+						if err != nil || !found {
+							orchLogger.Warn("notification clicked but state file unreadable",
+								"err", err, "found", found)
+							return
+						}
+						url := fmt.Sprintf("http://127.0.0.1:%d/?t=%s", st.Port, st.Token)
+						if err := openDashboardURL(url); err != nil {
+							orchLogger.Warn("notification clicked but browser launch failed", "err", err)
+						}
+					},
 				})
 				if err != nil {
 					_ = store.Close()
