@@ -3,6 +3,18 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.4.3] - 2026-05-14
+
+Hotfix slice. Sidecar re-probe (the bug behind "I installed trufflehog and audr still says secrets OFF"), plus the three deferred notification followups from v0.4.2.
+
+### Fixed
+- **Sidecar re-probe per scan cycle (D15).** `RunSecrets` / `RunDeps` / `RunOSPkg` were evaluated once at orchestrator construction and never re-checked. Installing trufflehog or osv-scanner after the daemon started had no effect until a daemon restart. The orchestrator now tracks an auto-mode flag per scanner and re-probes the sidecar at the top of every scan cycle when the scanner was at its auto-default. Installing a sidecar externally now takes effect within one scan interval (typically 10 minutes).
+
+### Added
+- **NOTIFICATIONS DROPPED banner.** When the OS drops a toast (permission denied, missing notify-send, Focus mode), the notifier writes to `${state_dir}/pending-notify.json` — already true in v0.4.2 but not consumed. v0.4.3 surfaces the count on the snapshot, renders a dashboard banner with the `audr daemon notify --status` fix command, and adds a `DELETE /api/notify/pending` endpoint the banner-dismiss button calls to truncate the file (so dismissals persist across reloads).
+- **macOS install-time osascript permission probe.** `audr daemon install` on darwin now fires an osascript notification so the system permission prompt appears under audr's identity before any real CRITICAL toast. The daemon falls back to pending-notify.json regardless if denied; this just front-loads the prompt to install time.
+- **WATCHING state shows accurate "last scan X min ago" on initial load.** `DaemonInfo.LastScanCompleted` surfaces the most recent completed scan's timestamp via snapshot. Dashboard reads it on load so the WATCHING sub-label is specific immediately, rather than waiting for the next `scan-completed` SSE event.
+
 ## [0.4.2] - 2026-05-14
 
 OS-native toast notifications for new CRITICAL findings, with batching so a first-run scan on a compromised machine doesn't bombard the user.
