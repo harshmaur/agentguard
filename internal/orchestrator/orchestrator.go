@@ -45,9 +45,18 @@ type Options struct {
 	// Roots are the filesystem paths to scan. Empty defaults to $HOME.
 	Roots []string
 
-	// Interval between scan cycles. Defaults to 10 minutes (Phase 3's
-	// watch+poll engine will replace this with event-triggered scans).
+	// Interval between scan cycles. Defaults to 10 minutes. With
+	// Phase 3's watcher wired via ExternalTriggers, the interval
+	// becomes a safety-net fallback — most scans fire from filesystem
+	// quiescence events.
 	Interval time.Duration
+
+	// ExternalTriggers, when non-nil, is an additional channel the
+	// orchestrator selects on alongside its internal ticker. Each
+	// receive runs one scan cycle (subject to the same runMu lock
+	// the periodic ticker uses). Phase 3 wires the watcher's
+	// Triggers() channel here.
+	ExternalTriggers <-chan time.Time
 
 	// ScanOpts is the scan.Options template applied per cycle. Roots,
 	// Logger, and ScanTimeout are overridden by the orchestrator.
@@ -104,12 +113,22 @@ func New(opts Options) (*Orchestrator, error) {
 func (o *Orchestrator) Name() string { return "orchestrator" }
 
 // Run implements daemon.Subsystem. Performs an initial scan
-// immediately, then re-scans every Interval until ctx cancels. Each
-// scan cycle runs to completion even if the next tick fires (the
-// orchestrator never runs two cycles concurrently — overlap would
-// double-write findings and confuse resolution detection).
+// immediately, then re-scans on:
+//
+//   - the internal Interval ticker (safety net), AND
+//   - every receive on ExternalTriggers (Phase 3 watcher events)
+//
+// runMu inside runOnce serializes concurrent cycles, so a watcher
+// trigger fired while the periodic ticker is mid-scan is queued
+// behind it rather than dropping or interleaving.
 func (o *Orchestrator) Run(ctx context.Context) error {
-	o.log.Info("orchestrator starting", "roots", o.opts.Roots, "interval", o.opts.Interval, "run_secrets", *o.opts.RunSecrets)
+	o.log.Info(
+		"orchestrator starting",
+		"roots", o.opts.Roots,
+		"interval", o.opts.Interval,
+		"run_secrets", *o.opts.RunSecrets,
+		"external_triggers", o.opts.ExternalTriggers != nil,
+	)
 
 	// Initial scan.
 	if err := o.runOnce(ctx); err != nil {
@@ -126,6 +145,20 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-tick.C:
+			o.log.Debug("scan triggered by interval", "interval", o.opts.Interval)
+			if err := o.runOnce(ctx); err != nil {
+				o.log.Error("scan cycle failed", "err", err)
+			}
+		case t, ok := <-o.opts.ExternalTriggers:
+			if !ok {
+				// Watcher closed its channel (daemon shutting down or
+				// watcher crashed). Fall back to ticker-only mode for
+				// the rest of this Run; we don't want to busy-loop on
+				// a closed channel.
+				o.opts.ExternalTriggers = nil
+				continue
+			}
+			o.log.Info("scan triggered by watcher", "quiescence_ts", t)
 			if err := o.runOnce(ctx); err != nil {
 				o.log.Error("scan cycle failed", "err", err)
 			}

@@ -12,6 +12,7 @@ import (
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
+	"github.com/harshmaur/audr/internal/watch"
 	"github.com/spf13/cobra"
 )
 
@@ -215,11 +216,24 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				// the orchestrator down which stops writing.
 				orchLogger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-				orch, err := orchestrator.New(orchestrator.Options{
-					Store:  store,
+				// Phase 3 watcher: fsnotify on scoped paths + adaptive
+				// backoff. Its Triggers() channel feeds the
+				// orchestrator alongside the periodic ticker.
+				watcher, err := watch.NewWatcher(watch.Options{
 					Logger: orchLogger,
 				})
 				if err != nil {
+					_ = store.Close()
+					return fmt.Errorf("build watcher: %w", err)
+				}
+
+				orch, err := orchestrator.New(orchestrator.Options{
+					Store:            store,
+					Logger:           orchLogger,
+					ExternalTriggers: watcher.Triggers(),
+				})
+				if err != nil {
+					_ = watcher.Close()
 					_ = store.Close()
 					return fmt.Errorf("build orchestrator: %w", err)
 				}
@@ -246,14 +260,15 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				}
 
 				// Register subsystems in dependency order. Lifecycle
-				// closes in REVERSE registration order, so this
-				// guarantees: orchestrator stops first (no new
-				// findings being written), then the server (drain
-				// in-flight HTTP requests), then the store (close
-				// the DB last).
+				// closes in REVERSE registration order:
+				//   1. watcher stops first (no new triggers fire)
+				//   2. orchestrator drains in-flight scan + sees the
+				//      watcher channel close, falls back to ticker-only
+				//   3. server drains in-flight HTTP requests
+				//   4. store closes the DB last
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{store, srv, orch},
+					Subsystems: []daemon.Subsystem{store, srv, orch, watcher},
 				})
 			})
 			if err != nil {
