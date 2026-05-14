@@ -31,12 +31,32 @@ func TestRunHoldsPIDLockAndReleasesOnShutdown(t *testing.T) {
 	go func() { done <- Run(ctx, opts) }()
 
 	// Wait until the daemon has created the PID file (proxy for "lock
-	// acquired + entered the lifecycle wait").
-	if !waitFor(t, 2*time.Second, func() bool {
-		_, err := os.Stat(p.PIDFile())
-		return err == nil
-	}) {
-		t.Fatalf("daemon did not create PID file at %s", p.PIDFile())
+	// acquired + entered the lifecycle wait"). 10s is generous — the
+	// happy path takes single-digit ms locally. Previous 2s ceiling
+	// tripped reliably on GitHub Actions runners under -race + sidecar
+	// probe contention. While polling, drain `done` non-blocking so an
+	// early Run() error surfaces as the actual failure instead of a
+	// misleading "no PID file" — CI failures (11 in a row before this
+	// fix) showed only the timeout message; the underlying reason was
+	// invisible. Including the log buffer in the failure message lets
+	// the next CI failure tell us what actually broke.
+	pidReady := false
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(p.PIDFile()); err == nil {
+			pidReady = true
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("Run returned before creating PID file: %v\nlog buffer:\n%s", err, logBuf.String())
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !pidReady {
+		t.Fatalf("daemon did not create PID file at %s within 10s\nlog buffer:\n%s",
+			p.PIDFile(), logBuf.String())
 	}
 
 	cancel()
