@@ -3,6 +3,17 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.4.1] - 2026-05-14
+
+Hotfix slice for v0.4.0 dashboard UX issues surfaced by first real-world use.
+
+### Performance
+- **Dashboard render coalescing.** A first-run scan against $HOME on a dev machine produced ~1990 findings, and each finding-opened / finding-updated SSE event triggered a full DOM rebuild. The page became unresponsive during the event burst. `scheduleRender()` now queues `render()` onto the next animation frame and drops subsequent schedule calls until that frame fires, capping render frequency at ~60Hz regardless of incoming event rate. Click handlers keep direct `render()` calls for instant single-event feedback.
+
+### Fixed
+- **Scan-progress strip showed "INITIALIZING" while a scan was clearly running.** The dashboard's `scanActive` flag was only set from the `scan-started` SSE event. Opening the dashboard mid-cycle missed that event entirely, so the strip claimed the daemon was still booting for the full duration of the in-flight scan. The snapshot now carries `DaemonInfo.ScanInProgress` set from the store's `scans` table, and the dashboard reads it on initial load. Also renamed the misleading "INITIALIZING" label to "WAITING FOR FIRST SCAN" since that's what the state actually represents.
+- **Per-category running state.** The scan-progress strip showed all four categories as "pending" until each scanner backend completed — users couldn't tell what was currently being scanned. The orchestrator now records a `Status="running"` ScannerStatus before each backend starts (overwritten by the terminal `ok`/`error`/`unavailable` when it finishes via the existing UPSERT), and the dashboard pill maps `running` to the RUNNING visual state. The "scanning but no status yet" fallback is now labelled QUEUED (accurate) instead of RUNNING (overclaiming).
+
 ## [0.4.0] - 2026-05-14
 
 Always-on dev-machine vulnerability dashboard. Pivot from one-shot CLI to a long-running daemon that watches your machine continuously, surfaces findings on a live local dashboard, and gives you AI-agent remediation prompts alongside the manual steps. v1 lands the full bundle: AI-agent risks, language-dep CVEs, OS-package CVEs, and secrets (including AI chat transcripts). The dashboard auto-updates as the daemon finds things; resolved findings strikethrough, fade, and disappear without celebration.
