@@ -235,6 +235,64 @@ func TestCrashRecoveryMarksInProgressScansCrashed(t *testing.T) {
 	}
 }
 
+func TestSnapshotScannerStatusesReturnsOneRowPerCategory(t *testing.T) {
+	// Regression: previous IN-list query returned duplicate rows when
+	// categories appeared in different scans. With scan #1 recording
+	// all 4 categories and scan #2 recording only 2, the snapshot
+	// should still return exactly one row per category (the latest).
+	s := openTestStore(t)
+
+	scan1, _ := s.OpenScan("all")
+	for _, c := range []string{"ai-agent", "deps", "secrets", "os-pkg"} {
+		if err := s.RecordScannerStatus(ScannerStatus{ScanID: scan1, Category: c, Status: "ok"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CompleteScan(scan1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scan 2: only 2 of the 4 categories recorded (mid-cycle snapshot).
+	scan2, _ := s.OpenScan("all")
+	if err := s.RecordScannerStatus(ScannerStatus{ScanID: scan2, Category: "ai-agent", Status: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordScannerStatus(ScannerStatus{ScanID: scan2, Category: "secrets", Status: "unavailable"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.SnapshotScannerStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d rows, want exactly 4 (one per category, latest)", len(got))
+	}
+
+	byCategory := map[string]ScannerStatus{}
+	for _, ss := range got {
+		if _, dup := byCategory[ss.Category]; dup {
+			t.Errorf("duplicate row for category %q in snapshot", ss.Category)
+		}
+		byCategory[ss.Category] = ss
+	}
+
+	// Categories recorded in scan2 should reflect scan2's values.
+	if byCategory["ai-agent"].ScanID != scan2 {
+		t.Errorf("ai-agent scan_id = %d, want %d (latest)", byCategory["ai-agent"].ScanID, scan2)
+	}
+	if byCategory["secrets"].ScanID != scan2 || byCategory["secrets"].Status != "unavailable" {
+		t.Errorf("secrets = %+v, want scan2/unavailable", byCategory["secrets"])
+	}
+	// Categories only in scan1 should still come from scan1.
+	if byCategory["deps"].ScanID != scan1 {
+		t.Errorf("deps scan_id = %d, want %d (only recorded in scan1)", byCategory["deps"].ScanID, scan1)
+	}
+	if byCategory["os-pkg"].ScanID != scan1 {
+		t.Errorf("os-pkg scan_id = %d, want %d", byCategory["os-pkg"].ScanID, scan1)
+	}
+}
+
 func TestRecordAndSnapshotScannerStatus(t *testing.T) {
 	s := openTestStore(t)
 	scanID, _ := s.OpenScan("all")

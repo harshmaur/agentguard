@@ -306,18 +306,106 @@
     });
   }
 
-  // ----- SSE event stream (Phase 2: connectivity only) -----------
+  // ----- SSE event stream -----------------------------------------
+  // Subscribe to the store's event bus. Server forwards:
+  //   - scan-started / scan-completed: scan-cycle bookends
+  //   - finding-opened: new finding (or reopened after resolution)
+  //   - finding-updated: re-detected, fields may have changed
+  //   - finding-resolved: scanner no longer detects it, transitioned to resolved
+  //   - scanner-status: per-category status changed (ok/error/unavailable)
+  //   - daemon-state: RUN/SLOW/PAUSE transitions (Phase 3+)
   function connectEvents() {
     const url = '/api/events?t=' + encodeURIComponent(token);
     const src = new EventSource(url);
-    src.addEventListener('hello', () => {
-      // Connected. Phase 3+ subscribes to finding-* events here.
-    });
+
+    src.addEventListener('hello', () => { /* connected */ });
     src.addEventListener('heartbeat', () => { /* keep-alive */ });
+
+    src.addEventListener('finding-opened', (e) => {
+      const f = parseEvent(e);
+      if (!f) return;
+      upsertFinding(f);
+      recomputeMetrics();
+      render();
+    });
+
+    src.addEventListener('finding-updated', (e) => {
+      const f = parseEvent(e);
+      if (!f) return;
+      upsertFinding(f);
+      recomputeMetrics();
+      render();
+    });
+
+    src.addEventListener('finding-resolved', (e) => {
+      const f = parseEvent(e);
+      if (!f) return;
+      // Phase 5 will animate strikethrough+fade-out before removing.
+      // For now: remove from the open list, bump resolved counter.
+      const before = state.findings.length;
+      state.findings = state.findings.filter((x) => x.fingerprint !== f.fingerprint);
+      if (state.findings.length < before) {
+        if (state.metrics) state.metrics.resolved_today = (state.metrics.resolved_today || 0) + 1;
+      }
+      state.expanded.delete(f.fingerprint);
+      recomputeMetrics();
+      render();
+    });
+
+    src.addEventListener('scanner-status', (e) => {
+      const s = parseEvent(e);
+      if (!s) return;
+      const idx = state.scanners.findIndex((x) => x.name === s.name);
+      if (idx >= 0) state.scanners[idx] = s;
+      else state.scanners.push(s);
+      // No re-render of findings needed; scanner pills live in
+      // their own sub-component which Phase 5b will add.
+    });
+
+    src.addEventListener('scan-started', () => { /* could surface "scanning..." in top bar */ });
+    src.addEventListener('scan-completed', () => { /* could refresh "last scan" timestamp */ });
+    src.addEventListener('daemon-state', (e) => {
+      const d = parseEvent(e);
+      if (!d || !state.daemon) return;
+      state.daemon.state = d.state || state.daemon.state;
+      state.daemon.state_note = d.state_note || '';
+      renderTop();
+    });
+
     src.onerror = () => {
       // EventSource auto-reconnects respecting the server's retry: hint.
-      // Phase 2 just lets it ride; no UI feedback yet.
+      // Phase 5 polish can add a "reconnecting..." state-indicator badge.
     };
+  }
+
+  // upsertFinding inserts or replaces by fingerprint. Safe to call
+  // when an SSE event arrives for a finding that's already in the
+  // snapshot — we just replace with the freshest payload.
+  function upsertFinding(f) {
+    const idx = state.findings.findIndex((x) => x.fingerprint === f.fingerprint);
+    if (idx >= 0) state.findings[idx] = f;
+    else state.findings.push(f);
+  }
+
+  // recomputeMetrics rebuilds the metric strip totals from state.findings.
+  // The initial snapshot's metrics.resolved_today is preserved since
+  // SSE deltas don't include that count; finding-resolved handlers
+  // bump it directly.
+  function recomputeMetrics() {
+    const m = {
+      open_total: 0, open_critical: 0, open_high: 0, open_medium: 0, open_low: 0,
+      resolved_today: (state.metrics && state.metrics.resolved_today) || 0,
+    };
+    for (const f of state.findings) {
+      m.open_total++;
+      const k = 'open_' + f.severity;
+      if (k in m) m[k]++;
+    }
+    state.metrics = m;
+  }
+
+  function parseEvent(e) {
+    try { return JSON.parse(e.data); } catch { return null; }
   }
 
   // ----- Helpers --------------------------------------------------

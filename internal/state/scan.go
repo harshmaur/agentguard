@@ -166,13 +166,24 @@ func (s *Store) RecordScannerStatus(ss ScannerStatus) error {
 // SnapshotScannerStatuses returns the most recent scanner status per
 // category. Used by the server to populate the dashboard's per-
 // category indicators in the initial /api/findings snapshot.
+//
+// Implementation note: the previous version used WHERE scan_id IN
+// (SELECT MAX(scan_id) ... GROUP BY category) which produced
+// duplicate rows when categories appeared in different scans (the
+// outer query couldn't tie a scan_id back to the specific category
+// it was the max FOR — it just had a set of max-scan-ids and let
+// every category's row through if its scan_id was in the set). The
+// JOIN form below correctly returns exactly one row per category.
 func (s *Store) SnapshotScannerStatuses(ctx context.Context) ([]ScannerStatus, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT scan_id, category, status, COALESCE(error_text,''), scanned_at
-		  FROM scanner_statuses
-		 WHERE scan_id IN (
-			SELECT MAX(scan_id) FROM scanner_statuses GROUP BY category
-		 )
+		SELECT s.scan_id, s.category, s.status, COALESCE(s.error_text,''), s.scanned_at
+		  FROM scanner_statuses s
+		  INNER JOIN (
+			SELECT category, MAX(scan_id) AS max_id
+			  FROM scanner_statuses
+			 GROUP BY category
+		  ) latest ON s.category = latest.category AND s.scan_id = latest.max_id
+		 ORDER BY s.category
 	`)
 	if err != nil {
 		return nil, err
