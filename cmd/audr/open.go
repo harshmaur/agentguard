@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -14,18 +13,6 @@ import (
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/spf13/cobra"
 )
-
-// daemonStateFile is the on-disk shape of the daemon state file
-// ($STATE/daemon.state), written by the HTTP server when it binds.
-// Phase 1 doesn't populate it — Phase 2's server.Server does.
-//
-// JSON for forward-compat: adding new fields later doesn't break the
-// reader.
-type daemonStateFile struct {
-	Port      int    `json:"port"`
-	Token     string `json:"token"`
-	WrittenAt int64  `json:"written_at"` // unix seconds, for staleness checks
-}
 
 // newOpenCmd builds `audr open`: probe the running daemon and launch
 // the dashboard in the user's default browser.
@@ -52,7 +39,7 @@ If it isn't installed, audr tells you how to install it.`,
 				return fmt.Errorf("resolve daemon paths: %w", err)
 			}
 
-			state, found, err := readDaemonState(paths.StateFile())
+			state, found, err := daemon.ReadStateFile(paths.StateFile())
 			if err != nil {
 				return fmt.Errorf("read daemon state %s: %w", paths.StateFile(), err)
 			}
@@ -100,28 +87,6 @@ If it isn't installed, audr tells you how to install it.`,
 			}
 		},
 	}
-}
-
-// readDaemonState reads + parses the daemon state file. Returns
-// (state, true, nil) if the file exists and parses; (zero, false, nil)
-// if the file simply doesn't exist; (zero, false, err) for any other
-// problem (including a corrupt/unparseable file).
-func readDaemonState(path string) (daemonStateFile, bool, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return daemonStateFile{}, false, nil
-		}
-		return daemonStateFile{}, false, err
-	}
-	var s daemonStateFile
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return daemonStateFile{}, false, fmt.Errorf("daemon state file %s is unparseable: %w", path, err)
-	}
-	if s.Port == 0 {
-		return daemonStateFile{}, false, fmt.Errorf("daemon state file %s has no port", path)
-	}
-	return s, true, nil
 }
 
 // tcpProbe returns true if 127.0.0.1:port accepts a TCP connection

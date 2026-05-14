@@ -1,0 +1,234 @@
+/*
+ * audr daemon dashboard.
+ * Anchored to audr-web tokens (Plex Mono/Sans, dark default).
+ * Wireframe-A "Evidence Feed" layout: top bar, metric strip, filters,
+ * severity-banded findings list, footer.
+ *
+ * No external font requests in Phase 2 visual slice — system mono / sans
+ * fallback. Phase 5b ships the real woff2 embeds.
+ */
+:root {
+  --bg: #0e0e0c;
+  --surface: #1a1a17;
+  --surface-2: #232320;
+  --text: #f5f5f0;
+  --text-muted: #9c9c95;
+  --border: #2a2a25;
+  --critical: #e63a30;
+  --high: #d9711f;
+  --medium: #c49b2c;
+  --low: #4a7bb7;
+  --ok: #4fa86e;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 15px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
+::selection { background: var(--critical); color: var(--bg); }
+a { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--text-muted); }
+a:visited { color: var(--text-muted); }
+:focus-visible { outline: 2px solid var(--low); outline-offset: 2px; }
+
+/* --- Top bar ----------------------------------------------------- */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: grid; grid-template-columns: 200px 1fr 1fr;
+  align-items: center; gap: 32px;
+  padding: 14px 32px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-family: var(--mono); font-weight: 500; font-size: 18px; letter-spacing: 0.18em; }
+.state-indicator {
+  display: flex; align-items: center; gap: 10px; justify-self: center;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.pulse-dot {
+  width: 8px; height: 8px; background: var(--ok); border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+.pulse-dot.offline { background: var(--text-muted); animation: none; }
+.pulse-dot.slow { background: var(--medium); animation-duration: 4s; }
+.pulse-dot.pause { background: var(--critical); animation: none; }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot { animation: none; }
+}
+.state-meta { color: var(--text-muted); font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em; }
+.scan-status { justify-self: end; font-family: var(--mono); font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 12px; }
+.scan-status code { color: var(--text); }
+
+/* --- Metric strip ----------------------------------------------- */
+.metrics {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.metric { padding: 18px 32px; border-right: 1px solid var(--border); }
+.metric:last-child { border-right: 0; }
+.metric-num { font-family: var(--mono); font-size: 32px; font-weight: 500; line-height: 1; }
+.metric-num.crit { color: var(--critical); }
+.metric-num.high { color: var(--high); }
+.metric-num.ok { color: var(--ok); }
+.metric-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted); margin-top: 6px; }
+
+/* --- Filter row -------------------------------------------------- */
+.filters {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px;
+}
+.filter-group { display: flex; gap: 0; }
+.filter-btn {
+  padding: 6px 14px; border: 1px solid var(--border); border-right: 0;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  font-family: inherit; font-size: inherit; letter-spacing: 0.12em; text-transform: uppercase;
+}
+.filter-btn:last-child { border-right: 1px solid var(--border); }
+.filter-btn.active {
+  color: var(--text); border-color: var(--text); background: var(--surface);
+  font-weight: 500;
+}
+.filter-btn:hover:not(.active) { color: var(--text); }
+
+/* --- Severity section header ------------------------------------ */
+.sev-section { border-bottom: 1px solid var(--border); }
+.sev-section-header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 32px 8px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.sev-section-header .chev { font-family: var(--mono); display: inline-block; width: 12px; }
+.sev-section-header.crit { color: var(--critical); }
+.sev-section-header.high { color: var(--high); }
+.sev-section-header.medium { color: var(--medium); }
+.sev-section-header.low { color: var(--low); }
+.sev-section-header .count {
+  margin-left: auto;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+.sev-section[data-collapsed="true"] .finding { display: none; }
+.sev-section[data-collapsed="true"] .sev-section-header .chev::before { content: "▸"; }
+.sev-section[data-collapsed="false"] .sev-section-header .chev::before { content: "▾"; }
+
+/* --- Finding rows ------------------------------------------------- */
+.finding {
+  display: grid; grid-template-columns: 4px 1fr;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.finding:first-of-type { border-top: 0; }
+.finding-bar { width: 4px; }
+.finding-bar.crit { background: var(--critical); }
+.finding-bar.high { background: var(--high); }
+.finding-bar.medium { background: var(--medium); }
+.finding-bar.low { background: var(--low); }
+.finding-body { padding: 16px 32px; }
+.finding-line1 { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.sev-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+  text-transform: uppercase; font-weight: 600;
+}
+.sev-label.crit { color: var(--critical); }
+.sev-label.high { color: var(--high); }
+.sev-label.medium { color: var(--medium); }
+.sev-label.low { color: var(--low); }
+.cat-tag {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-muted);
+  border: 1px solid var(--border); padding: 2px 6px;
+}
+.finding-title { font-family: var(--sans); font-weight: 500; font-size: 15px; color: var(--text); }
+.finding-meta {
+  margin-top: 4px;
+  font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  display: flex; gap: 16px; flex-wrap: wrap;
+}
+.finding-meta code { color: var(--text-muted); }
+.finding:hover { background: rgba(255,255,255,0.02); }
+.finding[aria-expanded="true"] { background: var(--surface); }
+
+/* --- Expanded detail --------------------------------------------- */
+.expanded-detail {
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+}
+.detail-section h4 {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-muted); margin: 0 0 10px;
+  font-weight: 500;
+}
+.detail-desc { font-family: var(--sans); font-size: 14px; color: var(--text); margin: 0 0 12px; }
+.manual-steps { margin: 0; padding-left: 18px; font-family: var(--sans); font-size: 14px; color: var(--text); white-space: pre-wrap; }
+.manual-steps code { font-family: var(--mono); font-size: 13px; background: var(--surface-2); padding: 1px 4px; }
+.copy-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em;
+  text-transform: uppercase; font-weight: 500;
+  color: var(--text); background: transparent;
+  border: 1px solid var(--text); padding: 8px 14px; cursor: pointer;
+  transition: outline 200ms ease;
+}
+.copy-btn:hover { background: var(--text); color: var(--bg); }
+.copy-btn.copied { outline: 2px solid var(--ok); outline-offset: 2px; }
+.prompt-preview {
+  margin-top: 12px; padding: 12px;
+  background: var(--bg); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  line-height: 1.55; white-space: pre-wrap;
+  max-height: 200px; overflow: auto;
+}
+
+/* --- Footer ------------------------------------------------------ */
+.footer {
+  padding: 24px 32px; border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+  display: flex; justify-content: space-between; align-items: center; letter-spacing: 0.06em;
+}
+.footer code { color: var(--text); }
+
+/* --- Empty / error states --------------------------------------- */
+.empty {
+  padding: 32px; font-family: var(--mono); color: var(--text-muted);
+  font-size: 13px; letter-spacing: 0.08em; text-align: center;
+}
+.banner {
+  padding: 14px 32px;
+  background: rgba(196, 155, 44, 0.12);
+  border-bottom: 1px solid var(--medium);
+  font-family: var(--mono); font-size: 12px; color: var(--text);
+  display: flex; gap: 16px; align-items: center;
+}
+.banner .fix { color: var(--text); background: var(--surface-2); padding: 2px 6px; }
+.banner .dismiss {
+  margin-left: auto;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+  cursor: pointer; border-bottom: 1px solid var(--text-muted);
+}
+
+/* --- Responsive degradation ------------------------------------- */
+@media (max-width: 1280px) {
+  .topbar { grid-template-columns: 1fr; gap: 12px; }
+  .scan-status { justify-self: start; }
+  .state-indicator { justify-self: start; }
+  .expanded-detail { grid-template-columns: 1fr; gap: 16px; }
+}
+@media (max-width: 768px) {
+  body::before {
+    content: "audr dashboard is optimized for desktop. Open this URL on your workstation.";
+    display: block;
+    padding: 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 13px; color: var(--text); text-align: center;
+  }
+  .findings .expanded-detail { display: block; }
+}

@@ -33,6 +33,12 @@ type Options struct {
 	// writes. Used by tests to capture log output. Ignored when Logger
 	// is non-nil (then the caller owns the destination).
 	LogWriter io.Writer
+
+	// Subsystems are registered with the lifecycle before it Run()s.
+	// The caller owns construction; daemon.Run takes responsibility for
+	// the lifecycle (Run + Close + shutdown grace). Order matters for
+	// shutdown — see Lifecycle.closeAll which closes in reverse.
+	Subsystems []Subsystem
 }
 
 // Run boots the daemon: ensures paths exist, acquires the PID lock,
@@ -102,10 +108,12 @@ func Run(ctx context.Context, opts Options) error {
 		)
 	}
 
-	// 5. Build + run the lifecycle. Phase 1 has no subsystems yet — the
-	//    daemon boots, holds the lock, and waits for ctx.Done(). Phases
-	//    2-6 register state.Store, server.Server, watch.Engine, etc.
+	// 5. Build + run the lifecycle, registering caller-supplied
+	//    subsystems first (server, state store, watch engine, ...).
 	lc := NewLifecycle(opts.ShutdownGrace)
+	for _, sub := range opts.Subsystems {
+		lc.Register(sub)
+	}
 	logger.Info("daemon ready", "subsystems", len(lc.Subsystems()))
 
 	err = lc.Run(ctx)

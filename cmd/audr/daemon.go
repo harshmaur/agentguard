@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/server"
 	"github.com/spf13/cobra"
 )
 
@@ -150,7 +151,32 @@ func newDaemonRunInternalCmd() *cobra.Command {
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, err := daemon.NewService(daemon.DefaultServiceConfig(), func(ctx context.Context) error {
-				return daemon.Run(ctx, daemon.Options{})
+				// Resolve paths up front so both the daemon and the
+				// server share the same view. Ensure is idempotent
+				// (daemon.Run calls it again; that's fine).
+				paths, err := daemon.Resolve()
+				if err != nil {
+					return fmt.Errorf("resolve paths: %w", err)
+				}
+				if err := paths.Ensure(); err != nil {
+					return fmt.Errorf("ensure paths: %w", err)
+				}
+
+				// Build the HTTP server subsystem. ListenPort=0 lets
+				// the kernel assign a free port; the daemon publishes
+				// the chosen port via the state file.
+				srv, err := server.NewServer(server.Options{
+					Paths:   paths,
+					Version: Version,
+				})
+				if err != nil {
+					return fmt.Errorf("build server: %w", err)
+				}
+
+				return daemon.Run(ctx, daemon.Options{
+					Paths:      paths,
+					Subsystems: []daemon.Subsystem{srv},
+				})
 			})
 			if err != nil {
 				return err
