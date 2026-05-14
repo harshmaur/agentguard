@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/scanignore"
 )
 
 const RuleOSVVulnerability = "dependency-osv-vulnerability"
@@ -201,7 +202,19 @@ func DiscoverProjectRoots(roots []string) ([]string, error) {
 				return nil
 			}
 			if d.IsDir() {
-				if path != root && shouldSkipDir(d.Name()) {
+				if path == root {
+					return nil
+				}
+				// Fast path: basename match against single-segment
+				// entries (node_modules, .git, .bun, etc.).
+				if shouldSkipDir(d.Name()) {
+					return filepath.SkipDir
+				}
+				// Slow path: multi-segment cache subtrees (go/pkg,
+				// .npm/_cacache, .gradle/caches, Library/Caches).
+				// Without this, a $HOME walk discovers thousands of
+				// stale package.json files inside tool caches.
+				if shouldSkipPath(path) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -256,13 +269,20 @@ func isDependencySourceFile(name string) bool {
 	}
 }
 
+// shouldSkipDir reports whether a directory should be excluded during
+// project-root discovery. Delegates to scanignore so the canonical
+// exclude list (build artifacts + VCS + per-language tool caches +
+// per-OS cache roots) lives in one place. See scanignore.Defaults().
 func shouldSkipDir(name string) bool {
-	switch name {
-	case "node_modules", "vendor", ".git", "dist", "build", "target", "__pycache__", ".next", ".cache", ".venv", "venv":
-		return true
-	default:
-		return false
-	}
+	return scanignore.IsExcludedBaseName(name)
+}
+
+// shouldSkipPath is the multi-segment version: true iff the given
+// path contains any cache subpath like "go/pkg" or ".npm/_cacache".
+// Used by callers that have the full path available (the WalkDir
+// callback passes `path`, so we can do better than basename match).
+func shouldSkipPath(path string) bool {
+	return scanignore.PathExcluded(path)
 }
 
 func shellName() string {

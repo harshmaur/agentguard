@@ -15,13 +15,85 @@ func TestDefaultsContainsCanonicalSkipNames(t *testing.T) {
 		"node_modules", "vendor", ".git", "dist", "build", "target",
 		"__pycache__", ".next", ".cache",
 		".venv", "venv",
-		".npm/_cacache", ".cargo/registry", "go/pkg", ".gradle/caches",
+		".bun", ".pnpm-store", ".yarn", ".deno", ".gem", ".m2", ".gradle", ".cargo",
+		".npm/_cacache", "go/pkg", ".gradle/caches",
 		"Library/Caches", "AppData/Local/Temp",
 	}
 	for _, name := range want {
 		if !contains(got, name) {
 			t.Fatalf("Defaults() missing %q; got %v", name, got)
 		}
+	}
+}
+
+func TestIsExcludedBaseNameSingleSegment(t *testing.T) {
+	// True for single-segment entries.
+	for _, name := range []string{"node_modules", ".git", ".bun", ".cargo", ".pnpm-store"} {
+		t.Run(name, func(t *testing.T) {
+			if !IsExcludedBaseName(name) {
+				t.Errorf("IsExcludedBaseName(%q) = false, want true", name)
+			}
+		})
+	}
+	// False for multi-segment entries' first segment when that
+	// segment in isolation isn't intended as a skip target.
+	if IsExcludedBaseName("Library") {
+		t.Error("IsExcludedBaseName(\"Library\") = true, want false (multi-seg only)")
+	}
+	if IsExcludedBaseName("AppData") {
+		t.Error("IsExcludedBaseName(\"AppData\") = true, want false")
+	}
+	if IsExcludedBaseName("go") {
+		t.Error("IsExcludedBaseName(\"go\") = true; want false (~/go has both pkg/mod cache and src code)")
+	}
+	// Substring false matches.
+	if IsExcludedBaseName("node_modulesXY") {
+		t.Error("IsExcludedBaseName(\"node_modulesXY\") = true, want false (whole-segment match)")
+	}
+}
+
+func TestPathExcludedHandlesBothBasenameAndMultiSeg(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+		why  string
+	}{
+		// Single-segment matches anywhere in the path.
+		{"/home/u/code/proj/node_modules/lodash", true, "node_modules anywhere"},
+		{"/home/u/.git/HEAD", true, ".git basename"},
+		{"/home/u/.bun/install/cache/foo", true, ".bun root match"},
+		{"/home/u/.cargo/registry/cache/foo", true, ".cargo root match"},
+
+		// Multi-segment matches.
+		{"/home/u/go/pkg/mod/example.com/foo", true, "go/pkg subseq"},
+		{"/home/u/.npm/_cacache/index", true, ".npm/_cacache subseq"},
+		{"/home/u/Library/Caches/Yarn", true, "macOS Library/Caches"},
+		{"/c/Users/u/AppData/Local/Temp/x", true, "Windows AppData/Local/Temp"},
+
+		// Non-matches.
+		{"/home/u/code/proj/src/lodash.go", false, "code path"},
+		{"/home/u/go/src/github.com/foo/bar", false, "go/src is code, not cache"},
+		{"/home/u/somepkg/.gradle.bak", false, "must be whole segment"},
+		{"/home/u/projects/myrepo/package.json", false, "real project"},
+		{"", false, "empty path"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.path, func(t *testing.T) {
+			got := PathExcluded(tt.path)
+			if got != tt.want {
+				t.Errorf("PathExcluded(%q) = %v, want %v (%s)", tt.path, got, tt.want, tt.why)
+			}
+		})
+	}
+}
+
+func TestPathExcludedHandlesWindowsSeparators(t *testing.T) {
+	// Backslashes get normalized to forward slashes before matching.
+	if !PathExcluded(`C:\Users\foo\.cargo\registry\cache`) {
+		t.Error("backslash-separated path with .cargo not detected")
+	}
+	if !PathExcluded(`C:\Users\foo\AppData\Local\Temp\bar`) {
+		t.Error("backslash-separated AppData/Local/Temp not detected")
 	}
 }
 
