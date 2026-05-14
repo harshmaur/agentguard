@@ -20,10 +20,19 @@ func TestRunHoldsPIDLockAndReleasesOnShutdown(t *testing.T) {
 	}
 
 	var logBuf bytes.Buffer
+	// Without at least one subsystem, the lifecycle's errgroup has
+	// nothing to wait on — g.Wait() returns immediately and Run()
+	// shuts down before the test sees the PID file. Production daemons
+	// always register subsystems; the test needs to do the same to
+	// exercise the "lock held while subsystems run" property. The
+	// blocker just sits on ctx until cancellation, matching what a
+	// real subsystem (state store, watcher, server) would do.
+	blocker := &blockingSubsystem{name: "test-blocker"}
 	opts := Options{
 		Paths:         p,
 		ShutdownGrace: 500 * time.Millisecond,
 		LogWriter:     &logBuf,
+		Subsystems:    []Subsystem{blocker},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,4 +162,15 @@ func TestBuildLoggerCreatesLogFileWhenNoWriter(t *testing.T) {
 		t.Errorf("log file missing event: %q", raw)
 	}
 }
+
+// blockingSubsystem is the minimum Subsystem implementation: Run
+// blocks on ctx until cancellation, Close is a no-op. Used by tests
+// that want the daemon's lifecycle to stay alive until the test
+// explicitly cancels — without a registered subsystem the lifecycle
+// errgroup has nothing to wait on and returns immediately.
+type blockingSubsystem struct{ name string }
+
+func (b *blockingSubsystem) Name() string                  { return b.name }
+func (b *blockingSubsystem) Run(ctx context.Context) error { <-ctx.Done(); return nil }
+func (b *blockingSubsystem) Close() error                  { return nil }
 
