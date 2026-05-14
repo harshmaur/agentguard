@@ -97,6 +97,23 @@ type PathGroup struct {
 	Low      int
 }
 
+// SeverityGroup is the primary grouping in the HTML report's findings
+// view: one bucket per severity (Critical, High, Medium, Low),
+// findings within sorted by the standard finding.Less ordering. This
+// mirrors the dashboard's severity-section layout — opening a report
+// should feel like looking at the dashboard at the moment of scan.
+//
+// Inside each bucket, findings carry a Kind tag ("package", "secret",
+// "agent-rule", "other") so the report's filter chips can hide them
+// by category without re-grouping the document.
+type SeverityGroup struct {
+	Severity finding.Severity
+	Label    string // "Critical" / "High" / "Medium" / "Low"
+	Class    string // "critical" / "high" / "medium" / "low"
+	Findings []finding.Finding
+	Total    int // alias for len(Findings) — eases template arithmetic
+}
+
 // Verdict is the lead sentence rendered above the metric pills. The lead
 // captures the worst thing on this machine in plain prose; the supporting
 // clause says how many chains and findings back it up.
@@ -207,6 +224,40 @@ func HTML(w io.Writer, r Report) error {
 			}
 			return ""
 		},
+		"groupBySeverity": func(findings []finding.Finding) []SeverityGroup {
+			// Order: Critical → High → Medium → Low. Severities have
+			// matching numeric values where lower == worse (Critical=0,
+			// Low=3), but we want render-order with Critical first, so
+			// we iterate explicitly.
+			order := []finding.Severity{
+				finding.SeverityCritical,
+				finding.SeverityHigh,
+				finding.SeverityMedium,
+				finding.SeverityLow,
+			}
+			byBucket := map[finding.Severity][]finding.Finding{}
+			for _, f := range findings {
+				byBucket[f.Severity] = append(byBucket[f.Severity], f)
+			}
+			groups := make([]SeverityGroup, 0, len(order))
+			for _, sev := range order {
+				bucket := byBucket[sev]
+				if len(bucket) == 0 {
+					continue
+				}
+				sort.SliceStable(bucket, func(i, j int) bool {
+					return finding.Less(bucket[i], bucket[j])
+				})
+				groups = append(groups, SeverityGroup{
+					Severity: sev,
+					Label:    sevLabelFor(sev),
+					Class:    sevClassFor(sev),
+					Findings: bucket,
+					Total:    len(bucket),
+				})
+			}
+			return groups
+		},
 		"groupByPath": func(findings []finding.Finding) []PathGroup {
 			byPath := map[string]*PathGroup{}
 			for _, f := range findings {
@@ -254,6 +305,34 @@ func HTML(w io.Writer, r Report) error {
 		return fmt.Errorf("html template: %w", err)
 	}
 	return tmpl.Execute(w, r)
+}
+
+func sevLabelFor(s finding.Severity) string {
+	switch s {
+	case finding.SeverityCritical:
+		return "Critical"
+	case finding.SeverityHigh:
+		return "High"
+	case finding.SeverityMedium:
+		return "Medium"
+	case finding.SeverityLow:
+		return "Low"
+	}
+	return "Unknown"
+}
+
+func sevClassFor(s finding.Severity) string {
+	switch s {
+	case finding.SeverityCritical:
+		return "critical"
+	case finding.SeverityHigh:
+		return "high"
+	case finding.SeverityMedium:
+		return "medium"
+	case finding.SeverityLow:
+		return "low"
+	}
+	return "unknown"
 }
 
 const osvVulnerabilityRuleID = "dependency-osv-vulnerability"

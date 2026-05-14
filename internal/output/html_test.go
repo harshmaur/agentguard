@@ -445,9 +445,15 @@ func TestHTML_RendersPackageVulnerabilitySection(t *testing.T) {
 		t.Fatalf("HTML render: %v", err)
 	}
 	out := buf.String()
+	// Findings now render in severity-grouped sections (matching the
+	// dashboard) with a per-finding kind badge. The package-CVE test
+	// finding is High severity, so we expect a High section header
+	// and a PACKAGE kind badge — not the old "Package vulnerabilities"
+	// section title.
 	for _, want := range []string{
-		"Package vulnerabilities",
-		"1 vulnerable package manifest",
+		`class="sev-section-head high"`,
+		`class="kind-badge package"`,
+		"PACKAGE",
 		"Anthropic TypeScript SDK local filesystem memory tool uses unsafe file modes",
 		"/repo/package.json",
 		"@anthropic-ai/sdk@0.81.0",
@@ -516,9 +522,12 @@ func TestHTML_RendersSecretExposureSection(t *testing.T) {
 		t.Fatalf("HTML render: %v", err)
 	}
 	out := buf.String()
+	// Secret findings now render inside a severity section with a
+	// SECRET kind badge — not the old "Secrets" section title.
 	for _, want := range []string{
-		"Secrets",
-		"1 secret exposure",
+		`class="sev-section-head high"`,
+		`class="kind-badge secret"`,
+		"SECRET",
 		"Secret detected by TruffleHog: GitHub",
 		"/repo/.env",
 		"ghp_********SECRET",
@@ -527,6 +536,74 @@ func TestHTML_RendersSecretExposureSection(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("HTML secret section missing %q", want)
 		}
+	}
+}
+
+// TestHTML_GroupsFindingsBySeverity verifies the dashboard-matching
+// layout: a mixed-severity, mixed-kind finding set renders one
+// .sev-section per severity present, in Critical→High→Medium→Low
+// order, with the old per-kind sections gone (Package / Secret split
+// is now expressed via per-finding kind badges instead).
+func TestHTML_GroupsFindingsBySeverity(t *testing.T) {
+	now := time.Now()
+	r := Report{
+		Version: "v0.2.4-test",
+		Roots:   []string{"/repo"},
+		StartedAt:  now,
+		FinishedAt: now.Add(time.Second),
+		Findings: []finding.Finding{
+			{RuleID: "claude-hook-shell-rce", Severity: finding.SeverityCritical, Taxonomy: finding.TaxEnforced, Title: "Hook RCE", Description: "x", Path: "/etc/settings.json"},
+			{RuleID: "dependency-osv-vulnerability", Severity: finding.SeverityHigh, Taxonomy: finding.TaxDetectable, Title: "Vulnerable dependency", Description: "y", Path: "/repo/package.json", Match: "lib@1.0"},
+			{RuleID: "secret-trufflehog-verified", Severity: finding.SeverityHigh, Taxonomy: finding.TaxDetectable, Title: "Secret detected", Description: "z", Path: "/repo/.env"},
+			{RuleID: "mcp-prod-secret-env", Severity: finding.SeverityMedium, Taxonomy: finding.TaxDetectable, Title: "MCP secret env", Description: "w", Path: "/repo/.mcp.json"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := HTML(&buf, r); err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	out := buf.String()
+
+	// One severity section per present severity (Critical, High, Medium — no Low here).
+	for _, want := range []string{
+		`class="sev-section-head critical"`,
+		`class="sev-section-head high"`,
+		`class="sev-section-head medium"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing severity section %q", want)
+		}
+	}
+	if strings.Contains(out, `class="sev-section-head low"`) {
+		t.Error("Low section rendered when no Low findings present")
+	}
+
+	// All three kind badges appear (one PACKAGE, one SECRET, two OTHER for the agent-rule + mcp findings).
+	for _, want := range []string{
+		`class="kind-badge package"`,
+		`class="kind-badge secret"`,
+		`class="kind-badge other"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing kind badge %q", want)
+		}
+	}
+
+	// Secondary view: "Browse by file" disclosure exists (chain anchors target it).
+	if !strings.Contains(out, `class="browse-by-file"`) {
+		t.Error("missing secondary browse-by-file disclosure")
+	}
+	if c := strings.Count(out, `class="path-group"`); c != 4 {
+		// 4 distinct paths in the test data
+		t.Errorf("path-group count = %d, want 4", c)
+	}
+
+	// Sanity: Critical comes before High in the output (DOM order matters
+	// for printing / screenshotting — Critical at the top).
+	iCrit := strings.Index(out, `class="sev-section-head critical"`)
+	iHigh := strings.Index(out, `class="sev-section-head high"`)
+	if iCrit < 0 || iHigh < 0 || iCrit > iHigh {
+		t.Errorf("severity sections out of order: Critical@%d, High@%d", iCrit, iHigh)
 	}
 }
 
