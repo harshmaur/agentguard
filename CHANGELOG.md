@@ -3,6 +3,13 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.4] - 2026-05-14
+
+Hotfix: the daemon now finds sidecars installed via Homebrew, Linuxbrew, Cargo, and `go install` even when started by systemd-user with a stripped PATH.
+
+### Fixed
+- **`trufflehog installed via Linuxbrew, daemon says secrets unavailable`** — the daemon's PATH inherited from systemd-user / launchd lacks `/home/linuxbrew/.linuxbrew/bin`, `/opt/homebrew/bin`, `~/.cargo/bin`, `~/go/bin`, `~/.local/bin`. `exec.LookPath("trufflehog")` returned not-found despite the binary being present. New `daemon.AugmentPATH()` prepends these locations at startup (if they exist on disk and aren't already on PATH). Idempotent. Same fix applies to osv-scanner installed in any of those locations. Windows is currently a no-op; chocolatey/scoop paths can be added if needed.
+
 ## [0.5.3] - 2026-05-14
 
 Hotfix for a PID-lock safety bug observed in the wild.
