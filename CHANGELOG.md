@@ -3,6 +3,19 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.0] - 2026-05-14
+
+User-controllable scanner toggles + SQLite migration framework with auto-rebuild fallback.
+
+### Added
+- **Per-category scanner enable/disable.** New `audr daemon scanners --off=secrets,deps / --on=secrets / --status` CLI plus click-to-toggle pills in the dashboard's scan-progress strip. Persists at `${state_dir}/scanner.config.json` (mode 0600). The running orchestrator re-reads on every scan cycle so toggles take effect within ~10 minutes without a daemon restart. A user-disabled category is distinct from a sidecar-missing one: dashboard shows DISABLED (neutral muted colour) vs OFF (amber, "install sidecar" signal). Banner stack ignores Status="disabled" so deliberately turning a category off doesn't add noise.
+- **POST /api/scanners endpoint.** Token-required. Body `{"category": "secrets", "enabled": false}`. Returns the full new config so optimistic-UI clients can re-sync.
+- **`DaemonInfo.ScannerEnabled`** map on the snapshot so the dashboard knows which categories are user-disabled vs unavailable on initial load (not just on the next SSE event).
+
+### Fixed
+- **Migration v2: widen `scanner_statuses.status` CHECK.** The v1 schema only accepted `'ok','error','unavailable','outdated'`. Since v0.4.1 the orchestrator has been writing `'running'` (mid-scan indicator) and v0.5 now writes `'disabled'` (user kill-switch). Both were silently rejected by the CHECK constraint, suppressed at the orchestrator's log warning, and never reached the dashboard. Migration v2 rebuilds the table with a wider CHECK (`'ok','error','unavailable','outdated','running','disabled'`) inside a single transaction. The running indicator and disabled state now actually propagate.
+- **`state.Open` self-heals on migration failure.** When the SQLite DB is corrupt, version-drifted, or partially-written from a crash, `state.Open` now deletes the DB file plus its `-wal` / `-shm` / `-journal` sidecars and retries once. Second failure is genuinely fatal. Daemon state is reproducible from the filesystem; losing the DB means the next scan re-detects everything as new findings. Logs the rebuild to stderr.
+
 ## [0.4.3] - 2026-05-14
 
 Hotfix slice. Sidecar re-probe (the bug behind "I installed trufflehog and audr still says secrets OFF"), plus the three deferred notification followups from v0.4.2.
