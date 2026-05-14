@@ -3,6 +3,16 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.6] - 2026-05-14
+
+Incorporates two open PRs from Alex Umrysh ([@AUmrysh](https://github.com/AUmrysh)) that complement the v0.5.5 sidecar work.
+
+### Added
+- **`audr scan --scanner-jobs N`** (originally PR #9) — user-controllable cap on TruffleHog's internal worker pool via its `--concurrency` flag. Default is `max(1, NumCPU/2)` so the scan doesn't peg the machine. `--scanner-jobs 0` opts into TruffleHog's own default (NumCPU) for CI / batch runs where pegging is fine. Pairs with v0.5.5's lowprio wrapper as defense-in-depth: lowprio limits OS-level scheduling pressure, `--scanner-jobs` limits how many goroutines TruffleHog spawns in the first place.
+- **`audr scan --runtime-info`** (originally PR #10) — opt-in detection of whether the scan is running on bare-metal, in a container (docker/podman/kubernetes), in a VM (kvm/vmware/hyperv), or under WSL, plus classification of each scan root as host-bound (bind-mounted from outside the container) vs container-local. New `internal/runtimeenv` package with `Detect()` + `ClassifyRoots()`. Surfaces in text output as `runtime: linux/amd64 · container (docker)` and in the HTML report as a Runtime row in the meta-grid + a collapsible "Runtime evidence" disclosure showing which signals fired (`/.dockerenv`, `KUBERNETES_SERVICE_HOST`, `/proc/1/cgroup` contents, etc.). Opt-in for now so existing CI fixtures stay byte-stable; default-on lands when the staleness-gate normalizer accounts for the new fields.
+- **`internal/updater.LatestReleaseTag`** is reused — no new dep beyond `gopsutil/v4/host` (added for runtimeenv).
+- **`secretscan.DefaultJobs()`** — exported helper for callers that want to apply the same half-cores cap audr's CLI uses (orchestrator already does).
+
 ## [0.5.5] - 2026-05-14
 
 Sidecar scanners now run at low CPU + IO priority so the daemon doesn't hog the laptop. Closes one of the spec's day-one promises.
