@@ -202,18 +202,120 @@ a:visited { color: var(--text-muted); }
   padding: 32px; font-family: var(--mono); color: var(--text-muted);
   font-size: 13px; letter-spacing: 0.08em; text-align: center;
 }
+.banner-stack:empty { display: none; }
 .banner {
-  padding: 14px 32px;
+  padding: 12px 32px;
   background: rgba(196, 155, 44, 0.12);
   border-bottom: 1px solid var(--medium);
   font-family: var(--mono); font-size: 12px; color: var(--text);
   display: flex; gap: 16px; align-items: center;
 }
-.banner .fix { color: var(--text); background: var(--surface-2); padding: 2px 6px; }
+.banner.error { background: rgba(230, 58, 48, 0.12); border-bottom-color: var(--critical); }
+.banner.info { background: rgba(74, 123, 183, 0.12); border-bottom-color: var(--low); }
+.banner-tag {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  border: 1px solid currentColor; padding: 2px 6px; color: var(--medium);
+}
+.banner.error .banner-tag { color: var(--critical); }
+.banner.info  .banner-tag { color: var(--low); }
+.banner .fix {
+  color: var(--text); background: var(--surface-2); padding: 2px 6px;
+  font-family: var(--mono);
+}
 .banner .dismiss {
   margin-left: auto;
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
   cursor: pointer; border-bottom: 1px solid var(--text-muted);
+  background: transparent; color: var(--text-muted); border-left: 0; border-right: 0; border-top: 0;
+  padding: 4px 0;
+}
+.banner .dismiss:hover { color: var(--text); border-bottom-color: var(--text); }
+
+/* --- Scan-progress strip ---------------------------------------- */
+/* Surfaces when a scan cycle is active. First-run boot also keeps */
+/* it visible with all categories pending until the first scan     */
+/* completes — gives "the scanner is working, not stuck" feedback. */
+.scan-progress {
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 32px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.02);
+}
+.scan-progress-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-muted);
+  display: flex; align-items: center; gap: 10px;
+}
+.scan-progress-categories {
+  list-style: none; padding: 0; margin: 0;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.scan-progress-categories li {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border: 1px solid var(--border); padding: 6px 10px;
+  display: flex; align-items: center; gap: 8px;
+  text-transform: uppercase;
+}
+.scan-progress-categories li .dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
+}
+.scan-progress-categories li.running { color: var(--text); border-color: var(--low); }
+.scan-progress-categories li.running .dot {
+  background: var(--low); animation: pulse 1.4s ease-in-out infinite;
+}
+.scan-progress-categories li.ok { color: var(--ok); border-color: rgba(79, 168, 110, 0.4); }
+.scan-progress-categories li.ok .dot { background: var(--ok); }
+.scan-progress-categories li.error { color: var(--critical); border-color: rgba(230, 58, 48, 0.4); }
+.scan-progress-categories li.error .dot { background: var(--critical); }
+.scan-progress-categories li.unavailable { color: var(--medium); border-color: rgba(196, 155, 44, 0.4); }
+.scan-progress-categories li.unavailable .dot { background: var(--medium); }
+
+.spinner {
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--text-muted);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spinner-rotate 0.9s linear infinite;
+}
+@keyframes spinner-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; border-top-color: var(--text-muted); }
+}
+
+/* --- Resolved-finding animation --------------------------------- */
+/* finding-resolved SSE event marks the row .resolving for 800ms — */
+/* strikethrough + fade. Then .removed switches max-height/padding  */
+/* transitions so the row collapses out of the list over ~4s. The  */
+/* JS deletes the DOM node after the collapse animation completes. */
+.finding.resolving {
+  transition: opacity 700ms ease, color 700ms ease;
+  opacity: 0.45;
+  color: var(--text-muted);
+}
+.finding.resolving .finding-title,
+.finding.resolving .finding-meta,
+.finding.resolving .finding-body code {
+  text-decoration: line-through;
+  text-decoration-color: var(--ok);
+  text-decoration-thickness: 1.5px;
+}
+.finding.resolving .finding-bar { background: var(--ok); transition: background 700ms ease; }
+.finding.resolved-collapsing {
+  max-height: 0; opacity: 0;
+  padding-top: 0; padding-bottom: 0;
+  margin: 0;
+  border-top-color: transparent;
+  overflow: hidden;
+  transition: max-height 500ms ease, opacity 400ms ease,
+              padding 500ms ease, border-color 500ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .finding.resolving { transition: none; }
+  .finding.resolved-collapsing { transition: none; }
 }
 
 /* --- Responsive degradation ------------------------------------- */

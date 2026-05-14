@@ -58,6 +58,21 @@
     filters: { category: 'all', severity: 'all' },
     expanded: new Set(),
     sectionsCollapsed: { critical: false, high: false, medium: true, low: true },
+    scanActive: false,
+    firstScanCompleted: false,
+    dismissedBanners: new Set(),
+    // Fingerprints currently animating their resolved → removed
+    // transition. Excluded from render() so the JS doesn't blow them
+    // away mid-animation; the timer that animates them owns deletion.
+    resolving: new Set(),
+  };
+
+  const SCAN_CATEGORIES = ['ai-agent', 'secrets', 'deps', 'os-pkg'];
+  const SCAN_CATEGORY_LABEL = {
+    'ai-agent': 'AI-AGENT',
+    'secrets':  'SECRETS',
+    'deps':     'DEPS',
+    'os-pkg':   'OS-PKG',
   };
 
   // ----- Top bar / metrics ----------------------------------------
@@ -114,10 +129,11 @@
 
   function renderFindingRow(f) {
     const isOpen = state.expanded.has(f.fingerprint);
+    const resolving = state.resolving.has(f.fingerprint);
     const row = el(
       'article',
       {
-        class: 'finding',
+        class: 'finding' + (resolving ? ' resolving' : ''),
         dataset: { fingerprint: f.fingerprint, severity: f.severity, category: f.category },
         'aria-expanded': isOpen ? 'true' : 'false',
         onclick: (e) => {
@@ -288,7 +304,176 @@
   function render() {
     renderTop();
     renderMetrics();
+    renderBanners();
+    renderScanProgress();
     renderFindings();
+  }
+
+  // ----- Banner stack ---------------------------------------------
+  // Stacks below the top bar. Scanner banners surface when a backend
+  // is "unavailable" (sidecar not installed) or "error" (last scan
+  // failed). daemon-state may also surface inotify-limit / remote-FS
+  // hints; render them when present.
+  function renderBanners() {
+    const root = $('banners');
+    root.replaceChildren();
+    const banners = computeBanners();
+    for (const b of banners) {
+      if (state.dismissedBanners.has(b.id)) continue;
+      root.append(renderBanner(b));
+    }
+  }
+
+  function computeBanners() {
+    const out = [];
+    // Update-available banner — first in the stack so it never gets
+    // hidden behind a half-screen of scanner warnings.
+    const upd = (state.daemon || {}).update_available;
+    if (upd && upd.version) {
+      out.push({
+        id: 'update:' + upd.version,
+        kind: 'info',
+        tag: 'UPDATE',
+        text: `audr ${upd.version} is available (running ${(state.daemon && state.daemon.version) || 'unknown'}). Restart with the new binary to pick up newer rules.`,
+        link: upd.url,
+        linkLabel: 'View release',
+      });
+    }
+    // Scanner banners — one per scanner that isn't ok.
+    for (const sc of state.scanners) {
+      const stateName = sc.state || sc.status; // wire field, defensive
+      if (!stateName || stateName === 'ok') continue;
+      const category = sc.name || sc.category;
+      const fix = stateName === 'unavailable' || stateName === 'missing'
+        ? guessInstallCommand(category)
+        : '';
+      out.push({
+        id: `scanner:${category}:${stateName}`,
+        kind: stateName === 'error' ? 'error' : 'warn',
+        tag: `${(category || '?').toUpperCase()} ${stateName.toUpperCase()}`,
+        text: sc.error_text || sc.errorText || defaultScannerMessage(category, stateName),
+        fix,
+      });
+    }
+    // Daemon-state hints — populated when daemon publishes them.
+    const d = state.daemon || {};
+    if (d.inotify_low) {
+      out.push({
+        id: 'inotify-low',
+        kind: 'warn',
+        tag: 'INOTIFY LIMIT',
+        text: 'fsnotify watcher hit the kernel limit; some files won\'t trigger immediate rescans (periodic poll still covers them).',
+        fix: 'echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.d/99-audr.conf && sudo sysctl -p',
+      });
+    }
+    if (d.remote_fs_skipped) {
+      out.push({
+        id: 'remote-fs',
+        kind: 'info',
+        tag: 'REMOTE FS',
+        text: `${d.remote_fs_skipped} mount(s) skipped (NFS / SMB / 9P / FUSE). Networked storage is intentionally excluded.`,
+        fix: '',
+      });
+    }
+    return out;
+  }
+
+  function renderBanner(b) {
+    const node = el(
+      'div',
+      { class: 'banner ' + (b.kind === 'error' ? 'error' : b.kind === 'info' ? 'info' : '') },
+      el('span', { class: 'banner-tag', text: b.tag }),
+      el('span', { text: b.text }),
+    );
+    if (b.fix) {
+      node.append(el('code', { class: 'fix', text: b.fix }));
+    }
+    if (b.link) {
+      node.append(el('a', { href: b.link, target: '_blank', rel: 'noopener' }, b.linkLabel || 'open'));
+    }
+    node.append(el(
+      'button',
+      {
+        class: 'dismiss',
+        type: 'button',
+        onclick: () => {
+          state.dismissedBanners.add(b.id);
+          renderBanners();
+        },
+      },
+      'dismiss',
+    ));
+    return node;
+  }
+
+  function defaultScannerMessage(category, stateName) {
+    if (stateName === 'unavailable' || stateName === 'missing') {
+      return `${(category || 'scanner').toUpperCase()} scanner not installed — that category is being skipped.`;
+    }
+    if (stateName === 'error') {
+      return `${(category || 'scanner').toUpperCase()} last scan errored — see daemon logs for detail.`;
+    }
+    if (stateName === 'outdated') {
+      return `${(category || 'scanner').toUpperCase()} scanner is older than audr's minimum.`;
+    }
+    return `${(category || 'scanner').toUpperCase()}: ${stateName}`;
+  }
+
+  function guessInstallCommand(category) {
+    if (category === 'secrets') return 'audr update-scanners --backend trufflehog --yes';
+    if (category === 'deps')    return 'audr update-scanners --backend osv-scanner --yes';
+    return '';
+  }
+
+  // ----- Scan-progress strip --------------------------------------
+  // Visible whenever: a scan is in flight (scanActive) OR the daemon
+  // hasn't yet completed its first cycle. The first-run path is the
+  // one users notice — daemon boot, every category renders as
+  // "pending" until scanner-status events flip them to ok/error.
+  function renderScanProgress() {
+    const root = $('scan-progress');
+    const labelNode = $('scan-progress-text');
+    const visible = state.scanActive || !state.firstScanCompleted;
+    if (!visible) {
+      root.setAttribute('hidden', '');
+      return;
+    }
+    root.removeAttribute('hidden');
+
+    if (state.scanActive) {
+      labelNode.textContent = state.firstScanCompleted ? 'SCANNING' : 'FIRST SCAN';
+    } else {
+      labelNode.textContent = 'INITIALIZING';
+    }
+
+    const ol = $('scan-progress-categories');
+    ol.replaceChildren();
+    const byCategory = {};
+    for (const sc of state.scanners) {
+      const name = sc.name || sc.category;
+      const stateName = sc.state || sc.status;
+      if (name) byCategory[name] = stateName;
+    }
+    for (const cat of SCAN_CATEGORIES) {
+      const stateName = byCategory[cat];
+      let cls = 'pending';
+      let stateLabel = 'PENDING';
+      if (state.scanActive && !stateName) {
+        cls = 'running';
+        stateLabel = 'RUNNING';
+      } else if (stateName === 'ok')          { cls = 'ok';          stateLabel = 'OK'; }
+      else if (stateName === 'error')         { cls = 'error';       stateLabel = 'ERROR'; }
+      else if (stateName === 'unavailable' || stateName === 'missing') {
+        cls = 'unavailable'; stateLabel = 'OFF';
+      } else if (stateName === 'outdated')    { cls = 'unavailable'; stateLabel = 'OUTDATED'; }
+      ol.append(el(
+        'li',
+        { class: cls },
+        el('span', { class: 'dot' }),
+        el('span', { text: SCAN_CATEGORY_LABEL[cat] }),
+        el('span', { style: 'margin-left:auto;color:var(--text-muted);', text: stateLabel }),
+      ));
+    }
   }
 
   // ----- Filter pills ---------------------------------------------
@@ -340,30 +525,35 @@
     src.addEventListener('finding-resolved', (e) => {
       const f = parseEvent(e);
       if (!f) return;
-      // Phase 5 will animate strikethrough+fade-out before removing.
-      // For now: remove from the open list, bump resolved counter.
-      const before = state.findings.length;
-      state.findings = state.findings.filter((x) => x.fingerprint !== f.fingerprint);
-      if (state.findings.length < before) {
-        if (state.metrics) state.metrics.resolved_today = (state.metrics.resolved_today || 0) + 1;
+      animateResolution(f.fingerprint);
+      if (state.metrics) {
+        state.metrics.resolved_today = (state.metrics.resolved_today || 0) + 1;
+        renderMetrics();
       }
-      state.expanded.delete(f.fingerprint);
-      recomputeMetrics();
-      render();
     });
 
     src.addEventListener('scanner-status', (e) => {
       const s = parseEvent(e);
       if (!s) return;
-      const idx = state.scanners.findIndex((x) => x.name === s.name);
+      const key = s.name || s.category;
+      const idx = state.scanners.findIndex((x) => (x.name || x.category) === key);
       if (idx >= 0) state.scanners[idx] = s;
       else state.scanners.push(s);
-      // No re-render of findings needed; scanner pills live in
-      // their own sub-component which Phase 5b will add.
+      renderScanProgress();
+      renderBanners();
     });
 
-    src.addEventListener('scan-started', () => { /* could surface "scanning..." in top bar */ });
-    src.addEventListener('scan-completed', () => { /* could refresh "last scan" timestamp */ });
+    src.addEventListener('scan-started', () => {
+      state.scanActive = true;
+      // Don't reset state.scanners — old per-category statuses are
+      // still relevant context until the new run overwrites them.
+      renderScanProgress();
+    });
+    src.addEventListener('scan-completed', () => {
+      state.scanActive = false;
+      state.firstScanCompleted = true;
+      renderScanProgress();
+    });
     src.addEventListener('daemon-state', (e) => {
       const d = parseEvent(e);
       if (!d || !state.daemon) return;
@@ -385,6 +575,51 @@
     const idx = state.findings.findIndex((x) => x.fingerprint === f.fingerprint);
     if (idx >= 0) state.findings[idx] = f;
     else state.findings.push(f);
+  }
+
+  // animateResolution drives the 5-second "fix it and watch it go
+  // green" feedback loop:
+  //   t=0      strikethrough + fade   (700ms transition via .resolving)
+  //   t=800ms  start collapse         (500ms transition via .resolved-collapsing)
+  //   t=5000ms remove from state + DOM
+  // We keep the finding in state.findings during the animation so
+  // re-renders (e.g., filter changes) don't drop it mid-animation;
+  // state.resolving guards inclusion when those re-renders happen.
+  function animateResolution(fingerprint) {
+    if (state.resolving.has(fingerprint)) return;
+    state.resolving.add(fingerprint);
+    const row = document.querySelector(
+      `.finding[data-fingerprint="${cssEscape(fingerprint)}"]`,
+    );
+    if (!row) {
+      // Filtered out or scrolled off — drop it without animating.
+      finalizeResolution(fingerprint);
+      return;
+    }
+    row.classList.add('resolving');
+    setTimeout(() => {
+      const stillThere = document.querySelector(
+        `.finding[data-fingerprint="${cssEscape(fingerprint)}"]`,
+      );
+      if (stillThere) stillThere.classList.add('resolved-collapsing');
+    }, 800);
+    setTimeout(() => finalizeResolution(fingerprint), 5000);
+  }
+
+  function finalizeResolution(fingerprint) {
+    state.findings = state.findings.filter((x) => x.fingerprint !== fingerprint);
+    state.expanded.delete(fingerprint);
+    state.resolving.delete(fingerprint);
+    recomputeMetrics();
+    render();
+  }
+
+  // cssEscape escapes a fingerprint for use in a querySelector
+  // attribute value. Fingerprints are sha256 hex, but CSS.escape is
+  // the durable choice for any future ID scheme.
+  function cssEscape(s) {
+    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
+    return String(s).replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
   }
 
   // recomputeMetrics rebuilds the metric strip totals from state.findings.
@@ -428,6 +663,14 @@
       state.metrics = snap.metrics;
       state.daemon = snap.daemon;
       state.scanners = snap.scanners || [];
+      // A scanner row in the snapshot means at least one scan cycle
+      // has completed (or the daemon recorded sidecar statuses
+      // pre-cycle). Either way, treat first-run as past so the
+      // progress strip doesn't surface unless an SSE scan-started
+      // event flips scanActive.
+      if (state.scanners.length > 0) {
+        state.firstScanCompleted = true;
+      }
       render();
     } catch (e) {
       document.getElementById('findings').replaceChildren(

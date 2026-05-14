@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>audr — local dashboard</title>
+<link rel="stylesheet" href="dashboard.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230e0e0c'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='18' font-weight='600' text-anchor='middle' fill='%23f5f5f0'%3EA%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar" role="banner">
+  <div class="brand">A U D R</div>
+  <div class="state-indicator" id="state-indicator" aria-live="polite">
+    <span class="pulse-dot" id="state-dot"></span>
+    <span id="state-label">CONNECTING</span>
+    <span class="state-meta" id="state-meta"></span>
+  </div>
+  <div class="scan-status" id="scan-status"></div>
+</header>
+
+<section class="banner-stack" id="banners" aria-live="polite"></section>
+
+<section class="scan-progress" id="scan-progress" hidden>
+  <div class="scan-progress-label">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="scan-progress-text">INITIALIZING</span>
+  </div>
+  <ol class="scan-progress-categories" id="scan-progress-categories"></ol>
+</section>
+
+<section class="metrics" id="metrics">
+  <div class="metric"><div class="metric-num" id="m-open">—</div><div class="metric-label">Open findings</div></div>
+  <div class="metric"><div class="metric-num crit" id="m-crit">—</div><div class="metric-label">Critical</div></div>
+  <div class="metric"><div class="metric-num high" id="m-high">—</div><div class="metric-label">High</div></div>
+  <div class="metric"><div class="metric-num ok" id="m-resolved">—</div><div class="metric-label">Resolved today</div></div>
+</section>
+
+<section class="filters" aria-label="Filters">
+  <div class="filter-group" id="filter-category" role="group" aria-label="Category">
+    <button class="filter-btn active" data-filter="category" data-value="all">ALL</button>
+    <button class="filter-btn" data-filter="category" data-value="ai-agent">AI-AGENT</button>
+    <button class="filter-btn" data-filter="category" data-value="deps">DEPS</button>
+    <button class="filter-btn" data-filter="category" data-value="secrets">SECRETS</button>
+    <button class="filter-btn" data-filter="category" data-value="os-pkg">OS-PKG</button>
+  </div>
+  <div class="filter-group" id="filter-severity" role="group" aria-label="Severity">
+    <button class="filter-btn active" data-filter="severity" data-value="all">ALL</button>
+    <button class="filter-btn" data-filter="severity" data-value="critical">CRIT</button>
+    <button class="filter-btn" data-filter="severity" data-value="high">HIGH</button>
+    <button class="filter-btn" data-filter="severity" data-value="medium">MED</button>
+    <button class="filter-btn" data-filter="severity" data-value="low">LOW</button>
+  </div>
+</section>
+
+<main class="findings" id="findings" aria-live="polite" aria-busy="true">
+  <div class="empty" id="loading">loading…</div>
+</main>
+
+<footer class="footer">
+  <div>audr · <span id="version">unknown</span> · token authenticated</div>
+  <div><a href="#" id="reload">reload</a> · <a href="/healthz" target="_blank">/healthz</a></div>
+</footer>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
