@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
 	"github.com/spf13/cobra"
@@ -146,8 +149,15 @@ func newDaemonStatusCmd() *cobra.Command {
 // manager invokes (or a developer runs in the foreground for testing).
 // It hands control to kardianos/service.Run(), which calls our service
 // program's Start callback to boot the Lifecycle.
+//
+// Flags:
+//   --demo:  also seed demo findings on startup (Phase 2 visual
+//            slice behavior). Useful for a clean machine where the
+//            real scanner cycle hasn't surfaced anything yet — gives
+//            the user something to look at on first open.
 func newDaemonRunInternalCmd() *cobra.Command {
-	return &cobra.Command{
+	var demo bool
+	cmd := &cobra.Command{
 		Use:    "run-internal",
 		Short:  "Run the daemon (invoked by the OS service manager)",
 		Hidden: true,
@@ -174,12 +184,44 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("open state store: %w", err)
 				}
 
-				// Phase 2 demo seed: insert the 8 demo findings so the
-				// dashboard has content. Phase 4 will replace this
-				// with real scan results from the watch+poll engine.
-				if err := server.SeedDemoFindings(ctx, store); err != nil {
+				// Phase 4: the orchestrator subsystem replaces the
+				// Phase 2 demo seeder. It runs an initial scan
+				// immediately and then on a 10-minute cadence,
+				// producing real findings + scanner statuses for the
+				// dashboard.
+				//
+				// --demo additionally seeds the 8 hand-crafted demo
+				// findings so the dashboard isn't empty on first
+				// open if the real scan turns up nothing. Useful for
+				// development + screenshotting.
+				if demo {
+					if err := server.SeedDemoFindings(ctx, store); err != nil {
+						_ = store.Close()
+						return fmt.Errorf("seed demo findings: %w", err)
+					}
+				}
+
+				// Build the scan orchestrator. Default roots = $HOME.
+				// Wire a JSON logger writing to the daemon log file so
+				// orchestrator activity (scan starts, finding counts,
+				// scanner statuses) shows up alongside daemon.Info logs.
+				logFile, err := os.OpenFile(paths.LogFile(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+				if err != nil {
 					_ = store.Close()
-					return fmt.Errorf("seed demo findings: %w", err)
+					return fmt.Errorf("open daemon log: %w", err)
+				}
+				// Note: the file handle is intentionally leaked to the
+				// orchestrator goroutine — Close on the daemon brings
+				// the orchestrator down which stops writing.
+				orchLogger := slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+				orch, err := orchestrator.New(orchestrator.Options{
+					Store:  store,
+					Logger: orchLogger,
+				})
+				if err != nil {
+					_ = store.Close()
+					return fmt.Errorf("build orchestrator: %w", err)
 				}
 
 				// Remediation library — Phase 6 swaps for real templates.
@@ -203,13 +245,15 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build server: %w", err)
 				}
 
-				// Register store first so it Closes LAST (reverse-order
-				// shutdown — see daemon.Lifecycle.closeAll). The server
-				// depends on the store; cleanly drain server first,
-				// then close the DB.
+				// Register subsystems in dependency order. Lifecycle
+				// closes in REVERSE registration order, so this
+				// guarantees: orchestrator stops first (no new
+				// findings being written), then the server (drain
+				// in-flight HTTP requests), then the store (close
+				// the DB last).
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{store, srv},
+					Subsystems: []daemon.Subsystem{store, srv, orch},
 				})
 			})
 			if err != nil {
@@ -230,6 +274,8 @@ func newDaemonRunInternalCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&demo, "demo", false, "additionally seed 8 hand-crafted demo findings on startup (visual testing)")
+	return cmd
 }
 
 // newDaemonService constructs a daemon.Service the install/uninstall/
