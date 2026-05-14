@@ -66,6 +66,12 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("daemon: ensure paths: %w", err)
 	}
 
+	// 1b. Augment PATH so sidecar lookups find binaries installed by
+	//     the user's package manager even when systemd-user /
+	//     launchd stripped them from the inherited environment. See
+	//     pathaugment.go for the list and rationale.
+	AugmentPATH()
+
 	// 2. Acquire the PID lock. If another daemon is running, surface a
 	//    friendly error WITHOUT modifying any state.
 	lock, err := AcquirePIDLock(opts.Paths.PIDFile())
