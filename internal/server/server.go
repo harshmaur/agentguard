@@ -341,6 +341,19 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 		State:   "RUN",
 		Version: s.opts.Version,
 	}
+	// If a scan is currently in progress, surface that so the
+	// dashboard's scan-progress strip doesn't misleadingly show
+	// "INITIALIZING" until the next scan-started SSE event arrives —
+	// a freshly-loaded dashboard can miss the scan-started event of
+	// an already-in-flight scan entirely.
+	if scans, err := s.opts.Store.SnapshotScans(ctx, 5); err == nil {
+		for _, sc := range scans {
+			if sc.Status == "in_progress" {
+				daemonInfo.ScanInProgress = true
+				break
+			}
+		}
+	}
 	if s.opts.UpdateProbe != nil {
 		daemonInfo.UpdateAvailable = s.opts.UpdateProbe.Latest()
 	}

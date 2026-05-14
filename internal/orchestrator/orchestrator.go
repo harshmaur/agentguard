@@ -245,7 +245,22 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	// Track which fingerprints we saw this cycle.
 	seen := map[string]struct{}{}
 
+	// markRunning records the category as currently executing so the
+	// dashboard's scan-progress strip can highlight which scanner is
+	// busy mid-cycle. The terminal status (ok / error / unavailable)
+	// overwrites this via the UPSERT in RecordScannerStatus. Skipped
+	// when a category is unavailable up-front (no point flashing
+	// "running" for half a millisecond before "unavailable").
+	markRunning := func(category string) {
+		_ = o.opts.Store.RecordScannerStatus(state.ScannerStatus{
+			ScanID:   scanID,
+			Category: category,
+			Status:   "running",
+		})
+	}
+
 	// --- Native rules + correlate (AI-Agent category) ----------------
+	markRunning("ai-agent")
 	nativeStatus := state.ScannerStatus{ScanID: scanID, Category: "ai-agent", Status: "ok"}
 	if err := o.runNative(ctx, scanID, seen); err != nil {
 		nativeStatus.Status = "error"
@@ -259,6 +274,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	// --- TruffleHog (Secrets category) -------------------------------
 	secretsStatus := state.ScannerStatus{ScanID: scanID, Category: "secrets"}
 	if *o.opts.RunSecrets {
+		markRunning("secrets")
 		if err := o.runSecrets(ctx, scanID, seen); err != nil {
 			secretsStatus.Status = "error"
 			secretsStatus.ErrorText = err.Error()
@@ -283,6 +299,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 		depsStatus.Status = "unavailable"
 		depsStatus.ErrorText = "osv-scanner not installed; run `audr update-scanners --backend osv-scanner --yes`"
 	} else {
+		markRunning("deps")
 		if err := o.runDeps(ctx, scanID, seen); err != nil {
 			depsStatus.Status = "error"
 			depsStatus.ErrorText = err.Error()
@@ -309,6 +326,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 			osPkgStatus.ErrorText = "OS-package CVE detection disabled by configuration"
 		}
 	} else {
+		markRunning("os-pkg")
 		if err := o.runOSPkg(ctx, scanID, seen); err != nil {
 			osPkgStatus.Status = "error"
 			osPkgStatus.ErrorText = err.Error()

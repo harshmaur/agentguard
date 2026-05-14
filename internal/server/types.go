@@ -56,6 +56,13 @@ type DaemonInfo struct {
 	Version         string           `json:"version"`
 	UpdateAvailable *UpdateAvailable `json:"update_available,omitempty"`
 
+	// ScanInProgress is true when the snapshot is being served while
+	// a scan cycle is mid-flight. Lets the dashboard set scanActive
+	// on initial load so it doesn't misleadingly show "INITIALIZING"
+	// for the full duration of an already-running scan it didn't
+	// catch the scan-started SSE event for.
+	ScanInProgress bool `json:"scan_in_progress,omitempty"`
+
 	// InotifyLow signals that the watcher ran into the kernel's
 	// fs.inotify.max_user_watches budget and demoted some scope to
 	// poll-only. Linux-only; always false elsewhere. Dashboard
