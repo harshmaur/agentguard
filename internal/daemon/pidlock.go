@@ -87,17 +87,45 @@ func AcquirePIDLock(path string) (*PIDLock, error) {
 	return &PIDLock{path: path, file: f}, nil
 }
 
-// Release frees the lock and removes the PID file. Safe to call multiple
-// times. Best-effort on file removal: if removal fails (rare), the lock
-// is still released so the next daemon can re-acquire.
+// Release frees the lock and removes the PID file IF and only if the
+// file's contents still match our own PID. Safe to call multiple
+// times. Best-effort on file removal: failures are silent — the lock
+// is what matters, not the file.
+//
+// The PID-match check prevents a stale daemon's Release() from
+// clobbering a fresh daemon's lock file. Observed in the wild on
+// 2026-05-14: a stale `/tmp/audr` daemon (whose lock somehow got
+// lost) was killed via SIGTERM, its deferred Release ran, and
+// os.Remove(path) deleted the live daemon's PID file out from under
+// it. The live daemon's flock survived (kernel keeps the fd-based
+// lock until the live process dies), but `audr daemon status` and
+// any future PID lookup broke.
 func (p *PIDLock) Release() {
 	if p == nil || p.file == nil {
 		return
 	}
 	_ = unlockFile(p.file)
 	_ = p.file.Close()
-	_ = os.Remove(p.path)
+	if p.fileMatchesOurPID() {
+		_ = os.Remove(p.path)
+	}
 	p.file = nil
+}
+
+// fileMatchesOurPID returns true when the file at p.path contains
+// our own process's PID. Used by Release to avoid unlinking another
+// daemon's lock file. A missing file (already removed) returns
+// false — nothing to unlink.
+func (p *PIDLock) fileMatchesOurPID() bool {
+	b, err := os.ReadFile(p.path)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return false
+	}
+	return pid == os.Getpid()
 }
 
 // PID returns the PID written into the file. Useful for `audr daemon

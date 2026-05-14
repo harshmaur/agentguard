@@ -51,6 +51,49 @@ func TestPIDLockReleaseRemovesFile(t *testing.T) {
 	lock.Release()
 }
 
+// TestPIDLockReleaseLeavesOtherDaemonsLockFileAlone is a regression
+// test for the 2026-05-14 observation: a stale daemon's Release()
+// can nuke a live daemon's PID file when both have raced to claim
+// the same path (path-vs-inode flock race).
+//
+// Scenario: process A acquires the lock at path /tmp/daemon.pid and
+// writes its own PID. Later, somehow process B also claims the lock
+// at the same path (different inode after a delete/recreate, or
+// some other path-replacement race) and writes B's PID. When A then
+// gracefully exits and calls Release(), it must NOT unlink the file
+// because the file now belongs to B.
+//
+// The test simulates this by:
+//   1. A acquires the lock + writes its PID
+//   2. Manually overwrite the file with a foreign PID (e.g., PID 1)
+//   3. A.Release()
+//   4. Assert the file still exists (Release should have noticed the
+//      mismatch and left it alone)
+func TestPIDLockReleaseLeavesOtherDaemonsLockFileAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.pid")
+	lockA, err := AcquirePIDLock(path)
+	if err != nil {
+		t.Fatalf("AcquirePIDLock A: %v", err)
+	}
+	// Simulate a concurrent daemon B writing its own PID over the
+	// file. (Use PID 1 — guaranteed to exist on Unix; won't match
+	// the test's PID.)
+	if err := os.WriteFile(path, []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("simulate foreign PID: %v", err)
+	}
+
+	lockA.Release()
+
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("Release deleted foreign-PID file (should have left it alone): %v", err)
+	}
+	// And the file still contains B's PID, not removed/truncated.
+	b, _ := os.ReadFile(path)
+	if got := strings.TrimSpace(string(b)); got != "1" {
+		t.Errorf("foreign PID file mutated by Release: %q (want %q)", got, "1")
+	}
+}
+
 func TestPIDLockSecondAcquireFailsWithAlreadyRunning(t *testing.T) {
 	// We can't acquire the same lock twice from the same process — flock
 	// is per-process on Linux (the second call would succeed!) — so test
