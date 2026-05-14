@@ -3,6 +3,14 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.8] - 2026-05-14
+
+### Added
+- **Linux click-to-open notifications.** Clicking an audr toast now opens the dashboard. New `internal/notify/toaster_linux.go` talks to `org.freedesktop.Notifications` over godbus directly (replacing beeep on Linux only), sends each notification with a "default" action and "resident" hint so critical toasts stay in the tray until clicked, and listens for `ActionInvoked` signals. The daemon's click handler reads the live state file each time so token rotation across restarts doesn't leave stale URLs. macOS + Windows click-to-open are queued: macOS needs either `.app` bundling or `terminal-notifier` detection; Windows needs `AppUserModelID` registration.
+- **`audr daemon notify --test` runs OS-specific preflight diagnostics** before firing the toast. Catches the silent-failure modes you'd otherwise hit:
+  - Linux: missing `notify-send` / libnotify-bin, empty `DBUS_SESSION_BUS_ADDRESS`, GNOME `show-banners=false` (the case the user actually hit — banners suppressed system-wide).
+  - macOS: Focus / Do Not Disturb on, Script Editor missing from `ncprefs.plist` (no permission prompt has been seen), `terminal-notifier` not installed (suggested as the cleaner long-term path).
+
 ## [0.5.7] - 2026-05-14
 
 ### Added
