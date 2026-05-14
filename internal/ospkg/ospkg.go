@@ -108,5 +108,19 @@ func (execRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 // defaultRunner is used by callers who don't override. exec-based,
-// the production codepath.
+// the production codepath. The daemon overrides this via SetRunner
+// at startup with a low-priority runner so dpkg-query / rpm / apk
+// shells don't compete with the user's interactive work for CPU/IO.
 var defaultRunner CommandRunner = execRunner{}
+
+// SetRunner replaces the package-level runner used by
+// EnumerateAndScan + its callees. Called once by the daemon at
+// startup with a low-priority runner (internal/lowprio.Runner) so
+// background OS-package enumeration runs at nice 19 + ionice idle.
+// Not thread-safe — call before any scans begin. Idempotent in
+// practice because the daemon only calls it once.
+func SetRunner(r CommandRunner) {
+	if r != nil {
+		defaultRunner = r
+	}
+}

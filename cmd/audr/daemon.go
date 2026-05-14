@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/lowprio"
 	"github.com/harshmaur/audr/internal/notify"
 	"github.com/harshmaur/audr/internal/orchestrator"
+	"github.com/harshmaur/audr/internal/ospkg"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
 	"github.com/harshmaur/audr/internal/templates"
@@ -377,6 +379,15 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				if err := paths.Ensure(); err != nil {
 					return fmt.Errorf("ensure paths: %w", err)
 				}
+
+				// Route ospkg's package-level runner through the
+				// low-priority wrapper so background dpkg-query / rpm /
+				// apk shells run at nice 19 (+ ionice idle on Linux).
+				// Secretscan + depscan get the same treatment via
+				// per-call Options.Runner; ospkg uses a package-level
+				// default so a setter is the simplest plumb. Idempotent
+				// — daemon only opens once.
+				ospkg.SetRunner(lowprio.Runner{})
 
 				// State store: SQLite-backed persistent findings, scans,
 				// scanner statuses, file_cache. Open() applies

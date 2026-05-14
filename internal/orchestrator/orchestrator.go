@@ -13,6 +13,7 @@ import (
 
 	"github.com/harshmaur/audr/internal/depscan"
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/lowprio"
 	"github.com/harshmaur/audr/internal/ospkg"
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
@@ -524,7 +525,10 @@ func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[st
 		}
 	}
 
-	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{Roots: roots})
+	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{
+		Roots:  roots,
+		Runner: lowprio.Runner{},
+	})
 	if err != nil {
 		return err
 	}
@@ -615,6 +619,7 @@ func (o *Orchestrator) runDeps(ctx context.Context, scanID int64, seen map[strin
 	findings, err := depscan.RunBackend(ctx, depscan.RunOptions{
 		Backend: depscan.BackendOSVScanner,
 		Roots:   o.opts.Roots,
+		Runner:  lowprio.Runner{},
 	})
 	if err != nil {
 		return err
