@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/notify"
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
@@ -44,7 +45,80 @@ Tear down:
 	cmd.AddCommand(newDaemonStartCmd())
 	cmd.AddCommand(newDaemonStopCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
+	cmd.AddCommand(newDaemonNotifyCmd())
 	cmd.AddCommand(newDaemonRunInternalCmd())
+	return cmd
+}
+
+// newDaemonNotifyCmd toggles OS notification delivery without
+// restarting the daemon. Writes the config file the running notifier
+// re-reads on every event. No subcommand: --off / --on / --status as
+// flags so the muscle memory is `audr daemon notify --off`.
+func newDaemonNotifyCmd() *cobra.Command {
+	var off, on, showStatus bool
+	cmd := &cobra.Command{
+		Use:   "notify",
+		Short: "Manage OS notifications (toasts on new CRITICAL findings)",
+		Long: `Manage OS-native toast notifications for new CRITICAL findings.
+
+Notifications are on by default. v0.4.2 batching:
+  - Per-fingerprint 24h cooldown — a re-detected CRITICAL won't re-fire
+  - 5-minute rolling cap of 3 toasts — overflow rolls into a single
+    "audr · N more critical findings since last alert" aggregate
+    emitted on scan-completed
+  - First scan after install emits one aggregate
+    "audr first scan complete · N critical · audr open" toast, never
+    per-finding toasts
+
+Disabling does NOT halt the daemon — findings still appear on the
+dashboard. It only suppresses the OS-level toast surface.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			set := 0
+			for _, b := range []bool{off, on, showStatus} {
+				if b {
+					set++
+				}
+			}
+			if set == 0 {
+				showStatus = true
+			}
+			if set > 1 {
+				return fmt.Errorf("specify exactly one of --off / --on / --status")
+			}
+			paths, err := daemon.Resolve()
+			if err != nil {
+				return fmt.Errorf("resolve daemon paths: %w", err)
+			}
+			if off {
+				if err := notify.WriteConfig(paths.State, notify.Config{Enabled: false}); err != nil {
+					return fmt.Errorf("write notify config: %w", err)
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "audr: OS notifications disabled.")
+				return nil
+			}
+			if on {
+				if err := notify.WriteConfig(paths.State, notify.Config{Enabled: true}); err != nil {
+					return fmt.Errorf("write notify config: %w", err)
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "audr: OS notifications enabled.")
+				return nil
+			}
+			// --status (default when nothing passed).
+			cfg, err := notify.ReadConfig(paths.State)
+			if err != nil {
+				return fmt.Errorf("read notify config: %w", err)
+			}
+			state := "enabled"
+			if !cfg.Enabled {
+				state = "disabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "audr: OS notifications %s.\n", state)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&off, "off", false, "disable OS notifications")
+	cmd.Flags().BoolVar(&on, "on", false, "enable OS notifications")
+	cmd.Flags().BoolVar(&showStatus, "status", false, "print current notification status (default if no flag passed)")
 	return cmd
 }
 
@@ -268,6 +342,23 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build updater: %w", err)
 				}
 
+				// Notify subsystem. Subscribes to the store's event
+				// bus and produces OS-native toasts for new CRITICAL
+				// findings, with batching so a first-run sweep
+				// doesn't bombard the user. Disabled-via-config does
+				// not stop the subsystem — it just no-ops the toast
+				// call, so the user can flip with `audr daemon
+				// notify --off` without restarting.
+				notifier, err := notify.New(notify.Options{
+					Store:    store,
+					StateDir: paths.State,
+					Logger:   orchLogger,
+				})
+				if err != nil {
+					_ = store.Close()
+					return fmt.Errorf("build notifier: %w", err)
+				}
+
 				// HTTP server subsystem. ListenPort=0 lets the kernel
 				// assign a free port; the daemon publishes the chosen
 				// port via the daemon.state file.
@@ -290,11 +381,12 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				//   2. orchestrator drains in-flight scan + sees the
 				//      watcher channel close, falls back to ticker-only
 				//   3. server drains in-flight HTTP requests
-				//   4. updater stops (just halts the poll loop)
-				//   5. store closes the DB last
+				//   4. notifier stops consuming store events
+				//   5. updater stops (just halts the poll loop)
+				//   6. store closes the DB last
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{store, upd, srv, orch, watcher},
+					Subsystems: []daemon.Subsystem{store, upd, notifier, srv, orch, watcher},
 				})
 			})
 			if err != nil {

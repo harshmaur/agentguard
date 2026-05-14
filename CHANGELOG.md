@@ -3,6 +3,19 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.4.2] - 2026-05-14
+
+OS-native toast notifications for new CRITICAL findings, with batching so a first-run scan on a compromised machine doesn't bombard the user.
+
+### Added
+- **OS-native toast notifications for new CRITICAL findings.** New `internal/notify` package emits toasts via `gen2brain/beeep` (cross-OS: macOS osascript, Linux notify-send, Windows toast). Wired as a daemon subsystem subscribing to the store's event bus. The body is `CRITICAL: <title> · run "audr open" to investigate`; the title is just `audr`.
+- **Smart batching so 1000 critical findings don't produce 1000 toasts.** Three layers:
+  - **First-scan suppression**: every CRITICAL detected during the daemon's very first scan after install is suppressed. On scan-completed, one aggregate toast fires: `audr · First scan complete · N critical · audr open`.
+  - **Per-fingerprint 24h cooldown**: a CRITICAL re-detected on every subsequent cycle won't re-fire its toast for 24h.
+  - **5-minute rolling cap of 3 toasts**: during steady-state, anything past the cap is suppressed and counted. On scan-completed, one aggregate fires: `audr · N more critical findings since last alert · audr open`. So even a sudden burst tops out at 3 + 1 = 4 toasts per scan cycle.
+- **`audr daemon notify --off / --on / --status`** CLI to toggle notifications without restarting the daemon. Writes `${state_dir}/notify.config.json` (mode 0600); the running notifier re-reads on every event. Disabling does NOT halt scanning — findings still appear on the dashboard.
+- **Pending-notify fallback** at `${state_dir}/pending-notify.json`. When a toast fails (permission denied / missing notify-send / OS suppressed), the notifier records the dropped notification so `audr open` can surface a dashboard banner. Wiring `audr open` to actually read this file lands in v0.4.x.
+
 ## [0.4.1] - 2026-05-14
 
 Hotfix slice for v0.4.0 dashboard UX issues surfaced by first real-world use.
