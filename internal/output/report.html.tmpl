@@ -227,6 +227,30 @@
     gap: 10px;
     align-items: center;
   }
+
+  /* Runtime evidence disclosure (PR #10, --runtime-info).
+     Shows the specific signals that fired (e.g., /.dockerenv,
+     KUBERNETES_SERVICE_HOST, /proc/1/cgroup contents) so an auditor
+     can see WHY audr classified the runtime as a particular kind,
+     not just the verdict. Collapsed by default — quiet on bare-metal
+     scans, useful when investigating container/VM-shaped findings. */
+  .runtime-evidence { margin: 0 0 24px; }
+  .runtime-evidence > summary { padding: 4px 0; }
+  .runtime-evidence-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .runtime-evidence-list li {
+    padding: 4px 10px;
+    border-left: 2px solid var(--rule-soft);
+    margin: 2px 0;
+    word-break: break-all;
+  }
+
   .self-audit.clean    { color: var(--clean); }
   .self-audit.tampered { color: var(--critical); border-width: 2px; }
   .self-audit.skipped  { color: var(--ink-muted); }
@@ -835,7 +859,22 @@
     <div><span class="k">Files</span><span class="v">{{.FilesParsed}} parsed / {{.FilesSeen}} seen{{if gt .Skipped 0}} · {{.Skipped}} skipped{{end}}{{if gt .Suppressed 0}} · {{.Suppressed}} suppressed{{end}}</span></div>
     <div><span class="k">Time</span><span class="v">{{duration .StartedAt .FinishedAt}}</span></div>
     <div><span class="k">Started</span><span class="v">{{.StartedAt.Format "2006-01-02 15:04:05 MST"}}</span></div>
+    {{if .Environment}}
+    <div><span class="k">Runtime</span><span class="v">{{.Environment.OS}}/{{.Environment.Arch}} · {{.Environment.Kind}}{{if .Environment.Vendor}} ({{.Environment.Vendor}}){{end}}</span></div>
+    {{end}}
+    {{if hasHostBoundMount .ScanMounts}}
+    <div><span class="k">Mounts</span><span class="v">{{hostBoundMountSummary .ScanMounts}}</span></div>
+    {{end}}
   </div>
+
+  {{if and .Environment .Environment.Evidence}}
+  <details class="runtime-evidence">
+    <summary><span class="disclose-toggle">Runtime evidence ({{len .Environment.Evidence}})</span></summary>
+    <ul class="runtime-evidence-list">
+      {{range .Environment.Evidence}}<li>{{.}}</li>{{end}}
+    </ul>
+  </details>
+  {{end}}
 
   {{if .SelfAudit}}
   <div class="self-audit {{if eq .SelfAudit "TAMPERED"}}tampered{{else if eq .SelfAudit "skipped"}}skipped{{else}}clean{{end}}">

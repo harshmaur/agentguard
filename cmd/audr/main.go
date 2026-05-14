@@ -30,6 +30,7 @@ import (
 	"github.com/harshmaur/audr/internal/finding"
 	"github.com/harshmaur/audr/internal/output"
 	_ "github.com/harshmaur/audr/internal/rules/builtin"
+	"github.com/harshmaur/audr/internal/runtimeenv"
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/suppress"
@@ -81,6 +82,7 @@ func newScanCmd() *cobra.Command {
 		flagOutput        string
 		flagFormat        string
 		flagJobs          int
+		flagScannerJobs   int
 		flagFileTimeout   time.Duration
 		flagScanTimeout   time.Duration
 		flagSizeLimit     int64
@@ -100,6 +102,7 @@ func newScanCmd() *cobra.Command {
 		flagRequireDeps   bool
 		flagRequireSecret bool
 		flagDepsBackend   string // "auto" | "osv-scanner"
+		flagRuntimeInfo   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
@@ -127,6 +130,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 				output:        flagOutput,
 				format:        flagFormat,
 				jobs:          flagJobs,
+				scannerJobs:   flagScannerJobs,
 				fileTimeout:   flagFileTimeout,
 				scanTimeout:   flagScanTimeout,
 				sizeLimit:     flagSizeLimit,
@@ -146,6 +150,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 				requireDeps:   flagRequireDeps,
 				requireSecret: flagRequireSecret,
 				depsBackend:   flagDepsBackend,
+				runtimeInfo:   flagRuntimeInfo,
 			})
 		},
 	}
@@ -153,7 +158,9 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().StringVarP(&flagFormat, "format", "f", "html", "report format: html | sarif | json")
 	cmd.Flags().StringVar(&flagOpen, "open", "auto", "open HTML report in browser: auto | always | never")
 	cmd.Flags().BoolVarP(&flagQuiet, "quiet", "q", false, "suppress the readable summary on stdout")
-	cmd.Flags().IntVar(&flagJobs, "jobs", 0, "worker pool size (default: GOMAXPROCS)")
+	cmd.Flags().IntVar(&flagJobs, "jobs", 0, "audr's own worker pool size (default: GOMAXPROCS)")
+	cmd.Flags().IntVar(&flagScannerJobs, "scanner-jobs", secretscan.DefaultJobs(),
+		"cap TruffleHog's internal worker pool via --concurrency. 0 = uncapped (TruffleHog's default = NumCPU). Default is half the logical CPUs so the scan doesn't peg the machine.")
 	cmd.Flags().DurationVar(&flagFileTimeout, "file-timeout", 5*time.Second, "per-file parse + rule timeout")
 	cmd.Flags().DurationVar(&flagScanTimeout, "scan-timeout", 60*time.Second, "total scan timeout")
 	cmd.Flags().Int64Var(&flagSizeLimit, "file-size-limit", 10<<20, "skip files larger than this byte size")
@@ -171,6 +178,8 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVar(&flagRequireDeps, "require-deps", false, "fail if requested dependency scanner backends are unavailable")
 	cmd.Flags().BoolVar(&flagRequireSecret, "require-secrets", false, "fail if requested secret scanner backend is unavailable")
 	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner")
+	cmd.Flags().BoolVar(&flagRuntimeInfo, "runtime-info", false,
+		"include runtime detection (container/VM/WSL kind, host-bound mount classification) in the report")
 	return cmd
 }
 
@@ -189,6 +198,7 @@ type scanFlags struct {
 	output        string
 	format        string
 	jobs          int
+	scannerJobs   int
 	fileTimeout   time.Duration
 	scanTimeout   time.Duration
 	sizeLimit     int64
@@ -208,6 +218,7 @@ type scanFlags struct {
 	requireDeps   bool
 	requireSecret bool
 	depsBackend   string
+	runtimeInfo   bool
 }
 
 // outPlan captures the resolved output decisions: where the report goes,
@@ -227,6 +238,9 @@ func validateScanModes(f scanFlags) error {
 	}
 	if f.secretsOnly && f.depsOnly {
 		return fmt.Errorf("--secrets-only conflicts with --deps-only")
+	}
+	if f.scannerJobs < 0 {
+		return fmt.Errorf("--scanner-jobs must be >= 0 (got %d; 0 means uncapped)", f.scannerJobs)
 	}
 	return nil
 }
@@ -397,6 +411,19 @@ func runScan(f scanFlags) error {
 		Skipped:      res.Skipped,
 		Version:      Version,
 		SelfAudit:    "skipped",
+	}
+
+	// Optional runtime detection: bare-metal/container/VM/WSL +
+	// host-bound mount classification. Opt-in via --runtime-info
+	// because adding it to every report changes the rendered output
+	// shape (would break CI fixtures + reviewer comparison runs
+	// unless the normalizer accounts for it). Defaulting on can
+	// land in a follow-up alongside the staleness-gate normalizer.
+	// Originally PR #10 (Alex Umrysh), incorporated here.
+	if f.runtimeInfo {
+		env := runtimeenv.Detect(ctx)
+		report.Environment = &env
+		report.ScanMounts = runtimeenv.ClassifyRoots(roots)
 	}
 
 	// Write the format output to its destination.
@@ -598,7 +625,7 @@ func runSecretBackend(ctx context.Context, f scanFlags, roots []string, plan out
 		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
 		return nil, nil
 	}
-	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{Roots: roots})
+	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{Roots: roots, Jobs: f.scannerJobs})
 	if err != nil {
 		if f.requireSecret || f.secretsOnly {
 			return nil, err

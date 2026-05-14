@@ -225,6 +225,25 @@
     gap: 10px;
     align-items: center;
   }
+
+   
+  .runtime-evidence { margin: 0 0 24px; }
+  .runtime-evidence > summary { padding: 4px 0; }
+  .runtime-evidence-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .runtime-evidence-list li {
+    padding: 4px 10px;
+    border-left: 2px solid var(--rule-soft);
+    margin: 2px 0;
+    word-break: break-all;
+  }
+
   .self-audit.clean    { color: var(--clean); }
   .self-audit.tampered { color: var(--critical); border-width: 2px; }
   .self-audit.skipped  { color: var(--ink-muted); }
@@ -828,9 +847,13 @@
   <div class="meta-grid">
     <div><span class="k">Roots</span><span class="v">testdata/laptops/dirty</span></div>
     <div><span class="k">Files</span><span class="v">4 parsed / 4 seen</span></div>
-    <div><span class="k">Time</span><span class="v">1ms</span></div>
-    <div><span class="k">Started</span><span class="v">2026-05-14 15:01:51 IST</span></div>
+    <div><span class="k">Time</span><span class="v">3ms</span></div>
+    <div><span class="k">Started</span><span class="v">2026-05-14 18:38:09 IST</span></div>
+    
+    
   </div>
+
+  
 
   
   <div class="self-audit skipped">

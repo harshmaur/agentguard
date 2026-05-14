@@ -34,6 +34,27 @@ func Text(w io.Writer, r Report, htmlPath string) error {
 	if r.SelfAudit != "" && r.SelfAudit != "skipped" {
 		bw.printf("self-audit: %s\n", r.SelfAudit)
 	}
+	// Runtime detection line (PR #10, Alex Umrysh). Renders the
+	// kind+vendor on a `runtime:` line, then any host-bound mounts
+	// each on their own indented line. Omitted entirely when the
+	// scan didn't opt into --runtime-info.
+	if r.Environment != nil && r.Environment.Kind != "" {
+		extra := ""
+		if r.Environment.Vendor != "" {
+			extra = " (" + r.Environment.Vendor + ")"
+		}
+		bw.printf("runtime: %s/%s · %s%s\n",
+			r.Environment.OS, r.Environment.Arch, r.Environment.Kind, extra)
+		for _, m := range r.ScanMounts {
+			if m.HostBound {
+				bw.printf("  host-bound mount: %s", m.Path)
+				if m.FSType != "" {
+					bw.printf(" (%s)", m.FSType)
+				}
+				bw.printf("\n")
+			}
+		}
+	}
 	if len(r.Warnings) > 0 {
 		bw.printf("\nWarnings:\n")
 		for _, warning := range r.Warnings {

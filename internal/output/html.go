@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/runtimeenv"
 )
 
 //go:embed report.html.tmpl
@@ -65,6 +66,23 @@ type Report struct {
 	Skipped      int
 	Version      string
 	SelfAudit    string // "clean (cosign-verified)" / "clean (unverified)" / "TAMPERED" / "skipped"
+
+	// Environment captures whether audr ran on bare metal, in a
+	// container, in a VM, or under WSL — answers "is this report
+	// about the developer machine or about a throwaway container
+	// fs?" Optional; nil when detection wasn't run (one-shot CLI
+	// without runtimeenv wired in). Originally contributed by
+	// Alex Umrysh in PR #10, incorporated alongside the daemon
+	// surface from v0.5.6.
+	Environment *runtimeenv.Info `json:"environment,omitempty"`
+
+	// ScanMounts classifies each scan root as host-bound (bind-
+	// mounted from outside the container) or container-local. The
+	// report renders host-bound paths so an auditor reading the
+	// report inside a container knows which findings reflect the
+	// host vs the ephemeral container fs. Linux-only; on macOS/
+	// Windows this stays empty (we don't parse mountinfo there).
+	ScanMounts []runtimeenv.Mount `json:"scan_mounts,omitempty"`
 }
 
 // AttackChain is an attacker-POV narrative that fires when a specific
@@ -209,6 +227,32 @@ func HTML(w io.Writer, r Report) error {
 		},
 		"join":          strings.Join,
 		"duration":      func(start, end time.Time) string { return end.Sub(start).Round(time.Millisecond).String() },
+		// Runtime-info helpers (PR #10) — render the Mounts row only
+		// when at least one scan root is host-bound, and summarize
+		// the host-bound mounts as a "path (fstype) · path (fstype)"
+		// string for inline display.
+		"hasHostBoundMount": func(mounts []runtimeenv.Mount) bool {
+			for _, m := range mounts {
+				if m.HostBound {
+					return true
+				}
+			}
+			return false
+		},
+		"hostBoundMountSummary": func(mounts []runtimeenv.Mount) string {
+			var parts []string
+			for _, m := range mounts {
+				if !m.HostBound {
+					continue
+				}
+				if m.FSType != "" {
+					parts = append(parts, fmt.Sprintf("%s (%s)", m.Path, m.FSType))
+				} else {
+					parts = append(parts, m.Path)
+				}
+			}
+			return strings.Join(parts, " · ")
+		},
 		"verdict":       func(r Report) Verdict { return r.Verdict() },
 		"narrativeLede": func(s string) template.HTML { l, _ := narrativeParts(s); return l },
 		"narrativeRest": func(s string) template.HTML { _, r := narrativeParts(s); return r },
