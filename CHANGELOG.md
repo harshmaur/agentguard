@@ -3,6 +3,14 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.1] - 2026-05-14
+
+Two hotfixes for v0.5.0 bugs surfaced by first use.
+
+### Fixed
+- **Dashboard scanner toggle was a no-op.** v0.5.0 shipped click-to-toggle scanner pills, but a variable-naming inversion made every click POST the current state instead of the toggle. Renamed the local `isOff` to `userEnabled` so the parameter passed to `toggleScanner(category, currentlyEnabled)` matches its semantics. Clicking pills now actually toggles them.
+- **`audr update-scanners --backend trufflehog --yes` failed after a successful brew upgrade.** TruffleHog's go.mod uses `replace` directives so `go install` refuses to build it. The Linux update plan lists brew and go-install as alternatives, but `RunUpdatePlan` was iterating them as sequential steps — brew step succeeded, then go install ran anyway and failed. Changed the semantic to fallback-style: first command that succeeds wins; remaining commands skip; full failure only when every command fails.
+
 ## [0.5.0] - 2026-05-14
 
 User-controllable scanner toggles + SQLite migration framework with auto-rebuild fallback.
