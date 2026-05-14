@@ -3,6 +3,12 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.5.7] - 2026-05-14
+
+### Added
+- **`audr daemon notify --test`** — fires an on-demand test toast that bypasses all batching, cooldown, and first-scan-suppression so users can verify their OS notification pipeline (libnotify / osascript / Windows toast) in one command without waiting for a critical finding to appear. When the toast fails, prints the underlying OS error plus per-platform hints.
+- **`audr daemon notify --status` now reports pending drops** — surfaces the count of toasts the OS suppressed (pending-notify.json) with a pointer to `--test` for diagnosis. Mirrors the dashboard's NOTIFICATIONS DROPPED banner on the CLI.
+
 ## [0.5.6] - 2026-05-14
 
 Incorporates two open PRs from Alex Umrysh ([@AUmrysh](https://github.com/AUmrysh)) that complement the v0.5.5 sidecar work.
