@@ -57,6 +57,7 @@ trust_level = "trusted"
 		// RunSecrets=false: we don't have trufflehog in this test env
 		// and we don't need it for this assertion.
 		RunSecrets: ptr(false),
+		RunOSPkg:   ptr(false),
 		Interval:   time.Hour, // we drive runOnce directly; Run won't tick
 	})
 	if err != nil {
@@ -119,6 +120,7 @@ trust_level = "trusted"
 		Roots:      []string{root},
 		HomeDir:    root,
 		RunSecrets: ptr(false),
+		RunOSPkg:   ptr(false),
 		Interval:   time.Hour,
 	})
 	if err != nil {
@@ -165,6 +167,7 @@ func TestOrchestratorRecordsScannerStatusForEveryCategory(t *testing.T) {
 		Roots:      []string{t.TempDir()}, // empty dir → 0 findings, but scanner status still recorded
 		HomeDir:    t.TempDir(),
 		RunSecrets: ptr(false),
+		RunOSPkg:   ptr(false),
 		Interval:   time.Hour,
 	})
 	if err != nil {

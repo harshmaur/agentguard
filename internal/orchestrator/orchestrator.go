@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/ospkg"
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/state"
@@ -67,6 +69,11 @@ type Options struct {
 	// paths get added to the scan roots when this is enabled.
 	RunSecrets *bool
 
+	// RunOSPkg enables OS-package CVE detection (Linux only, via
+	// ospkg.EnumerateAndScan). Defaults to ospkg.Available(); tests
+	// pin to false so they don't shell out to real dpkg/rpm/osv-scanner.
+	RunOSPkg *bool
+
 	// HomeDir is used to discover AI chat transcript paths. Empty
 	// defaults to os.UserHomeDir().
 	HomeDir string
@@ -101,6 +108,12 @@ func New(opts Options) (*Orchestrator, error) {
 		status := secretscan.BackendStatus()
 		b := status.Installed
 		opts.RunSecrets = &b
+	}
+	if opts.RunOSPkg == nil {
+		// Default: true iff ospkg.Available() says so (Linux with a
+		// covered distro and osv-scanner installed). Tests pin false.
+		available, _ := ospkg.Available()
+		opts.RunOSPkg = &available
 	}
 	logger := opts.Logger
 	if logger == nil {
@@ -260,12 +273,26 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	}
 
 	// --- OS-package enumerator (OS-Pkg category) ---------------------
-	// Phase 4 records unavailable; ospkg lands in a follow-up slice.
-	osPkgStatus := state.ScannerStatus{
-		ScanID:    scanID,
-		Category:  "os-pkg",
-		Status:    "unavailable",
-		ErrorText: "OS-package CVE detection lands in v1.1",
+	// Linux distros covered by OSV (dpkg / rpm / apk): enumerate
+	// installed packages, feed them to osv-scanner via CycloneDX SBOM,
+	// upsert any returned vulnerabilities as kind="os-package"
+	// state.Findings. macOS / Windows / unknown distros: record
+	// "unavailable" with a friendly reason.
+	osPkgStatus := state.ScannerStatus{ScanID: scanID, Category: "os-pkg"}
+	if !*o.opts.RunOSPkg {
+		osPkgStatus.Status = "unavailable"
+		_, osPkgStatus.ErrorText = ospkg.Available()
+		if osPkgStatus.ErrorText == "" {
+			osPkgStatus.ErrorText = "OS-package CVE detection disabled by configuration"
+		}
+	} else {
+		if err := o.runOSPkg(ctx, scanID, seen); err != nil {
+			osPkgStatus.Status = "error"
+			osPkgStatus.ErrorText = err.Error()
+			o.log.Error("os-pkg scan failed", "err", err)
+		} else {
+			osPkgStatus.Status = "ok"
+		}
 	}
 	if err := o.opts.Store.RecordScannerStatus(osPkgStatus); err != nil {
 		o.log.Warn("record scanner status (os-pkg)", "err", err)
@@ -357,6 +384,73 @@ func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[st
 		return err
 	}
 	return o.persistFindings(scanID, findings, seen)
+}
+
+// runOSPkg enumerates installed OS packages, feeds them through
+// OSV-Scanner via CycloneDX SBOM, and persists each returned
+// vulnerability as a state.Finding with kind="os-package" and a
+// {manager, name, version} locator. Each (package, advisory) pair
+// becomes its own finding so they're independently resolvable on
+// the dashboard.
+//
+// Bounded by a 60-second timeout because OSV-Scanner against a full
+// dpkg list (~2k packages) takes ~10-30s; corrupted rpmdb cases can
+// hang for minutes.
+func (o *Orchestrator) runOSPkg(ctx context.Context, scanID int64, seen map[string]struct{}) error {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	vulns, err := ospkg.EnumerateAndScan(ctx)
+	if err != nil {
+		return err
+	}
+	o.log.Info("os-pkg scan", "vulnerabilities", len(vulns))
+
+	for _, v := range vulns {
+		locator, err := json.Marshal(map[string]any{
+			"manager": string(v.Package.Manager),
+			"name":    v.Package.Name,
+			"version": v.Package.Version,
+		})
+		if err != nil {
+			o.log.Warn("os-pkg: marshal locator", "err", err)
+			continue
+		}
+		fp, err := state.Fingerprint("osv-os-package", "os-package", locator, v.AdvisoryID)
+		if err != nil {
+			o.log.Warn("os-pkg: fingerprint", "err", err)
+			continue
+		}
+
+		title := fmt.Sprintf("%s %s — %s", v.Package.Name, v.Package.Version, v.AdvisoryID)
+		desc := v.Summary
+		if desc == "" {
+			desc = fmt.Sprintf("OSV reported %s against the installed %s package %s %s.",
+				v.AdvisoryID, v.Package.Manager, v.Package.Name, v.Package.Version)
+		}
+		if v.FixedIn != "" {
+			desc = fmt.Sprintf("%s Fixed in %s %s.", desc, v.Package.Name, v.FixedIn)
+		}
+
+		sf := state.Finding{
+			Fingerprint:   fp,
+			RuleID:        fmt.Sprintf("osv-%s-%s", v.Package.Manager, v.Package.Name),
+			Severity:      v.Severity,
+			Category:      "os-pkg",
+			Kind:          "os-package",
+			Locator:       locator,
+			Title:         title,
+			Description:   desc,
+			MatchRedacted: v.AdvisoryID,
+			FirstSeenScan: scanID,
+			LastSeenScan:  scanID,
+		}
+		seen[fp] = struct{}{}
+		if _, err := o.opts.Store.UpsertFinding(sf); err != nil {
+			o.log.Warn("os-pkg: upsert finding", "rule_id", sf.RuleID, "err", err)
+		}
+	}
+	return nil
 }
 
 // persistFindings converts each finding.Finding into a state.Finding
