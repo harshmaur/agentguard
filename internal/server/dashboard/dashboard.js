@@ -60,6 +60,9 @@
     sectionsCollapsed: { critical: false, high: false, medium: true, low: true },
     scanActive: false,
     firstScanCompleted: false,
+    // Timestamp (ms since epoch) of the most recent scan-completed
+    // event. Powers the "WATCHING — last scan X min ago" sub-label.
+    lastScanCompletedAt: 0,
     dismissedBanners: new Set(),
     // Fingerprints currently animating their resolved → removed
     // transition. Excluded from render() so the JS doesn't blow them
@@ -76,14 +79,21 @@
   };
 
   // ----- Top bar / metrics ----------------------------------------
+  // The raw daemon state (RUN/SLOW/PAUSE/OFFLINE) is operationally
+  // accurate but unhelpful as a label — "RUN" tells the user nothing
+  // about what audr is currently doing. We surface a friendlier
+  // label here that combines the raw state with the scan-active
+  // signal: between scans the daemon is "WATCHING" (fsnotify +
+  // periodic poll), during a scan it's "SCANNING". The full mapping
+  // lives in topBarLabel below.
   function renderTop() {
     const d = state.daemon || { state: 'OFFLINE', version: 'unknown' };
     const dot = $('state-dot');
     const label = $('state-label');
     const meta = $('state-meta');
     dot.className = 'pulse-dot ' + ({ RUN: '', SLOW: 'slow', PAUSE: 'pause', OFFLINE: 'offline' }[d.state] || 'offline');
-    label.textContent = d.state || 'OFFLINE';
-    meta.textContent = d.state_note ? '· ' + d.state_note : '';
+    label.textContent = topBarLabel(d);
+    meta.textContent = stateNoteFor(d);
 
     const scan = $('scan-status');
     scan.replaceChildren();
@@ -91,6 +101,28 @@
       scan.append('SCANNING ', el('code', { text: d.scan_target }), ` · ${d.scan_done || 0} / ${d.scan_total || 0}`);
     }
     $('version').textContent = d.version || 'unknown';
+  }
+
+  function topBarLabel(d) {
+    const raw = (d && d.state) || 'OFFLINE';
+    switch (raw) {
+      case 'RUN':
+        // Between scans the daemon is watching for changes; during a
+        // scan it's actively scanning. Surface both clearly.
+        return state.scanActive ? 'SCANNING' : 'WATCHING';
+      case 'SLOW':    return 'SLOWED';
+      case 'PAUSE':   return 'PAUSED';
+      case 'OFFLINE': return 'DISCONNECTED';
+      default:        return raw;
+    }
+  }
+
+  function stateNoteFor(d) {
+    // The raw state_note (e.g., "battery", "load 5.2") is preserved
+    // as a meta clause after the friendly label. Empty note → empty
+    // string so we don't leave a dangling separator.
+    const note = (d && d.state_note) || '';
+    return note ? '· ' + note : '';
   }
 
   function renderMetrics() {
@@ -444,30 +476,42 @@
   }
 
   // ----- Scan-progress strip --------------------------------------
-  // Visible whenever: a scan is in flight (scanActive) OR the daemon
-  // hasn't yet completed its first cycle. The first-run path is the
-  // one users notice — daemon boot, every category renders as
-  // "pending" until scanner-status events flip them to ok/error.
+  // Always visible. Surfaces three states:
+  //   1. STARTING UP    — daemon's first scan hasn't started yet
+  //   2. INITIAL SCAN   — first full sweep of the machine, mid-flight
+  //   3. RESCANNING     — periodic / change-triggered cycle, mid-flight
+  //   4. WATCHING       — between scans, awaiting fsnotify or ticker
+  //
+  // Previous behavior hid the strip entirely between scans, which left
+  // users wondering whether the daemon was doing anything at all.
+  // Keeping it visible with a "WATCHING — last scan Xmin ago" line
+  // resolves that.
   function renderScanProgress() {
     const root = $('scan-progress');
     const labelNode = $('scan-progress-text');
-    const visible = state.scanActive || !state.firstScanCompleted;
-    if (!visible) {
-      root.setAttribute('hidden', '');
-      return;
-    }
-    root.removeAttribute('hidden');
+    const subNode = $('scan-progress-sub');
 
+    root.removeAttribute('hidden');
+    root.setAttribute('data-active', state.scanActive ? 'true' : 'false');
+
+    let label, sub = '';
     if (state.scanActive) {
-      labelNode.textContent = state.firstScanCompleted ? 'SCANNING' : 'FIRST SCAN';
+      if (state.firstScanCompleted) {
+        label = 'RESCANNING';
+        sub = 'change detected or periodic check';
+      } else {
+        label = 'INITIAL SCAN';
+        sub = 'first full sweep of your machine';
+      }
+    } else if (state.firstScanCompleted) {
+      label = 'WATCHING';
+      sub = lastScanAgo();
     } else {
-      // "INITIALIZING" was confusing in v0.4.0 — users saw the
-      // daemon's child scanners actively running in their process
-      // monitor while the dashboard still claimed initialization.
-      // "WAITING FOR FIRST SCAN" is honest about what the state
-      // actually represents.
-      labelNode.textContent = 'WAITING FOR FIRST SCAN';
+      label = 'STARTING UP';
+      sub = 'first scan begins shortly';
     }
+    labelNode.textContent = label;
+    if (subNode) subNode.textContent = sub;
 
     const ol = $('scan-progress-categories');
     ol.replaceChildren();
@@ -582,6 +626,7 @@
     src.addEventListener('scan-completed', () => {
       state.scanActive = false;
       state.firstScanCompleted = true;
+      state.lastScanCompletedAt = Date.now();
       renderScanProgress();
     });
     src.addEventListener('daemon-state', (e) => {
@@ -683,6 +728,26 @@
     if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
     if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
     return `${Math.floor(delta / 86400)}d ago`;
+  }
+
+  // lastScanAgo formats state.lastScanCompletedAt as a human relative
+  // phrase for the WATCHING sub-label. Empty string when no scan has
+  // completed yet in this session (the dashboard JS doesn't yet read
+  // the most-recent completed timestamp from the snapshot — that's
+  // tracked as a v0.4.x followup).
+  function lastScanAgo() {
+    // If the dashboard loaded between scans we don't yet know when
+    // the last one finished — surface a neutral phrase rather than
+    // overclaim. After the next scan-completed SSE event the
+    // timestamp populates and we switch to "last scan X min ago".
+    // Plumbing the most-recent completed_at through the snapshot is
+    // tracked as a v0.4.x followup.
+    if (!state.lastScanCompletedAt) return 'fsnotify + 5min poll';
+    const delta = (Date.now() - state.lastScanCompletedAt) / 1000;
+    if (delta < 60)    return 'last scan just now';
+    if (delta < 3600)  return `last scan ${Math.floor(delta / 60)} min ago`;
+    if (delta < 86400) return `last scan ${Math.floor(delta / 3600)} hr ago`;
+    return `last scan ${Math.floor(delta / 86400)} d ago`;
   }
 
   // ----- Boot -----------------------------------------------------

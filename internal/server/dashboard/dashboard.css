@@ -248,6 +248,24 @@ a:visited { color: var(--text-muted); }
   font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--text-muted);
   display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+}
+/* Sub-label inside the scan-progress label: lowercase, dimmer, sits
+   inline with the primary label. Used for "last scan 2 min ago" or
+   "first full sweep of your machine". */
+.scan-progress-sub {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.04em; text-transform: none;
+  color: var(--text-muted); opacity: 0.75;
+  font-weight: 400;
+}
+/* When the strip is in WATCHING state (no scan active, no spinner
+   meaningful), suppress the spinner animation to avoid implying
+   work is happening. The spinner stays in the DOM so the layout
+   doesn't reflow when scans start. */
+.scan-progress[data-active="false"] .spinner {
+  border-top-color: var(--text-muted);
+  animation: none;
 }
 .scan-progress-categories {
   list-style: none; padding: 0; margin: 0;
