@@ -247,3 +247,189 @@ func TestAllOSPkgManagersDispatch(t *testing.T) {
 		})
 	}
 }
+
+// TestShaiHuludHandlersDispatch confirms each of the 6 Mini-Shai-Hulud
+// rule IDs routes to a hand-authored handler, the locator path lands
+// in the rendered output, and each prompt warns about the malware
+// context (this is incident-response not routine remediation).
+func TestShaiHuludHandlersDispatch(t *testing.T) {
+	r := New()
+	cases := []struct {
+		ruleID         string
+		locatorJSON    string
+		expectPath     string
+		expectInHuman  string
+		expectInAI     string
+		expectIncident bool // human flow names the credential-rotation step
+	}{
+		{
+			ruleID:        "mini-shai-hulud-malicious-optional-dependency",
+			locatorJSON:   `{"path":"/repos/proj/package.json"}`,
+			expectPath:    "/repos/proj/package.json",
+			expectInHuman: "@tanstack/setup",
+			expectInAI:    "optionalDependencies",
+		},
+		{
+			ruleID:         "mini-shai-hulud-claude-persistence",
+			locatorJSON:    `{"path":"/home/u/.claude/settings.json"}`,
+			expectPath:     "/home/u/.claude/settings.json",
+			expectInHuman:  "SessionStart",
+			expectInAI:     "hooks block",
+			expectIncident: true,
+		},
+		{
+			ruleID:        "mini-shai-hulud-vscode-persistence",
+			locatorJSON:   `{"path":"/repos/proj/.vscode/tasks.json"}`,
+			expectPath:    "/repos/proj/.vscode/tasks.json",
+			expectInHuman: "folderOpen",
+			expectInAI:    "tasks.json",
+		},
+		{
+			ruleID:         "mini-shai-hulud-token-monitor-persistence",
+			locatorJSON:    `{"path":"/home/u/Library/LaunchAgents/com.bogus.plist"}`,
+			expectPath:     "/home/u/Library/LaunchAgents/com.bogus.plist",
+			expectInHuman:  "gh CLI",
+			expectInAI:     "GITHUB_TOKEN",
+			expectIncident: true,
+		},
+		{
+			ruleID:        "mini-shai-hulud-dropped-payload",
+			locatorJSON:   `{"path":"/tmp/bogus.bin"}`,
+			expectPath:    "/tmp/bogus.bin",
+			expectInHuman: "Do NOT execute",
+			expectInAI:    "binary malware",
+		},
+		{
+			ruleID:        "mini-shai-hulud-workflow-secret-exfil",
+			locatorJSON:   `{"path":"/repos/proj/.github/workflows/release.yml"}`,
+			expectPath:    "/repos/proj/.github/workflows/release.yml",
+			expectInHuman: "toJSON(secrets)",
+			expectInAI:    "secrets/actions",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ruleID, func(t *testing.T) {
+			f := mkFinding(tc.ruleID, "file", tc.locatorJSON, "")
+			human, ai, ok := r.Lookup(f)
+			if !ok {
+				t.Fatal("Lookup ok=false; want true")
+			}
+			if !strings.Contains(human, tc.expectPath) {
+				t.Errorf("human missing path %q\n  got: %s", tc.expectPath, human)
+			}
+			if !strings.Contains(ai, tc.expectPath) {
+				t.Errorf("AI missing path %q", tc.expectPath)
+			}
+			if !strings.Contains(human, tc.expectInHuman) {
+				t.Errorf("human missing expected phrase %q\n  got: %s", tc.expectInHuman, human)
+			}
+			if !strings.Contains(ai, tc.expectInAI) {
+				t.Errorf("AI missing expected phrase %q\n  got: %s", tc.expectInAI, ai)
+			}
+			if tc.expectIncident && !strings.Contains(human, "ROTATE") &&
+				!strings.Contains(human, "Rotate") && !strings.Contains(human, "rotate") {
+				t.Errorf("incident-response rule should walk credential rotation\n  got: %s", human)
+			}
+		})
+	}
+}
+
+// TestOpenClawPrefixDispatchAcrossCVEs walks a representative cross-
+// section of OpenClaw rule IDs through the single prefix handler. Each
+// should pick up the fix version from the finding's Title or
+// Description, render an upgrade-version line, and reach the package
+// manager why-step (diagnose-first like the language ecosystem flows).
+func TestOpenClawPrefixDispatchAcrossCVEs(t *testing.T) {
+	r := New()
+	cases := []struct {
+		ruleID       string
+		title        string
+		description  string
+		expectVer    string
+		expectInHuman string
+	}{
+		{
+			ruleID:        "openclaw-unbound-bootstrap-setup-code",
+			title:         "OpenClaw before 2026.3.22 has unbound bootstrap setup codes",
+			description:   "CVE-2026-41386: OpenClaw bootstrap setup codes before 2026.3.22 are not bound to intended device roles and scopes during pairing.",
+			expectVer:     "2026.3.22",
+			expectInHuman: "npm why openclaw",
+		},
+		{
+			ruleID:        "openclaw-config-patch-consent-bypass",
+			title:         "OpenClaw before 2026.3.28 lets config.patch disable execution approval",
+			description:   "CVE-2026-41349: OpenClaw before 2026.3.28 lets config.patch silently disable execution approval.",
+			expectVer:     "2026.3.28",
+			expectInHuman: "openclaw",
+		},
+		{
+			ruleID:        "openclaw-sandbox-cdp-relay-public-bind",
+			title:         "OpenClaw sandbox CDP relay binds publicly",
+			description:   "CVE-2026-42500: Upgrade to 2026.4.10 to fix.",
+			expectVer:     "2026.4.10", // pulled from description, not title
+			expectInHuman: "overrides",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ruleID, func(t *testing.T) {
+			f := state.Finding{
+				Fingerprint: "test-fp",
+				RuleID:      tc.ruleID,
+				Severity:    "high",
+				Category:    "ai-agent",
+				Kind:        "file",
+				Locator:     []byte(`{"path":"/repos/proj/package.json"}`),
+				Title:       tc.title,
+				Description: tc.description,
+			}
+			human, ai, ok := r.Lookup(f)
+			if !ok {
+				t.Fatal("Lookup ok=false; want true")
+			}
+			if !strings.Contains(human, tc.expectVer) {
+				t.Errorf("human missing fix version %q\n  got: %s", tc.expectVer, human)
+			}
+			if !strings.Contains(ai, tc.expectVer) {
+				t.Errorf("AI missing fix version %q", tc.expectVer)
+			}
+			if !strings.Contains(human, tc.expectInHuman) {
+				t.Errorf("human missing %q\n  got: %s", tc.expectInHuman, human)
+			}
+			if !strings.Contains(human, "/repos/proj/package.json") {
+				t.Errorf("human missing package.json path\n  got: %s", human)
+			}
+			if !strings.Contains(ai, "DO NOT skip the why") {
+				t.Errorf("AI must teach diagnose-before-fix\n  got: %s", ai)
+			}
+		})
+	}
+}
+
+// TestOpenClawHandlerHandlesMissingVersion guards the no-version
+// fallback path: if a future rule changes its title shape so we can't
+// extract a calver, the template still routes (no fatal crash) and
+// surfaces a sentinel phrase instead of an empty version slot.
+func TestOpenClawHandlerHandlesMissingVersion(t *testing.T) {
+	r := New()
+	f := state.Finding{
+		RuleID:      "openclaw-some-new-rule",
+		Severity:    "high",
+		Category:    "ai-agent",
+		Kind:        "file",
+		Locator:     []byte(`{"path":"/repos/proj/package.json"}`),
+		Title:       "OpenClaw nondescript vuln (no version in title)",
+		Description: "Some advisory without a parseable version.",
+	}
+	human, ai, ok := r.Lookup(f)
+	if !ok {
+		t.Fatal("Lookup ok=false; want true")
+	}
+	if !strings.Contains(human, "the latest patched OpenClaw release") &&
+		!strings.Contains(human, "the patched version") {
+		t.Errorf("human should fall back to a sentinel when version is unknown\n  got: %s", human)
+	}
+	if !strings.Contains(ai, "the latest patched") &&
+		!strings.Contains(ai, "the patched version") {
+		t.Errorf("AI should fall back to a sentinel when version is unknown\n  got: %s", ai)
+	}
+}

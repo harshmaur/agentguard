@@ -6,14 +6,13 @@ import (
 	"github.com/harshmaur/audr/internal/state"
 )
 
-// registerNativeRules installs handlers for the 20 v0.2 built-in
+// registerNativeRules installs handlers for the v0.2 built-in
 // audr rules. Each handler reads the finding's locator to produce
 // a path-aware human-step list + a paste-ready AI prompt.
 //
-// Mini-Shai-Hulud and OpenClaw-specific rules (added post-v0.2)
-// don't have hand-authored templates here — they fall through to
-// the AI-agent category fallback in fallback.go which produces a
-// useful generic prompt based on Title + Description.
+// Post-v0.2 indicator-of-attack rulesets (Mini-Shai-Hulud, OpenClaw)
+// are registered alongside via registerShaiHulud() and the
+// "openclaw-" prefix handler — see shai_hulud.go and openclaw.go.
 func registerNativeRules(r *Registry) {
 	// --- Codex CLI ---------------------------------------------------
 	r.registerRule("codex-trust-home-or-broad", codexTrustHomeOrBroad)
@@ -48,6 +47,16 @@ func registerNativeRules(r *Registry) {
 
 	// --- Shell rc ---------------------------------------------------
 	r.registerRule("shellrc-secret-export", shellrcSecretExport)
+
+	// --- Indicator-of-attack: Mini Shai-Hulud + OpenClaw -----------
+	// These rulesets evolve continuously as new attack indicators
+	// are published. Each Mini-Shai-Hulud handler is hand-authored
+	// (different attack vector per rule); OpenClaw is a single
+	// prefix handler — every rule there shares the "upgrade to
+	// version X" shape, so we parameterize off the finding's Title
+	// + SuggestedFix instead of duplicating templates per CVE.
+	registerShaiHulud(r)
+	r.registerPrefix("openclaw-", openclawUpgradeHandler)
 }
 
 // --- Codex CLI ------------------------------------------------------
