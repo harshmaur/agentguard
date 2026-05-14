@@ -75,7 +75,9 @@ func TestRunBackendUsesInjectedRunner(t *testing.T) {
 		return []byte(`{"SourceMetadata":{"Data":{"Filesystem":{"file":"` + filepath.Join(dir, ".env") + `","line":1}}},"DetectorName":"Test","Verified":true,"Redacted":"TOKEN=***"}` + "\n"), nil
 	})
 
-	findings, err := RunBackend(context.Background(), RunOptions{Roots: []string{dir}, Runner: runner})
+	// Pass Jobs explicitly so --concurrency is present in argv —
+	// the v0.5.6 default (Jobs zero-value) is "uncapped, no flag."
+	findings, err := RunBackend(context.Background(), RunOptions{Roots: []string{dir}, Runner: runner, Jobs: DefaultJobs()})
 	if err != nil {
 		t.Fatalf("RunBackend err: %v", err)
 	}
@@ -120,7 +122,8 @@ func TestRunBackendPassesScanignoreExcludeFile(t *testing.T) {
 		return nil, nil
 	})
 
-	_, err := RunBackend(context.Background(), RunOptions{Roots: []string{t.TempDir()}, Runner: runner})
+	// Pass Jobs explicitly to verify --concurrency is wired through.
+	_, err := RunBackend(context.Background(), RunOptions{Roots: []string{t.TempDir()}, Runner: runner, Jobs: DefaultJobs()})
 	if err != nil {
 		t.Fatalf("RunBackend err: %v", err)
 	}
@@ -162,6 +165,65 @@ func TestRunBackendPassesScanignoreExcludeFile(t *testing.T) {
 	}
 	if concurrencyArg == "--concurrency=0" {
 		t.Fatalf("concurrency must be >= 1, got %q", concurrencyArg)
+	}
+}
+
+// TestRunBackendJobsZeroOmitsConcurrencyFlag pins the semantic
+// introduced in PR #9 (Alex Umrysh): Jobs == 0 means "uncapped —
+// let TruffleHog use its own default (NumCPU)." The
+// --concurrency= flag is omitted entirely in that case so the user
+// can opt into TruffleHog's full-throttle mode via `--scanner-jobs 0`.
+func TestRunBackendJobsZeroOmitsConcurrencyFlag(t *testing.T) {
+	var captured []string
+	runner := CommandRunnerFunc(func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		captured = append([]string(nil), args...)
+		return nil, nil
+	})
+	_, _ = RunBackend(context.Background(), RunOptions{Roots: []string{t.TempDir()}, Runner: runner, Jobs: 0})
+	for _, a := range captured {
+		if strings.HasPrefix(a, "--concurrency=") {
+			t.Fatalf("Jobs=0 must not pass --concurrency; got %q in args: %v", a, captured)
+		}
+	}
+}
+
+// TestRunBackendJobsPositivePassesConcurrency: explicit Jobs > 0
+// → `--concurrency=N` lands at the expected position (before the
+// scan roots so trufflehog parses it as a flag, not a target).
+func TestRunBackendJobsPositivePassesConcurrency(t *testing.T) {
+	var captured []string
+	runner := CommandRunnerFunc(func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		captured = append([]string(nil), args...)
+		return nil, nil
+	})
+	root := t.TempDir()
+	_, _ = RunBackend(context.Background(), RunOptions{Roots: []string{root}, Runner: runner, Jobs: 7})
+
+	wantFlag := "--concurrency=7"
+	flagIdx, rootIdx := -1, -1
+	for i, a := range captured {
+		if a == wantFlag {
+			flagIdx = i
+		}
+		if a == root {
+			rootIdx = i
+		}
+	}
+	if flagIdx < 0 {
+		t.Fatalf("missing %s in args: %v", wantFlag, captured)
+	}
+	if rootIdx < 0 || flagIdx >= rootIdx {
+		t.Fatalf("--concurrency must come before root path; flagIdx=%d rootIdx=%d args=%v",
+			flagIdx, rootIdx, captured)
+	}
+}
+
+// TestDefaultJobsIsAtLeastOne — DefaultJobs() must never return
+// zero (would silently disable the cap). On a 1-CPU machine, half
+// would round to 0; the helper has a min-1 floor.
+func TestDefaultJobsIsAtLeastOne(t *testing.T) {
+	if got := DefaultJobs(); got < 1 {
+		t.Errorf("DefaultJobs() = %d, want >= 1", got)
 	}
 }
 

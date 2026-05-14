@@ -528,6 +528,12 @@ func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[st
 	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{
 		Roots:  roots,
 		Runner: lowprio.Runner{},
+		// Cap TruffleHog's worker pool at half the cores even
+		// though the lowprio wrapper already drops CPU priority.
+		// Fewer workers = less context-switching overhead + less
+		// peak memory, which matters more than the priority drop
+		// on a constrained laptop running a long first scan.
+		Jobs: secretscan.DefaultJobs(),
 	})
 	if err != nil {
 		return err

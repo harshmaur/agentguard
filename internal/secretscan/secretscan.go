@@ -57,6 +57,42 @@ func formatCommandError(name string, err error, stderr []byte) error {
 type RunOptions struct {
 	Roots  []string
 	Runner CommandRunner
+
+	// Jobs caps TruffleHog's internal worker pool via its
+	// --concurrency flag. Behavior:
+	//
+	//   Jobs > 0  → passes --concurrency=Jobs to trufflehog
+	//   Jobs == 0 → caller wants TruffleHog's default (NumCPU)
+	//   Jobs < 0  → treated as 0 (defensive; CLI validates earlier)
+	//
+	// When this field is at its zero value (Jobs == 0) AND callers
+	// haven't explicitly opted into "uncapped," RunBackend falls
+	// back to DefaultJobs() — half the logical CPUs, minimum 1. The
+	// distinction matters at the CLI surface: `--scanner-jobs 0`
+	// means "uncapped" but the flag's DEFAULT value is
+	// `DefaultJobs()`. Wire callers thread that through cleanly.
+	//
+	// Originally introduced in PR #9 (Alex Umrysh) and incorporated
+	// into v0.5.6 alongside the existing lowprio nice/ionice wrapper
+	// — they're complementary. lowprio limits OS-level scheduling
+	// pressure; Jobs limits the number of goroutines TruffleHog
+	// spawns in the first place.
+	Jobs int
+}
+
+// DefaultJobs returns the TruffleHog --concurrency value audr uses
+// when the caller hasn't specified one explicitly. Half the logical
+// CPUs, minimum 1 — keeps a scan from monopolizing every core on
+// a developer machine.
+//
+// Exported so the CLI's --scanner-jobs flag can print the computed
+// default in its help text.
+func DefaultJobs() int {
+	n := runtime.NumCPU() / 2
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 type Status struct {
@@ -185,7 +221,16 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 		"--json",
 		"--no-update",
 		"--exclude-paths", excludeFile,
-		fmt.Sprintf("--concurrency=%d", concurrency()),
+	}
+	// Jobs > 0  → pass --concurrency=N (user-controllable cap).
+	// Jobs == 0 → no --concurrency flag (TruffleHog's default,
+	//             which is NumCPU). The CLI surface achieves the
+	//             practical "half cores" cap by defaulting its
+	//             --scanner-jobs flag value to DefaultJobs() — so
+	//             callers that don't fill Jobs explicitly opt
+	//             into uncapped, by intent.
+	if opts.Jobs > 0 {
+		args = append(args, fmt.Sprintf("--concurrency=%d", opts.Jobs))
 	}
 	args = append(args, roots...)
 	out, err := runner.Run(ctx, binaryName(), args...)
@@ -197,16 +242,6 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 		return nil, err
 	}
 	return findings, parseErr
-}
-
-// concurrency returns the TruffleHog --concurrency value: half the logical
-// CPUs, never below 1. Keeps the scan from monopolizing every core.
-func concurrency() int {
-	n := runtime.NumCPU() / 2
-	if n < 1 {
-		return 1
-	}
-	return n
 }
 
 type truffleHogFinding struct {
