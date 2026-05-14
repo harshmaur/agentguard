@@ -405,6 +405,20 @@
         fix,
       });
     }
+    // Pending-notifications banner: OS dropped one or more toasts
+    // (permission denied / missing notify-send / Focus mode). Point
+    // the user at the toggle so they can either re-enable in OS
+    // settings or stop trying and run with --off.
+    const dInfo = state.daemon || {};
+    if (dInfo.pending_notifications && dInfo.pending_notifications > 0) {
+      out.push({
+        id: 'pending-notify',
+        kind: 'warn',
+        tag: 'NOTIFICATIONS DROPPED',
+        text: `${dInfo.pending_notifications} OS notification(s) were dropped (permission, Focus mode, or missing notifier).`,
+        fix: 'audr daemon notify --status',
+      });
+    }
     // Daemon-state hints — populated when daemon publishes them.
     const d = state.daemon || {};
     if (d.inotify_low) {
@@ -448,6 +462,18 @@
         type: 'button',
         onclick: () => {
           state.dismissedBanners.add(b.id);
+          // Pending-notify is a daemon-side state that persists in a
+          // file on disk — dismissing only client-side would leave
+          // the count baked into every subsequent /api/findings call.
+          // Tell the server to clear the file so the banner stays
+          // dismissed across page reloads.
+          if (b.id === 'pending-notify') {
+            fetch('/api/notify/pending?t=' + encodeURIComponent(token), { method: 'DELETE' })
+              .catch(() => { /* best effort — banner stays dismissed for the session */ });
+            // Also zero the count in local state so the snapshot's
+            // baked-in count doesn't immediately re-render.
+            if (state.daemon) state.daemon.pending_notifications = 0;
+          }
           renderBanners();
         },
       },
@@ -773,6 +799,13 @@
       // completed.
       if (state.daemon && state.daemon.scan_in_progress) {
         state.scanActive = true;
+      }
+      // Most-recent completed_at, surfaced via snapshot so the
+      // WATCHING state can display a real "last scan X min ago"
+      // clause on initial load instead of waiting for the next
+      // scan-completed SSE event.
+      if (state.daemon && state.daemon.last_scan_completed) {
+        state.lastScanCompletedAt = state.daemon.last_scan_completed * 1000;
       }
       render();
     } catch (e) {

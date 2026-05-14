@@ -14,7 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"os"
+
 	"github.com/harshmaur/audr/internal/daemon"
+	"github.com/harshmaur/audr/internal/notify"
 	"github.com/harshmaur/audr/internal/state"
 )
 
@@ -272,6 +275,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("GET /api/findings", s.requireToken(s.handleFindings))
 	mux.HandleFunc("GET /api/events", s.requireToken(s.handleEvents))
 	mux.HandleFunc("GET /api/remediation/{fp}", s.requireToken(s.handleRemediation))
+	mux.HandleFunc("DELETE /api/notify/pending", s.requireToken(s.handleNotifyPendingDismiss))
 
 	return s.hostCheck(mux)
 }
@@ -311,6 +315,19 @@ func (s *Server) serveEmbedded(w http.ResponseWriter, _ *http.Request, name, con
 	_, _ = w.Write(body)
 }
 
+// handleNotifyPendingDismiss clears the pending-notify.json file so
+// the next dashboard snapshot won't carry the pending count. Called
+// by the dashboard JS when the user dismisses the
+// NOTIFICATIONS DROPPED banner. Idempotent — missing file is a 204
+// not an error.
+func (s *Server) handleNotifyPendingDismiss(w http.ResponseWriter, _ *http.Request) {
+	if err := notify.ClearPending(s.opts.Paths.State); err != nil && !os.IsNotExist(err) {
+		http.Error(w, "clear pending: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -346,11 +363,20 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	// "INITIALIZING" until the next scan-started SSE event arrives —
 	// a freshly-loaded dashboard can miss the scan-started event of
 	// an already-in-flight scan entirely.
-	if scans, err := s.opts.Store.SnapshotScans(ctx, 5); err == nil {
+	if scans, err := s.opts.Store.SnapshotScans(ctx, 10); err == nil {
+		// First pass: an in-progress scan flips ScanInProgress so
+		// the dashboard's scan-progress strip can come up correct
+		// on initial load. Second pass (in the same loop): the most
+		// recent completed scan's completed_at populates
+		// LastScanCompleted so the WATCHING state can render a
+		// real relative-time clause.
 		for _, sc := range scans {
 			if sc.Status == "in_progress" {
 				daemonInfo.ScanInProgress = true
-				break
+			}
+			if sc.Status == "completed" && sc.CompletedAt != nil &&
+				*sc.CompletedAt > daemonInfo.LastScanCompleted {
+				daemonInfo.LastScanCompleted = *sc.CompletedAt
 			}
 		}
 	}
@@ -362,6 +388,13 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 			daemonInfo.InotifyLow = true
 		}
 		daemonInfo.RemoteFsSkipped = len(s.opts.WatcherProbe.RemoteRoots())
+	}
+	// Pending-notification fallback: when the OS dropped toasts,
+	// `notify` writes ${state_dir}/pending-notify.json. Surface the
+	// count so the dashboard banner can prompt the user toward
+	// `audr daemon notify --status` + OS settings.
+	if pending, err := notify.ReadPending(s.opts.Paths.State); err == nil {
+		daemonInfo.PendingNotifications = len(pending)
 	}
 	resp := SnapshotResponse{
 		Findings: findings,

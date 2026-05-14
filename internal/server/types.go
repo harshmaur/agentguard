@@ -63,6 +63,20 @@ type DaemonInfo struct {
 	// catch the scan-started SSE event for.
 	ScanInProgress bool `json:"scan_in_progress,omitempty"`
 
+	// LastScanCompleted is the unix seconds of the most recent
+	// completed scan, or 0 when no scan has ever completed. Lets
+	// the dashboard's WATCHING state display a "last scan X min ago"
+	// relative-time clause on initial load instead of waiting for
+	// the next scan-completed SSE event.
+	LastScanCompleted int64 `json:"last_scan_completed,omitempty"`
+
+	// PendingNotifications counts the entries in
+	// ${state_dir}/pending-notify.json — toasts that were dropped by
+	// the OS (permission denied / missing notify-send / Focus mode).
+	// Non-zero triggers a dashboard banner pointing the user at
+	// `audr daemon notify --status` and macOS notification settings.
+	PendingNotifications int `json:"pending_notifications,omitempty"`
+
 	// InotifyLow signals that the watcher ran into the kernel's
 	// fs.inotify.max_user_watches budget and demoted some scope to
 	// poll-only. Linux-only; always false elsewhere. Dashboard

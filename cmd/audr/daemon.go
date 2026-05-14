@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/notify"
@@ -142,6 +144,26 @@ This only registers the service. Use 'audr daemon start' to actually run it.`,
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "audr daemon: installed")
+
+			// On macOS, trigger the system notification permission
+			// dialog so the user sees it under audr's identity
+			// before any real CRITICAL toast fires. osascript fires
+			// a one-shot dummy notification; the first run shows the
+			// "Allow Notifications" prompt, subsequent calls are
+			// silent. We swallow any error — the daemon falls back
+			// to pending-notify.json when toasts get denied.
+			if runtime.GOOS == "darwin" {
+				osa := exec.Command("osascript", "-e",
+					`display notification "audr is installed. Permission prompt will appear once so audr can alert you to CRITICAL findings." with title "audr"`)
+				if err := osa.Run(); err != nil {
+					fmt.Fprintln(cmd.OutOrStdout(),
+						"audr: macOS notification permission probe failed; you can request it later via System Settings → Notifications.")
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(),
+						"audr: macOS notification permission requested (check the system dialog).")
+				}
+			}
+
 			fmt.Fprintln(cmd.OutOrStdout(), "next: audr daemon start")
 			return nil
 		},
