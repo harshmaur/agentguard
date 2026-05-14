@@ -131,4 +131,14 @@ case ":$PATH:" in
     echo "audr:        Add it to your shell rc:  export PATH=\"${INSTALL_DIR}:\$PATH\""
     ;;
 esac
-echo "audr: try it now:  audr scan ~"
+echo
+echo "audr: try it now:"
+echo "  audr scan ~                          # one-shot scan, writes HTML report"
+echo
+echo "audr: or run the always-on dashboard (new in v0.4+):"
+echo "  audr daemon install                  # register the per-OS background service"
+echo "  audr open                            # opens the live dashboard in your browser"
+echo
+echo "audr: full coverage needs two open-source scanners on PATH (optional):"
+echo "  audr update-scanners --yes           # installs osv-scanner (deps CVEs) + trufflehog (secrets)"
+echo "  audr doctor                          # check current scanner status"
