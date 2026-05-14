@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/notify"
@@ -48,7 +49,111 @@ Tear down:
 	cmd.AddCommand(newDaemonStopCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
 	cmd.AddCommand(newDaemonNotifyCmd())
+	cmd.AddCommand(newDaemonScannersCmd())
 	cmd.AddCommand(newDaemonRunInternalCmd())
+	return cmd
+}
+
+// newDaemonScannersCmd toggles per-category scanner enable/disable
+// without restarting the daemon. Writes scanner.config.json; the
+// running orchestrator re-reads it at the top of every scan cycle.
+//
+// Categories: ai-agent, deps, secrets, os-pkg. Disabling a category
+// is distinct from "scanner sidecar not installed" — a disabled
+// category is reported on the dashboard as DISABLED, not OFF.
+func newDaemonScannersCmd() *cobra.Command {
+	var off, on string
+	var showStatus bool
+	cmd := &cobra.Command{
+		Use:   "scanners",
+		Short: "Enable / disable specific scanner categories",
+		Long: `Toggle individual scanner categories on or off without restarting the daemon.
+
+Categories: ai-agent, deps, secrets, os-pkg
+
+Examples:
+  audr daemon scanners --off=secrets,deps    # disable two categories
+  audr daemon scanners --on=secrets          # re-enable one
+  audr daemon scanners                       # print current state
+
+Disabling a category is permanent (persists across daemon restarts).
+The orchestrator re-reads the config at the start of each scan
+cycle, so toggles take effect within one interval (~10 minutes).
+
+A disabled scanner is distinct from a missing-sidecar scanner.
+Missing sidecars show 'unavailable' and point to audr update-scanners.
+User-disabled scanners show 'disabled' and point back to this command.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			actions := 0
+			if off != "" {
+				actions++
+			}
+			if on != "" {
+				actions++
+			}
+			if showStatus {
+				actions++
+			}
+			if actions == 0 {
+				showStatus = true
+			}
+			paths, err := daemon.Resolve()
+			if err != nil {
+				return fmt.Errorf("resolve daemon paths: %w", err)
+			}
+			if err := paths.Ensure(); err != nil {
+				return fmt.Errorf("ensure daemon paths: %w", err)
+			}
+			cfg, err := orchestrator.ReadScannerConfig(paths.State)
+			if err != nil {
+				return fmt.Errorf("read scanner config: %w", err)
+			}
+
+			apply := func(csv string, enabled bool) error {
+				for _, cat := range strings.Split(csv, ",") {
+					cat = strings.TrimSpace(cat)
+					if cat == "" {
+						continue
+					}
+					updated, err := cfg.SetEnabled(cat, enabled)
+					if err != nil {
+						return err
+					}
+					cfg = updated
+				}
+				return nil
+			}
+			if off != "" {
+				if err := apply(off, false); err != nil {
+					return err
+				}
+			}
+			if on != "" {
+				if err := apply(on, true); err != nil {
+					return err
+				}
+			}
+			if off != "" || on != "" {
+				if err := orchestrator.WriteScannerConfig(paths.State, cfg); err != nil {
+					return fmt.Errorf("write scanner config: %w", err)
+				}
+			}
+			// Print status table.
+			w := cmd.OutOrStdout()
+			fmt.Fprintln(w, "audr daemon scanners:")
+			for _, cat := range orchestrator.ScannerCategories() {
+				marker := "enabled"
+				if !cfg.Enabled(cat) {
+					marker = "disabled"
+				}
+				fmt.Fprintf(w, "  %-10s %s\n", cat, marker)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&off, "off", "", "comma-separated category names to disable (ai-agent, deps, secrets, os-pkg)")
+	cmd.Flags().StringVar(&on, "on", "", "comma-separated category names to enable")
+	cmd.Flags().BoolVar(&showStatus, "status", false, "print current scanner state (default when no flag passed)")
 	return cmd
 }
 
@@ -329,6 +434,7 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					Store:            store,
 					Logger:           orchLogger,
 					ExternalTriggers: watcher.Triggers(),
+					StateDir:         paths.State,
 				})
 				if err != nil {
 					_ = watcher.Close()
