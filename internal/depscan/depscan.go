@@ -113,7 +113,17 @@ func UpdatePlan(backend Backend) ScannerUpdatePlan {
 		case "windows":
 			plan.BinaryCommands = []string{"go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"}
 		default:
-			plan.BinaryCommands = []string{"go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest"}
+			// Linux: prefer brew when available (works on linuxbrew),
+			// fall back to go install. The fallback runs only when
+			// brew isn't present — the loop in RunUpdatePlan stops on
+			// the first success. Without the brew option here,
+			// brew-installed users hit go install, which can fail with
+			// disk-out-of-space (go-build cache) or with replace-
+			// directive errors on osv-scanner's go.mod.
+			plan.BinaryCommands = []string{
+				"brew upgrade osv-scanner || brew install osv-scanner",
+				"go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest",
+			}
 			plan.Notes = []string{"OSV-Scanner has no separate local vulnerability DB to refresh; updating the binary is enough."}
 		}
 		return plan
@@ -122,16 +132,30 @@ func UpdatePlan(backend Backend) ScannerUpdatePlan {
 	}
 }
 
+// RunUpdatePlan attempts BinaryCommands as alternatives in preference
+// order (first success wins), then runs DatabaseCommands as a
+// sequential refresh chain (all must succeed). Without this split,
+// brew-installed users would hit the go-install fallback after brew
+// succeeded — go install can fail noisily for modules with replace
+// directives or run out of disk space building cgo deps.
+//
+// DBOnly mode skips the binary refresh entirely (used by audr
+// update-scanners --db-only when the user only wants to refresh the
+// vulnerability DB, not the scanner binary itself).
 func RunUpdatePlan(ctx context.Context, plan ScannerUpdatePlan, opts UpdateOptions) error {
 	runner := opts.Runner
 	if runner == nil {
 		runner = execRunner{}
 	}
-	commands := append([]string(nil), plan.DatabaseCommands...)
 	if !opts.DBOnly {
-		commands = append(append([]string(nil), plan.BinaryCommands...), plan.DatabaseCommands...)
+		if err := runFallbackCommands(ctx, runner, plan.BinaryCommands); err != nil {
+			return err
+		}
 	}
-	for _, command := range commands {
+	// DatabaseCommands are sequential — all must succeed. They
+	// refresh the local CVE database. OSV-Scanner has none today, so
+	// this loop is currently a no-op for the only backend.
+	for _, command := range plan.DatabaseCommands {
 		command = strings.TrimSpace(command)
 		if command == "" {
 			continue
@@ -141,6 +165,30 @@ func RunUpdatePlan(ctx context.Context, plan ScannerUpdatePlan, opts UpdateOptio
 		}
 	}
 	return nil
+}
+
+// runFallbackCommands tries each command in order; first success
+// wins, remaining commands are skipped. Returns the last error only
+// when every command failed. Empty list is a no-op.
+func runFallbackCommands(ctx context.Context, runner CommandRunner, commands []string) error {
+	var lastErr error
+	attempted := 0
+	for _, command := range commands {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		attempted++
+		if _, err := runner.Run(ctx, shellName(), shellFlag(), command); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	if attempted == 0 {
+		return nil
+	}
+	return lastErr
 }
 
 func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error) {
