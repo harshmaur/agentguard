@@ -390,9 +390,13 @@
       });
     }
     // Scanner banners — one per scanner that isn't ok.
+    // "disabled" status is intentionally silent in the banner stack —
+    // the scan-progress pill already shows DISABLED clearly, and a
+    // banner per user-disabled category would clutter the dashboard
+    // when the user has 2-3 turned off deliberately.
     for (const sc of state.scanners) {
       const stateName = sc.state || sc.status; // wire field, defensive
-      if (!stateName || stateName === 'ok') continue;
+      if (!stateName || stateName === 'ok' || stateName === 'disabled') continue;
       const category = sc.name || sc.category;
       const fix = stateName === 'unavailable' || stateName === 'missing'
         ? guessInstallCommand(category)
@@ -547,18 +551,24 @@
       const stateName = sc.state || sc.status;
       if (name) byCategory[name] = stateName;
     }
+    const scannerEnabled = (state.daemon && state.daemon.scanner_enabled) || {};
     for (const cat of SCAN_CATEGORIES) {
       const stateName = byCategory[cat];
+      // User-disabled wins over sidecar status — even an installed
+      // scanner shows DISABLED when the user has explicitly turned
+      // it off. Use the daemon's snapshot signal (scanner_enabled)
+      // as the source of truth so the pill matches what's in the
+      // config file rather than the last scan's status.
+      const userDisabled = scannerEnabled[cat] === false;
       let cls = 'pending';
       let stateLabel = 'PENDING';
-      if (stateName === 'running') {
+      if (userDisabled || stateName === 'disabled') {
+        cls = 'disabled';
+        stateLabel = 'DISABLED';
+      } else if (stateName === 'running') {
         cls = 'running';
         stateLabel = 'RUNNING';
       } else if (state.scanActive && !stateName) {
-        // Scan is active but this category hasn't reported any
-        // status yet — assume it's queued, render pending. Replaced
-        // by an explicit "running" status from the orchestrator
-        // once that category's backend starts.
         cls = 'pending';
         stateLabel = 'QUEUED';
       } else if (stateName === 'ok')          { cls = 'ok';          stateLabel = 'OK'; }
@@ -566,13 +576,69 @@
       else if (stateName === 'unavailable' || stateName === 'missing') {
         cls = 'unavailable'; stateLabel = 'OFF';
       } else if (stateName === 'outdated')    { cls = 'unavailable'; stateLabel = 'OUTDATED'; }
+
+      const isOff = userDisabled;
+      const labelEl = SCAN_CATEGORY_LABEL[cat];
+      const toggleTitle = isOff
+        ? `Click to enable ${labelEl} scanning`
+        : `Click to disable ${labelEl} scanning`;
       ol.append(el(
         'li',
-        { class: cls },
+        {
+          class: cls + ' toggleable',
+          title: toggleTitle,
+          role: 'button',
+          tabindex: '0',
+          onclick: () => toggleScanner(cat, isOff),
+          onkeydown: (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleScanner(cat, isOff);
+            }
+          },
+        },
         el('span', { class: 'dot' }),
         el('span', { text: SCAN_CATEGORY_LABEL[cat] }),
         el('span', { style: 'margin-left:auto;color:var(--text-muted);', text: stateLabel }),
       ));
+    }
+  }
+
+  // toggleScanner flips the enabled flag for a scanner category by
+  // POSTing to /api/scanners. Optimistic UI: we flip
+  // state.daemon.scanner_enabled immediately and re-render so the
+  // user sees the new state without waiting for the server roundtrip.
+  // The server's response replaces the local copy in case anything
+  // diverged (e.g., concurrent CLI invocation).
+  async function toggleScanner(category, currentlyEnabled) {
+    const nextEnabled = !currentlyEnabled;
+    if (!state.daemon) state.daemon = {};
+    if (!state.daemon.scanner_enabled) state.daemon.scanner_enabled = {};
+    state.daemon.scanner_enabled[category] = nextEnabled;
+    scheduleRender();
+    try {
+      const r = await fetch('/api/scanners?t=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, enabled: nextEnabled }),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        state.daemon.scanner_enabled = {
+          'ai-agent': updated.ai_agent,
+          'deps':     updated.deps,
+          'secrets':  updated.secrets,
+          'os-pkg':   updated.os_pkg,
+        };
+        scheduleRender();
+      } else {
+        // Roll back the optimistic flip and let the user know.
+        state.daemon.scanner_enabled[category] = currentlyEnabled;
+        scheduleRender();
+      }
+    } catch (e) {
+      state.daemon.scanner_enabled[category] = currentlyEnabled;
+      scheduleRender();
     }
   }
 

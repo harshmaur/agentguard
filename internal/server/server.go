@@ -18,6 +18,7 @@ import (
 
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/notify"
+	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/state"
 )
 
@@ -276,6 +277,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("GET /api/events", s.requireToken(s.handleEvents))
 	mux.HandleFunc("GET /api/remediation/{fp}", s.requireToken(s.handleRemediation))
 	mux.HandleFunc("DELETE /api/notify/pending", s.requireToken(s.handleNotifyPendingDismiss))
+	mux.HandleFunc("POST /api/scanners", s.requireToken(s.handleScannersToggle))
 
 	return s.hostCheck(mux)
 }
@@ -313,6 +315,41 @@ func (s *Server) serveEmbedded(w http.ResponseWriter, _ *http.Request, name, con
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(body)
+}
+
+// handleScannersToggle flips a single scanner category's enabled
+// flag in scanner.config.json. The dashboard's click-to-toggle UI
+// calls this with body {"category": "secrets", "enabled": false}.
+// The running orchestrator re-reads the config at the top of every
+// scan cycle, so the toggle takes effect within one interval.
+//
+// Returns 400 on unknown category, 200 with the full new config on
+// success. The orchestrator's persisted state is the source of
+// truth; the dashboard reflects it on next snapshot.
+func (s *Server) handleScannersToggle(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Category string `json:"category"`
+		Enabled  bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg, err := orchestrator.ReadScannerConfig(s.opts.Paths.State)
+	if err != nil {
+		http.Error(w, "read scanner config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	updated, err := cfg.SetEnabled(body.Category, body.Enabled)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := orchestrator.WriteScannerConfig(s.opts.Paths.State, updated); err != nil {
+		http.Error(w, "write scanner config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // handleNotifyPendingDismiss clears the pending-notify.json file so
@@ -395,6 +432,16 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	// `audr daemon notify --status` + OS settings.
 	if pending, err := notify.ReadPending(s.opts.Paths.State); err == nil {
 		daemonInfo.PendingNotifications = len(pending)
+	}
+	// Scanner enable/disable config. The dashboard click-to-toggle
+	// UI reads this to render correct on/off state per category.
+	if cfg, err := orchestrator.ReadScannerConfig(s.opts.Paths.State); err == nil {
+		daemonInfo.ScannerEnabled = map[string]bool{
+			"ai-agent": cfg.AIAgent,
+			"deps":     cfg.Deps,
+			"secrets":  cfg.Secrets,
+			"os-pkg":   cfg.OSPkg,
+		}
 	}
 	resp := SnapshotResponse{
 		Findings: findings,

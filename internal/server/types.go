@@ -77,6 +77,13 @@ type DaemonInfo struct {
 	// `audr daemon notify --status` and macOS notification settings.
 	PendingNotifications int `json:"pending_notifications,omitempty"`
 
+	// ScannerEnabled mirrors the on-disk scanner.config.json so the
+	// dashboard knows which categories are user-disabled vs
+	// unavailable. Keys are the canonical category identifiers
+	// (ai-agent, deps, secrets, os-pkg) and values are the enabled
+	// flag.
+	ScannerEnabled map[string]bool `json:"scanner_enabled,omitempty"`
+
 	// InotifyLow signals that the watcher ran into the kernel's
 	// fs.inotify.max_user_watches budget and demoted some scope to
 	// poll-only. Linux-only; always false elsewhere. Dashboard
