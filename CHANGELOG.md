@@ -3,7 +3,32 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
-## [0.3.1] - unreleased
+## [0.4.0] - 2026-05-14
+
+Always-on dev-machine vulnerability dashboard. Pivot from one-shot CLI to a long-running daemon that watches your machine continuously, surfaces findings on a live local dashboard, and gives you AI-agent remediation prompts alongside the manual steps. v1 lands the full bundle: AI-agent risks, language-dep CVEs, OS-package CVEs, and secrets (including AI chat transcripts). The dashboard auto-updates as the daemon finds things; resolved findings strikethrough, fade, and disappear without celebration.
+
+### Added
+- **Always-on daemon.** `audr daemon install / uninstall / start / stop / status` — per-OS user-level service via `kardianos/service` (launchd LaunchAgent on macOS, systemd `--user` on Linux, Windows Service Manager). PID-lock with `flock` / `LockFileEx`. State + logs under per-OS conventional dirs. `audr open` does liveness probe → auto-start → browser open in one step.
+- **Live local dashboard.** Plain HTTP on `127.0.0.1:<dynamic-port>` with a 256-bit token in the URL. Severity-grouped finding stream (Critical/High expanded, Medium/Low collapsed), category × severity filter pills, expand-to-detail with manual steps + paste-ready AI prompt, Copy AI Prompt with inline button feedback, SSE live updates. Banner stack below the top bar for scanner-unavailable / scanner-error / update-available / inotify-limit / remote-FS conditions, each with a per-session dismiss. Scan-progress strip during scan cycles. Resolved findings strikethrough, fade, then collapse over 5 seconds. `prefers-reduced-motion` honored throughout.
+- **SQLite state store.** WAL mode + single-writer goroutine pattern with prepared statements. Findings keyed on `sha256(rule_id || kind || canonicalized_locator || normalized_match)` so file rename / move doesn't re-introduce; mid-scan crashes get reconciled at next start. 90-day scan retention, 30-day resolved-finding retention.
+- **Hybrid watch + poll engine.** `fsnotify` on scoped tight-watch paths (git repos under $HOME, `~/.claude`, `~/.codex`, `~/.cursor`, AI chat transcript dirs, dotfiles). Periodic full-tree poll for the rest. Adaptive backoff state machine: RUN → SLOW (battery or load 2-4) → PAUSE (load >4). Linux inotify budget detection with graceful demote-to-poll + dashboard banner. Remote-FS detection (NFS / SMB / 9P / FUSE / WSL host mount) excludes those roots from tight-watch and surfaces a banner.
+- **OS-package CVE detection** for Linux distros OSV-Scanner covers (Debian, Ubuntu, RHEL, Rocky, Alma, CentOS, Fedora, Alpine) via dpkg / rpm / apk enumeration → CycloneDX 1.5 SBOM → `osv-scanner scan source -L`. macOS and Windows render fix commands (`brew upgrade`, `winget upgrade`) without CVE detection per OSV ecosystem coverage.
+- **AI chat transcript secret scanning.** TruffleHog wired to also walk `~/.claude/projects/*/sessions/*.jsonl` and `~/.codex/sessions/`. Catches the secrets developers paste into Claude Code or Codex while debugging.
+- **Native rule remediation templates.** Hand-authored handlers for all 20 v0.2 rules, the 11 OSV language ecosystems, the 3 OS-pkg managers, the top 10 TruffleHog detectors, 6 Mini-Shai-Hulud indicator-of-attack rules, and the 15 OpenClaw CVE-shaped rules. Each emits both manual steps and a paste-ready AI prompt scoped to a single well-defined change. Ecosystem flows teach diagnose-first — `npm why` / `pnpm why` / `cargo tree --invert` before any manifest edit — and the override-the-transitive fallback when the parent dep has no patched release.
+- **Auto-update foundation.** Daemon polls GitHub Releases once per 24h, caches the result, and surfaces a dashboard banner when a newer release is available with a link to the release page. No telemetry; the only outbound call is the public Releases API. Cache survives daemon restarts.
+- **Sidecar binary health checks.** Startup probe of `osv-scanner --version` and `trufflehog --version` against pinned minimums. Missing or outdated → category status = unavailable + dashboard banner pointing at `audr update-scanners`.
+- **HTML report restructure.** `audr scan -f html` output now groups by severity (matching the dashboard's information architecture) with a row-level kind badge (PACKAGE / SECRET / OTHER). The path-grouped view stays as a secondary "Browse by file" disclosure at the bottom. Verdict block and attack chain narratives preserved as report-unique editorial features.
+- **`DESIGN.md`.** Single source of truth for tokens, type, severity language, and component vocabulary across audr's three rendering surfaces (marketing site, dashboard, HTML report). Documents intentional drift, not aspirational unification.
+
+### Fixed
+- **CI test gate (`internal/server/dashboard/index.html` was gitignored).** The broad `*.html` ignore matched the dashboard's embedded HTML, so `//go:embed dashboard` silently produced an `embed.FS` without `index.html`. `TestIndexServesEmbeddedDashboard` has been failing on every CI run since the dashboard was introduced. Added the `!internal/server/dashboard/*.html` exception and tracked the file. CI tests now have a path to green.
+
+## [0.3.2] - 2026-05-13
+
+### Fixed
+- **`docs/sample-report.html` regenerated** to clear the CI staleness gate after a coverage-warning rendering tweak.
+
+## [0.3.1] - 2026-04-29
 
 Hotfix for the v0.3.0 install path.
 
