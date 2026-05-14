@@ -97,6 +97,14 @@ type Options struct {
 	// defaults to os.UserHomeDir().
 	HomeDir string
 
+	// StateDir is the daemon's state directory. Required when the
+	// orchestrator should honor scanner.config.json (user-controllable
+	// enable/disable per category). When empty, scanner config is
+	// not read — all categories run subject only to sidecar
+	// availability. Tests that don't care about user config can
+	// leave this empty.
+	StateDir string
+
 	// Logger receives orchestrator-level events. nil → discard.
 	Logger *slog.Logger
 }
@@ -312,12 +320,26 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	// Track which fingerprints we saw this cycle.
 	seen := map[string]struct{}{}
 
+	// Read user-controllable scanner enable/disable. When StateDir
+	// is empty (tests), or the file is missing, default to "all
+	// on" — the orchestrator still respects sidecar availability
+	// via Options.Run* fields.
+	scannerCfg := DefaultScannerConfig()
+	if o.opts.StateDir != "" {
+		if cfg, err := ReadScannerConfig(o.opts.StateDir); err != nil {
+			o.log.Warn("read scanner config (defaulting to all-on)", "err", err)
+		} else {
+			scannerCfg = cfg
+		}
+	}
+
 	// markRunning records the category as currently executing so the
 	// dashboard's scan-progress strip can highlight which scanner is
-	// busy mid-cycle. The terminal status (ok / error / unavailable)
-	// overwrites this via the UPSERT in RecordScannerStatus. Skipped
-	// when a category is unavailable up-front (no point flashing
-	// "running" for half a millisecond before "unavailable").
+	// busy mid-cycle. The terminal status (ok / error / unavailable
+	// / disabled) overwrites this via the UPSERT in
+	// RecordScannerStatus. Skipped when a category is disabled or
+	// unavailable up-front (no point flashing "running" for half a
+	// millisecond before the terminal state).
 	markRunning := func(category string) {
 		_ = o.opts.Store.RecordScannerStatus(state.ScannerStatus{
 			ScanID:   scanID,
@@ -326,13 +348,30 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 		})
 	}
 
+	// disabledStatus is the shape used when the user has turned a
+	// category off via scanner.config.json. Distinct from
+	// "unavailable" (sidecar not installed) so dashboards can show
+	// different banner copy.
+	disabledStatus := func(category string) state.ScannerStatus {
+		return state.ScannerStatus{
+			ScanID:    scanID,
+			Category:  category,
+			Status:    "disabled",
+			ErrorText: fmt.Sprintf("%s scanner disabled by user; run `audr daemon scanners --on=%s` to re-enable", category, category),
+		}
+	}
+
 	// --- Native rules + correlate (AI-Agent category) ----------------
-	markRunning("ai-agent")
 	nativeStatus := state.ScannerStatus{ScanID: scanID, Category: "ai-agent", Status: "ok"}
-	if err := o.runNative(ctx, scanID, seen); err != nil {
-		nativeStatus.Status = "error"
-		nativeStatus.ErrorText = err.Error()
-		o.log.Error("native scan failed", "err", err)
+	if !scannerCfg.AIAgent {
+		nativeStatus = disabledStatus("ai-agent")
+	} else {
+		markRunning("ai-agent")
+		if err := o.runNative(ctx, scanID, seen); err != nil {
+			nativeStatus.Status = "error"
+			nativeStatus.ErrorText = err.Error()
+			o.log.Error("native scan failed", "err", err)
+		}
 	}
 	if err := o.opts.Store.RecordScannerStatus(nativeStatus); err != nil {
 		o.log.Warn("record scanner status (native)", "err", err)
@@ -340,7 +379,9 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 
 	// --- TruffleHog (Secrets category) -------------------------------
 	secretsStatus := state.ScannerStatus{ScanID: scanID, Category: "secrets"}
-	if *o.opts.RunSecrets {
+	if !scannerCfg.Secrets {
+		secretsStatus = disabledStatus("secrets")
+	} else if *o.opts.RunSecrets {
 		markRunning("secrets")
 		if err := o.runSecrets(ctx, scanID, seen); err != nil {
 			secretsStatus.Status = "error"
@@ -358,11 +399,10 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	}
 
 	// --- OSV dependency scanner (Deps category) ----------------------
-	// Calls osv-scanner against the configured roots; converts each
-	// returned vulnerability into a kind="dep-package" state.Finding
-	// with {ecosystem, name, version, manifest_path} locator.
 	depsStatus := state.ScannerStatus{ScanID: scanID, Category: "deps"}
-	if !*o.opts.RunDeps {
+	if !scannerCfg.Deps {
+		depsStatus = disabledStatus("deps")
+	} else if !*o.opts.RunDeps {
 		depsStatus.Status = "unavailable"
 		depsStatus.ErrorText = "osv-scanner not installed; run `audr update-scanners --backend osv-scanner --yes`"
 	} else {
@@ -380,13 +420,10 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	}
 
 	// --- OS-package enumerator (OS-Pkg category) ---------------------
-	// Linux distros covered by OSV (dpkg / rpm / apk): enumerate
-	// installed packages, feed them to osv-scanner via CycloneDX SBOM,
-	// upsert any returned vulnerabilities as kind="os-package"
-	// state.Findings. macOS / Windows / unknown distros: record
-	// "unavailable" with a friendly reason.
 	osPkgStatus := state.ScannerStatus{ScanID: scanID, Category: "os-pkg"}
-	if !*o.opts.RunOSPkg {
+	if !scannerCfg.OSPkg {
+		osPkgStatus = disabledStatus("os-pkg")
+	} else if !*o.opts.RunOSPkg {
 		osPkgStatus.Status = "unavailable"
 		_, osPkgStatus.ErrorText = ospkg.Available()
 		if osPkgStatus.ErrorText == "" {
