@@ -577,11 +577,14 @@
         cls = 'unavailable'; stateLabel = 'OFF';
       } else if (stateName === 'outdated')    { cls = 'unavailable'; stateLabel = 'OUTDATED'; }
 
-      const isOff = userDisabled;
+      // userEnabled is the source of truth for the toggle: false
+      // when the user explicitly disabled the category. Passed
+      // verbatim to toggleScanner as currentlyEnabled.
+      const userEnabled = !userDisabled;
       const labelEl = SCAN_CATEGORY_LABEL[cat];
-      const toggleTitle = isOff
-        ? `Click to enable ${labelEl} scanning`
-        : `Click to disable ${labelEl} scanning`;
+      const toggleTitle = userEnabled
+        ? `Click to disable ${labelEl} scanning`
+        : `Click to enable ${labelEl} scanning`;
       ol.append(el(
         'li',
         {
@@ -589,11 +592,11 @@
           title: toggleTitle,
           role: 'button',
           tabindex: '0',
-          onclick: () => toggleScanner(cat, isOff),
+          onclick: () => toggleScanner(cat, userEnabled),
           onkeydown: (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              toggleScanner(cat, isOff);
+              toggleScanner(cat, userEnabled);
             }
           },
         },
