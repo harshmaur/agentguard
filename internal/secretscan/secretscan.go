@@ -116,21 +116,52 @@ func UpdatePlan() ScannerUpdatePlan {
 	return plan
 }
 
+// RunUpdatePlan attempts each BinaryCommand in order, treating them
+// as ALTERNATIVES not sequential steps. The first command that
+// succeeds wins; the rest are skipped. Returns the last error only
+// when every command fails.
+//
+// Why fallbacks vs. steps: on Linux the plan is
+//   1. "brew upgrade trufflehog || brew install trufflehog"
+//   2. "go install github.com/trufflesecurity/trufflehog/v3@latest"
+// A user with brew installed correctly gets trufflehog from brew at
+// step 1. Step 2 is for users without brew. Previously this loop
+// returned on the first ERROR, but also kept iterating after a
+// successful command — which means a brew-installed user would run
+// step 1 successfully and then ALSO trigger step 2, where go install
+// fails because TruffleHog's go.mod uses replace directives. The
+// observed error message:
+//   go: ... requires go >= 1.25.0; switching to go1.25.10
+//   go: ... The go.mod file ... contains one or more replace
+//   directives. It must not contain directives that would cause it
+//   to be interpreted differently than if it were the main module.
+//
+// Treating the list as fallbacks fixes that for any package whose
+// alternative installers are listed in preference order.
 func RunUpdatePlan(ctx context.Context, plan ScannerUpdatePlan, opts UpdateOptions) error {
 	runner := opts.Runner
 	if runner == nil {
 		runner = execRunner{}
 	}
+	var lastErr error
+	attempted := 0
 	for _, command := range plan.BinaryCommands {
 		command = strings.TrimSpace(command)
 		if command == "" {
 			continue
 		}
+		attempted++
 		if _, err := runner.Run(ctx, shellName(), shellFlag(), command); err != nil {
-			return err
+			lastErr = err
+			continue
 		}
+		// First success wins.
+		return nil
 	}
-	return nil
+	if attempted == 0 {
+		return nil // no commands defined → nothing to do, not an error
+	}
+	return lastErr
 }
 
 func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error) {

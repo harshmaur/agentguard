@@ -165,6 +165,66 @@ func TestRunBackendPassesScanignoreExcludeFile(t *testing.T) {
 	}
 }
 
+// TestRunUpdatePlanTreatsCommandsAsFallbacks pins the semantic that
+// BinaryCommands are alternatives, not sequential steps. A user
+// with a working brew install of trufflehog would otherwise hit the
+// go-install fallback (which fails because TruffleHog's go.mod has
+// replace directives) right after brew succeeded.
+func TestRunUpdatePlanTreatsCommandsAsFallbacks(t *testing.T) {
+	t.Run("first command succeeds, rest are skipped", func(t *testing.T) {
+		var calls []string
+		runner := CommandRunnerFunc(func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			calls = append(calls, strings.Join(args, " "))
+			return nil, nil // success
+		})
+		plan := ScannerUpdatePlan{
+			Name: "TruffleHog",
+			BinaryCommands: []string{
+				"brew upgrade trufflehog",
+				"go install github.com/trufflesecurity/trufflehog/v3@latest",
+			},
+		}
+		if err := RunUpdatePlan(context.Background(), plan, UpdateOptions{Runner: runner}); err != nil {
+			t.Fatalf("RunUpdatePlan: %v", err)
+		}
+		if len(calls) != 1 {
+			t.Errorf("commands run = %d, want 1 (first success should stop iteration)\n  got: %v", len(calls), calls)
+		}
+	})
+	t.Run("first command fails, falls back to second", func(t *testing.T) {
+		var calls []string
+		runner := CommandRunnerFunc(func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			calls = append(calls, strings.Join(args, " "))
+			if len(calls) == 1 {
+				return nil, errBoom{}
+			}
+			return nil, nil // second one succeeds
+		})
+		plan := ScannerUpdatePlan{
+			Name:           "TruffleHog",
+			BinaryCommands: []string{"brew upgrade trufflehog", "go install ..."},
+		}
+		if err := RunUpdatePlan(context.Background(), plan, UpdateOptions{Runner: runner}); err != nil {
+			t.Fatalf("RunUpdatePlan should have succeeded via fallback: %v", err)
+		}
+		if len(calls) != 2 {
+			t.Errorf("commands run = %d, want 2 (fallback after first fails)", len(calls))
+		}
+	})
+	t.Run("all commands fail, returns last error", func(t *testing.T) {
+		runner := CommandRunnerFunc(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return nil, errBoom{}
+		})
+		plan := ScannerUpdatePlan{
+			Name:           "TruffleHog",
+			BinaryCommands: []string{"x", "y"},
+		}
+		if err := RunUpdatePlan(context.Background(), plan, UpdateOptions{Runner: runner}); err == nil {
+			t.Fatal("RunUpdatePlan should have errored when every command fails")
+		}
+	})
+}
+
 func TestInstallAndUpdatePlans(t *testing.T) {
 	install := InstallPlan()
 	if install.Name != "TruffleHog" || len(install.Commands) == 0 {
