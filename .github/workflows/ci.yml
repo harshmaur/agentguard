@@ -104,6 +104,90 @@ jobs:
             exit 1
           fi
 
+  # test-windows verifies the Windows-tagged code actually compiles
+  # AND its tests pass on a real Windows host. The Linux test job
+  # already cross-compiles ./... for windows/amd64 implicitly via
+  # go test -count=1 ./..., but cross-compiling proves only "imports
+  # resolve" — it doesn't run test bodies. This job:
+  #
+  #   - exercises TestRunnerWindowsLowPriority (skipped on Linux)
+  #   - runs the schtasks XML composer + status parser unit tests
+  #     under the windows build tag
+  #   - confirms the PowerShell toaster fallback compiles + runs in
+  #     beeep mode without a windows toaster (lane A continuation
+  #     deferred per Codex review)
+  #
+  # No integration shell scripts here — windows-latest runners don't
+  # ship jq + sed + a deterministic diff. That coverage stays on the
+  # ubuntu job.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+          cache: true
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test (race detector, unit only)
+        run: go test -race -count=1 ./...
+
+      - name: build
+        run: go build -v ./cmd/audr
+
+      - name: smoke — audr version + self-audit
+        shell: pwsh
+        run: |
+          ./audr.exe version
+          ./audr.exe self-audit --json | Out-Null
+
+      - name: smoke — clean fixture must have zero findings
+        shell: pwsh
+        run: |
+          ./audr.exe scan -f json testdata/laptops/clean | Set-Content scan-clean.json
+          $count = (Get-Content scan-clean.json | ConvertFrom-Json).stats.total
+          if ($count -ne 0) {
+            Write-Error "expected 0 findings on clean fixture, got $count"
+            exit 1
+          }
+
+  # test-macos covers the Darwin-tagged code (darwinToaster +
+  # terminal-notifier probe + osascript fallback + the macOS preflight
+  # diagnostics). Compile-only on Linux only proves imports — actually
+  # running the tests on macos-latest catches platform regressions
+  # like the v0.5.4 PATH-augment bug.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+          cache: true
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test (race detector, unit only)
+        run: go test -race -count=1 ./...
+
+      - name: build
+        run: go build -v ./cmd/audr
+
+      - name: smoke — audr version + self-audit
+        run: |
+          ./audr version
+          ./audr self-audit --json > /dev/null
+
   fuzz:
     runs-on: ubuntu-latest
     steps:
