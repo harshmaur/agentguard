@@ -212,12 +212,53 @@ func applyDefaults(o Options) Options {
 		o.ScanTimeout = 60 * time.Second
 	}
 	if len(o.SkipDirs) == 0 {
-		o.SkipDirs = []string{
-			"node_modules", "vendor", ".git", "dist", "build", "target",
-			"__pycache__", ".next", ".cache",
-		}
+		o.SkipDirs = defaultSkipDirs()
 	}
 	return o
+}
+
+// defaultSkipDirs is the basename-only skip list applied during the
+// walker's DirEntry loop. Entries match by basename anywhere in the
+// tree — so listing "node_modules" once skips every node_modules dir
+// under any scan root.
+//
+// Cross-platform: Linux + macOS entries first, Windows-specific
+// entries after. Windows entries are no-ops on Linux/macOS because
+// the basenames simply don't appear there. Listing them here (rather
+// than in a *_windows.go file) keeps the skip-list semantics
+// portable when scanning a Windows volume mounted on a Linux host —
+// e.g. via WSL or a forensics workstation walking a Windows backup.
+//
+// Entries to NOT add despite being noise:
+//
+//   - "Temp" (basename match too greedy — collides with legit
+//     project Temp dirs; the user often has $HOME/repos/x/Temp)
+//   - "OneDrive" (it's user-data; walking it is correct, just slow.
+//     Users who want it skipped pass --skip OneDrive explicitly)
+//   - ".vscode" (could contain MCP-relevant configs in the future)
+func defaultSkipDirs() []string {
+	return []string{
+		// POSIX / cross-platform caches and build outputs.
+		"node_modules", "vendor", ".git", "dist", "build", "target",
+		"__pycache__", ".next", ".cache",
+
+		// Windows AppData caches. These show up under
+		// %LOCALAPPDATA% / %APPDATA% as basenames. Walking them on a
+		// Windows machine eats minutes scanning binary blobs and
+		// browser caches that contain zero audr-relevant content.
+		"INetCache",   // Edge / IE cached pages and images
+		"WindowsApps", // UWP / Microsoft Store app installs (binary tree)
+		"NuGet",       // %APPDATA%\NuGet package cache
+		".nuget",      // lowercase global package cache
+		"npm-cache",   // %APPDATA%\npm-cache (separate from project node_modules)
+
+		// Go build cache. `pkg` is deliberately NOT skipped — it
+		// collides with legitimate Go source directories
+		// (`myproject/pkg/...` is a widespread layout convention).
+		// The format-detection short-circuit at line 345 handles
+		// the per-file cost of walking $GOPATH/pkg/mod anyway.
+		"go-build", // $GOCACHE artifact tree
+	}
 }
 
 type workerStat struct {

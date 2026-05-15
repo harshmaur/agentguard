@@ -169,6 +169,86 @@ func TestScan_TimeoutHonored(t *testing.T) {
 	_ = err
 }
 
+// TestScan_DefaultSkipDirsCoverWindowsCaches: the default skip list
+// must include the Windows AppData cache basenames so a Windows
+// $HOME scan doesn't tank on browser caches and UWP app trees.
+// Anchored as a regression: each addition to defaultSkipDirs() is a
+// deliberate choice and dropping any of these silently makes Windows
+// scans 10x slower.
+func TestScan_DefaultSkipDirsCoverWindowsCaches(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Plant noise inside basenames we expect to be skipped. Each
+	// directory contains a file with a name DetectFormat would
+	// recognize (so a non-skipped walk would enqueue it). If the
+	// skip works, the file is invisible to the scanner.
+	cacheBasenames := []string{
+		"INetCache",
+		"WindowsApps",
+		"NuGet",
+		".nuget",
+		"npm-cache",
+		"go-build",
+	}
+	for _, base := range cacheBasenames {
+		dir := filepath.Join(tmp, base)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// .mcp.json is a recognized format; planting it here makes
+		// the test fail if the skip didn't take.
+		mcp := filepath.Join(dir, ".mcp.json")
+		if err := os.WriteFile(mcp, []byte(`{"mcpServers":{"x":{"command":"npx"}}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := scan.Run(context.Background(), scan.Options{Roots: []string{tmp}})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, f := range res.Findings {
+		for _, base := range cacheBasenames {
+			if strings.Contains(f.Path, string(os.PathSeparator)+base+string(os.PathSeparator)) {
+				t.Errorf("finding from inside skipped dir %q: %s at %s",
+					base, f.RuleID, f.Path)
+			}
+		}
+	}
+}
+
+// TestScan_PkgBasenameNotSkipped: the symmetric regression. `pkg` is
+// deliberately NOT in the skip list because it collides with the
+// widespread Go layout convention (myproject/pkg/...). A finding
+// under `tmp/pkg/.mcp.json` MUST surface.
+func TestScan_PkgBasenameNotSkipped(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "pkg")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mcp := filepath.Join(dir, ".mcp.json")
+	// Use a config that fires unpinned-npx (a high-confidence rule)
+	// so this test doesn't depend on the exact rule corpus.
+	if err := os.WriteFile(mcp, []byte(`{"mcpServers":{"x":{"command":"npx","args":["@modelcontextprotocol/server-fs"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := scan.Run(context.Background(), scan.Options{Roots: []string{tmp}})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	saw := false
+	for _, f := range res.Findings {
+		if strings.HasSuffix(f.Path, filepath.Join("pkg", ".mcp.json")) {
+			saw = true
+			break
+		}
+	}
+	if !saw {
+		t.Errorf("pkg/.mcp.json should NOT be skipped (collides with Go layout)")
+	}
+}
+
 // repoRoot returns the audr module root by walking up from the test's
 // working directory until go.mod is found.
 func repoRoot(t *testing.T) string {
