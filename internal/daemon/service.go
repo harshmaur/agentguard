@@ -5,10 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
-	"time"
-
-	"github.com/kardianos/service"
 )
 
 // ServiceConfig captures the per-install knobs for the daemon's OS-level
@@ -17,7 +13,7 @@ import (
 type ServiceConfig struct {
 	// Name is the OS-level service identifier ("audr-daemon"). This is
 	// what shows up in `systemctl --user list-units`, `launchctl list`,
-	// `sc query`, etc. Must be filesystem-safe.
+	// `schtasks /Query`, etc. Must be filesystem-safe.
 	Name string
 
 	// DisplayName is the human-friendly label.
@@ -47,13 +43,40 @@ func DefaultServiceConfig() ServiceConfig {
 	}
 }
 
-// Service wraps a kardianos service.Service so callers don't have to
-// import kardianos themselves. The wrapped Service is the OS-specific
-// thing that knows how to talk to launchd / systemd / Windows SC.
+// Service is the public face of the daemon's OS-level service entry.
+// Methods are routed through a per-OS backend:
+//
+//   - Linux / macOS / BSD: kardianos/service (LaunchAgent / systemd --user)
+//   - Windows: Scheduled Task at user logon via schtasks.exe shell-out
+//
+// The Windows split exists because kardianos's Windows backend uses
+// the Service Control Manager, which lives in Session 0 — the
+// "non-interactive desktop" Microsoft introduced in Vista. A process
+// running in Session 0 cannot deliver toast notifications to the
+// user's desktop, which breaks audr's click-to-open contract. A
+// per-user Scheduled Task runs in the user's logon session and
+// reaches the desktop normally.
 type Service struct {
-	svc    service.Service
-	prog   *serviceProgram
-	cfg    ServiceConfig
+	cfg     ServiceConfig
+	backend serviceBackend
+}
+
+// serviceBackend is the per-OS install/lifecycle surface the
+// platform-specific files (service_kardianos.go, service_windows.go)
+// implement. Methods mirror Service's public API; Service.Method just
+// dispatches.
+//
+// Status returns one of: "running", "stopped", "not-installed",
+// "unknown". Run executes the daemon's main loop under the backend's
+// service-manager protocol (or, for the schtasks backend, just calls
+// the run callback with signal-aware ctx).
+type serviceBackend interface {
+	Install() error
+	Uninstall() error
+	Start() error
+	Stop() error
+	Status() (string, error)
+	Run() error
 }
 
 // NewService builds a Service ready to Install / Uninstall / Start /
@@ -77,28 +100,11 @@ func NewService(cfg ServiceConfig, run func(ctx context.Context) error) (*Servic
 		cfg.Args = []string{"daemon", "run-internal"}
 	}
 
-	prog := &serviceProgram{run: run}
-	svcCfg := &service.Config{
-		Name:        cfg.Name,
-		DisplayName: cfg.DisplayName,
-		Description: cfg.Description,
-		Executable:  cfg.ExecPath,
-		Arguments:   cfg.Args,
-		Option:      service.KeyValue{},
-	}
-	// On Linux, kardianos defaults to system services. We force user
-	// scope so we never touch /etc/systemd/system or require admin.
-	if runtime.GOOS == "linux" {
-		svcCfg.Option["UserService"] = true
-	}
-
-	svc, err := service.New(prog, svcCfg)
+	backend, err := newServiceBackend(cfg, run)
 	if err != nil {
-		return nil, fmt.Errorf("service: construct: %w", err)
+		return nil, err
 	}
-	prog.svc = svc
-
-	return &Service{svc: svc, prog: prog, cfg: cfg}, nil
+	return &Service{cfg: cfg, backend: backend}, nil
 }
 
 // Install registers the daemon with the host OS service manager.
@@ -106,17 +112,17 @@ func NewService(cfg ServiceConfig, run func(ctx context.Context) error) (*Servic
 // re-install with a changed ExecPath (re-Install is required after
 // upgrade).
 func (s *Service) Install() error {
-	if err := s.svc.Install(); err != nil {
+	if err := s.backend.Install(); err != nil {
 		return fmt.Errorf("service install: %w", err)
 	}
 	return nil
 }
 
 // Uninstall removes the OS service registration. Safe to call on a
-// not-installed service; returns the underlying error so callers can
-// distinguish.
+// not-installed service; the backend translates "not installed" into
+// either a successful no-op or a typed error the caller can branch on.
 func (s *Service) Uninstall() error {
-	if err := s.svc.Uninstall(); err != nil {
+	if err := s.backend.Uninstall(); err != nil {
 		return fmt.Errorf("service uninstall: %w", err)
 	}
 	return nil
@@ -124,10 +130,10 @@ func (s *Service) Uninstall() error {
 
 // Start asks the OS service manager to start the daemon. This is the
 // equivalent of `systemctl --user start audr-daemon`, `launchctl
-// kickstart`, or `sc start`. Returns once the service manager has
-// accepted the request; the daemon may still be initializing.
+// kickstart`, or `schtasks /Run`. Returns once the service manager
+// has accepted the request; the daemon may still be initializing.
 func (s *Service) Start() error {
-	if err := s.svc.Start(); err != nil {
+	if err := s.backend.Start(); err != nil {
 		return fmt.Errorf("service start: %w", err)
 	}
 	return nil
@@ -136,7 +142,7 @@ func (s *Service) Start() error {
 // Stop asks the OS service manager to stop the daemon. Returns once the
 // request is accepted; teardown completes asynchronously.
 func (s *Service) Stop() error {
-	if err := s.svc.Stop(); err != nil {
+	if err := s.backend.Stop(); err != nil {
 		return fmt.Errorf("service stop: %w", err)
 	}
 	return nil
@@ -146,95 +152,24 @@ func (s *Service) Stop() error {
 // manager sees it. Returns one of "running", "stopped",
 // "not-installed", or "unknown".
 func (s *Service) Status() (string, error) {
-	st, err := s.svc.Status()
-	if err != nil {
-		// kardianos returns errors for both "not installed" and "can't
-		// determine". Normalize: ErrNotInstalled becomes the
-		// not-installed string.
-		if errors.Is(err, service.ErrNotInstalled) {
-			return "not-installed", nil
-		}
-		return "", fmt.Errorf("service status: %w", err)
-	}
-	switch st {
-	case service.StatusRunning:
-		return "running", nil
-	case service.StatusStopped:
-		return "stopped", nil
-	default:
-		return "unknown", nil
-	}
+	return s.backend.Status()
 }
 
 // RunAsService blocks running the daemon under the host OS service
 // manager. This is the call the `audr daemon run-internal` subcommand
 // makes — the OS service manager invokes us with those args, we hand
-// control to kardianos, kardianos calls our Start callback, our Start
-// callback runs Lifecycle.Run, and we block until the service manager
-// asks us to stop.
+// control to the backend, the backend invokes the configured run
+// callback, and we block until the service manager asks us to stop.
 //
-// In interactive mode (running the same subcommand from a terminal),
-// kardianos detects it via service.Interactive() and routes
-// appropriately — the daemon runs in the foreground attached to the
-// terminal, Ctrl-C cancels.
+// On Linux/macOS the backend is kardianos and the service-manager
+// protocol routes Start/Stop callbacks through serviceProgram. On
+// Windows under a Scheduled Task there is no service-manager
+// protocol — the task simply spawns us as a user process. The
+// Windows backend's Run wires signal handling so a `schtasks /End`
+// (which sends CTRL_BREAK_EVENT) cleanly cancels the run-context.
 func (s *Service) RunAsService() error {
-	if s.prog.run == nil {
-		return errors.New("service: RunAsService called without a configured run callback")
-	}
-	if err := s.svc.Run(); err != nil {
+	if err := s.backend.Run(); err != nil {
 		return fmt.Errorf("service run: %w", err)
-	}
-	return nil
-}
-
-// IsInteractive reports whether the current process appears to be a
-// user-launched CLI (true) vs being run by a service manager (false).
-// Useful in `audr daemon run-internal` to decide whether to wire up
-// signal handling identically — which we always do anyway, but the
-// information is useful for telemetry and logging.
-func IsInteractive() bool {
-	return service.Interactive()
-}
-
-// serviceProgram implements kardianos/service.Interface. It bridges the
-// service manager's Start/Stop semantics to our Lifecycle.Run model:
-// Start spawns a goroutine that calls run(ctx); Stop cancels the
-// context and waits up to a short grace period for the run to return.
-type serviceProgram struct {
-	run    func(ctx context.Context) error
-	svc    service.Service
-	cancel context.CancelFunc
-	done   chan struct{}
-}
-
-func (p *serviceProgram) Start(_ service.Service) error {
-	// Start MUST NOT block — the service manager expects a quick return.
-	// We spawn a goroutine for the actual daemon body.
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
-	p.done = make(chan struct{})
-	go func() {
-		defer close(p.done)
-		if err := p.run(ctx); err != nil {
-			// Surface to the service manager's log so a failed daemon
-			// is visible without grep-ing audr's own log file.
-			_, _ = os.Stderr.WriteString("audr daemon: " + err.Error() + "\n")
-		}
-	}()
-	return nil
-}
-
-func (p *serviceProgram) Stop(_ service.Service) error {
-	if p.cancel == nil {
-		return nil
-	}
-	p.cancel()
-	// Bounded wait: we don't want the service manager to hang
-	// indefinitely if a subsystem misbehaves.
-	select {
-	case <-p.done:
-	case <-time.After(15 * time.Second):
-		return errors.New("audr daemon: stop timed out waiting for subsystems to drain")
 	}
 	return nil
 }
