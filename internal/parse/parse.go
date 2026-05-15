@@ -41,6 +41,8 @@ func Parse(path string, raw []byte) *Document {
 		doc.ParseError = err
 	case FormatShellRC:
 		doc.ShellRC = parseShellRC(raw)
+	case FormatPowerShellProfile:
+		doc.PowerShellProfile = parsePowerShellProfile(raw)
 	case FormatEnv:
 		doc.Env = parseEnvFile(raw)
 	case FormatCodexConfig:

@@ -19,6 +19,7 @@ const (
 	FormatAgentDoc              Format = "agent-doc"                // AGENTS.md, CLAUDE.md, CODEX.md, GEMINI.md, .cursorrules
 	FormatGHAWorkflow           Format = "gha-workflow"             // .github/workflows/*.yml
 	FormatShellRC               Format = "shellrc"                  // .bashrc, .zshrc, .profile, etc.
+	FormatPowerShellProfile     Format = "powershell-profile"       // Microsoft.PowerShell_profile.ps1, $PROFILE
 	FormatEnv                   Format = "env"                      // .env, .env.local, .env.example
 	FormatCodexConfig           Format = "codex-config"             // ~/.codex/config.toml, .codex/config.toml (v0.2)
 	FormatWindsurfMCP           Format = "windsurf-mcp"             // ~/.codeium/windsurf/mcp_config.json (v0.2.0-alpha.3)
@@ -43,6 +44,7 @@ type Document struct {
 	AgentDoc           *AgentDoc
 	Workflow           *Workflow
 	ShellRC            *ShellRC
+	PowerShellProfile  *PowerShellProfile
 	Env                *EnvFile
 	CodexConfig        *CodexConfig       // v0.2
 	WindsurfMCP        *WindsurfMCP       // v0.2.0-alpha.3
@@ -134,6 +136,55 @@ type ShellRC struct {
 	Sources []string
 	// Lines retains line numbers for each EnvVar by name.
 	EnvVarLines map[string]int
+}
+
+// PowerShellProfile is a parsed PowerShell profile script
+// (Microsoft.PowerShell_profile.ps1 and friends). Same shape as
+// ShellRC: rule authors get a flat list of env-var assignments,
+// dot-sourced files, aliases, and module imports. The parser is
+// deliberately not a full PowerShell AST — heredocs (`@'...'@` /
+// `@"..."@`), command substitution, and function bodies are out
+// of scope. Rules that need those run against the raw text.
+type PowerShellProfile struct {
+	// EnvVars are $env:KEY = "value" assignments. Bare $var = ...
+	// assignments are tracked in Vars instead.
+	EnvVars     map[string]string
+	EnvVarLines map[string]int
+
+	// Vars are bare $var = ... assignments (excluding $env:* which
+	// land in EnvVars).
+	Vars     map[string]string
+	VarLines map[string]int
+
+	// Sources are dot-sourced scripts: `. ./other.ps1` or
+	// `. C:\path\to\script.ps1`.
+	Sources []string
+
+	// Modules are Import-Module / Add-PSSnapin / Using module
+	// targets. The value is the module name or path as written.
+	Modules []string
+
+	// Aliases are Set-Alias / New-Alias mappings: alias name → value.
+	Aliases     map[string]string
+	AliasLines  map[string]int
+
+	// Pipelines is a list of pipeline expressions detected on a
+	// single source line (the line is split into stages by `|`).
+	// Rules use this to flag dangerous patterns like
+	// `Invoke-WebRequest <url> | Invoke-Expression`.
+	Pipelines []PowerShellPipeline
+
+	// Lines is the line-split source. Rules with line-number
+	// reporting can index by 0-based line index.
+	Lines []string
+}
+
+// PowerShellPipeline is one pipeline expression as it appeared on a
+// single line. Stages preserves the raw text of each pipeline stage
+// in left-to-right order; Line is 1-based for finding emission.
+type PowerShellPipeline struct {
+	Stages []string
+	Line   int
 }
 
 // EnvFile is a parsed .env-style file.
@@ -277,9 +328,20 @@ type CodexMCPServer struct {
 
 // DetectFormat picks a Format based on the file path. Returns FormatUnknown
 // for files that aren't Audr-relevant.
+//
+// Normalizes backslashes to forward slashes before basename
+// extraction so a Windows-native path passed in from a cross-platform
+// scan (e.g. `C:\Users\X\.bashrc`) detects the same on Linux/macOS
+// hosts as it does on Windows. filepath.Base is OS-aware and on Linux
+// would return the whole string for a backslash-separated path.
 func DetectFormat(path string) Format {
-	base := filepath.Base(path)
-	dir := filepath.Dir(path)
+	// Use ToSlash for the basename extraction so backslash-separated
+	// Windows paths classify correctly even when audr runs on a
+	// non-Windows host. The original path is preserved for any
+	// downstream rule that needs the native separator.
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	base := filepath.Base(normalized)
+	dir := filepath.Dir(normalized)
 
 	// MCP configs.
 	switch base {
@@ -353,6 +415,19 @@ func DetectFormat(path string) Format {
 	switch base {
 	case ".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile":
 		return FormatShellRC
+	}
+
+	// PowerShell profile + history. Windows agent users land
+	// settings here, and PSReadLine_history.txt is a known
+	// secret-leak surface (commands the user typed at the prompt
+	// land in plaintext). Same parser handles both; rules
+	// distinguish by basename when they need to.
+	switch base {
+	case "Microsoft.PowerShell_profile.ps1",
+		"Microsoft.VSCode_profile.ps1",
+		"profile.ps1",
+		"ConsoleHost_history.txt":
+		return FormatPowerShellProfile
 	}
 
 	// Env files.
