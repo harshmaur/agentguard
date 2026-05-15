@@ -307,20 +307,32 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	o.log.Info("scan cycle started", "scan_id", scanID, "roots", o.opts.Roots)
 
 	// Snapshot of previously-open fingerprints — anything in this set
-	// that we DON'T re-detect this cycle gets resolved at the end.
-	previouslyOpen := map[string]struct{}{}
+	// that we DON'T re-detect this cycle MAY get resolved at the end,
+	// but only if its scanner actually ran successfully this cycle.
+	// Storing the category lets the resolution loop below check the
+	// scanner's terminal status (ok / error / disabled / unavailable)
+	// before resolving — see the per-category gate below.
+	previouslyOpen := map[string]string{} // fingerprint → category
 	if existing, err := o.opts.Store.SnapshotFindings(ctx); err == nil {
 		for _, f := range existing {
 			if f.Open() {
-				previouslyOpen[f.Fingerprint] = struct{}{}
+				previouslyOpen[f.Fingerprint] = f.Category
 			}
 		}
 	} else {
 		o.log.Warn("snapshot existing findings failed; resolution detection skipped this cycle", "err", err)
 	}
 
-	// Track which fingerprints we saw this cycle.
-	seen := map[string]struct{}{}
+	// Per-scanner seen sets. Each scanner gets its own map so the
+	// sidecar goroutines below don't need to share mutable state;
+	// runOnce unions them before the resolution loop. The state.Store
+	// is already single-writer-safe (writerLoop goroutine), so the
+	// Store.UpsertFinding calls inside each run* can fire concurrently
+	// without a mutex.
+	nativeSeen := map[string]struct{}{}
+	secretsSeen := map[string]struct{}{}
+	depsSeen := map[string]struct{}{}
+	osPkgSeen := map[string]struct{}{}
 
 	// Read user-controllable scanner enable/disable. When StateDir
 	// is empty (tests), or the file is missing, default to "all
@@ -364,12 +376,16 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	}
 
 	// --- Native rules + correlate (AI-Agent category) ----------------
+	// Native runs first, alone. It walks the configured roots looking
+	// for AI agent config files — fast (seconds), but it competes for
+	// FS read bandwidth with TruffleHog's $HOME walk, so we serialize
+	// the two to avoid doubling page-cache pressure on the user's box.
 	nativeStatus := state.ScannerStatus{ScanID: scanID, Category: "ai-agent", Status: "ok"}
 	if !scannerCfg.AIAgent {
 		nativeStatus = disabledStatus("ai-agent")
 	} else {
 		markRunning("ai-agent")
-		if err := o.runNative(ctx, scanID, seen); err != nil {
+		if err := o.runNative(ctx, scanID, nativeSeen); err != nil {
 			nativeStatus.Status = "error"
 			nativeStatus.ErrorText = err.Error()
 			o.log.Error("native scan failed", "err", err)
@@ -379,70 +395,109 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 		o.log.Warn("record scanner status (native)", "err", err)
 	}
 
-	// --- TruffleHog (Secrets category) -------------------------------
-	secretsStatus := state.ScannerStatus{ScanID: scanID, Category: "secrets"}
-	if !scannerCfg.Secrets {
-		secretsStatus = disabledStatus("secrets")
-	} else if *o.opts.RunSecrets {
+	// --- Sidecar scanners (secrets / deps / os-pkg) in parallel ------
+	// These three are largely independent: TruffleHog is CPU+disk
+	// (capped at one worker), osv-scanner for deps + os-pkg is
+	// dominated by network IO against api.osv.dev. Running them
+	// sequentially burned ~30s per cycle waiting on osv when
+	// TruffleHog wasn't using the network anyway. State.Store is
+	// single-writer-safe (writerLoop goroutine in internal/state), so
+	// concurrent UpsertFinding calls are fine without a mutex.
+	var (
+		secretsStatus = state.ScannerStatus{ScanID: scanID, Category: "secrets"}
+		depsStatus    = state.ScannerStatus{ScanID: scanID, Category: "deps"}
+		osPkgStatus   = state.ScannerStatus{ScanID: scanID, Category: "os-pkg"}
+		sidecarsWG    sync.WaitGroup
+	)
+
+	sidecarsWG.Add(3)
+	go func() {
+		defer sidecarsWG.Done()
+		if !scannerCfg.Secrets {
+			secretsStatus = disabledStatus("secrets")
+			return
+		}
+		if !*o.opts.RunSecrets {
+			secretsStatus.Status = "unavailable"
+			secretsStatus.ErrorText = "trufflehog not installed; run `audr update-scanners` to enable secret scanning"
+			return
+		}
 		markRunning("secrets")
-		if err := o.runSecrets(ctx, scanID, seen); err != nil {
+		if err := o.runSecrets(ctx, scanID, secretsSeen); err != nil {
 			secretsStatus.Status = "error"
 			secretsStatus.ErrorText = err.Error()
 			o.log.Error("secrets scan failed", "err", err)
-		} else {
-			secretsStatus.Status = "ok"
+			return
 		}
-	} else {
-		secretsStatus.Status = "unavailable"
-		secretsStatus.ErrorText = "trufflehog not installed; run `audr update-scanners` to enable secret scanning"
-	}
-	if err := o.opts.Store.RecordScannerStatus(secretsStatus); err != nil {
-		o.log.Warn("record scanner status (secrets)", "err", err)
-	}
+		secretsStatus.Status = "ok"
+	}()
 
-	// --- OSV dependency scanner (Deps category) ----------------------
-	depsStatus := state.ScannerStatus{ScanID: scanID, Category: "deps"}
-	if !scannerCfg.Deps {
-		depsStatus = disabledStatus("deps")
-	} else if !*o.opts.RunDeps {
-		depsStatus.Status = "unavailable"
-		depsStatus.ErrorText = "osv-scanner not installed; run `audr update-scanners --backend osv-scanner --yes`"
-	} else {
+	go func() {
+		defer sidecarsWG.Done()
+		if !scannerCfg.Deps {
+			depsStatus = disabledStatus("deps")
+			return
+		}
+		if !*o.opts.RunDeps {
+			depsStatus.Status = "unavailable"
+			depsStatus.ErrorText = "osv-scanner not installed; run `audr update-scanners --backend osv-scanner --yes`"
+			return
+		}
 		markRunning("deps")
-		if err := o.runDeps(ctx, scanID, seen); err != nil {
+		if err := o.runDeps(ctx, scanID, depsSeen); err != nil {
 			depsStatus.Status = "error"
 			depsStatus.ErrorText = err.Error()
 			o.log.Error("deps scan failed", "err", err)
-		} else {
-			depsStatus.Status = "ok"
+			return
 		}
+		depsStatus.Status = "ok"
+	}()
+
+	go func() {
+		defer sidecarsWG.Done()
+		if !scannerCfg.OSPkg {
+			osPkgStatus = disabledStatus("os-pkg")
+			return
+		}
+		if !*o.opts.RunOSPkg {
+			osPkgStatus.Status = "unavailable"
+			_, osPkgStatus.ErrorText = ospkg.Available()
+			if osPkgStatus.ErrorText == "" {
+				osPkgStatus.ErrorText = "OS-package CVE detection disabled by configuration"
+			}
+			return
+		}
+		markRunning("os-pkg")
+		if err := o.runOSPkg(ctx, scanID, osPkgSeen); err != nil {
+			osPkgStatus.Status = "error"
+			osPkgStatus.ErrorText = err.Error()
+			o.log.Error("os-pkg scan failed", "err", err)
+			return
+		}
+		osPkgStatus.Status = "ok"
+	}()
+
+	sidecarsWG.Wait()
+
+	// Record sidecar statuses after the wait — keeps the dashboard's
+	// "ok" pulse contemporaneous with the actual completion instead of
+	// flashing in the middle of a still-running sibling.
+	if err := o.opts.Store.RecordScannerStatus(secretsStatus); err != nil {
+		o.log.Warn("record scanner status (secrets)", "err", err)
 	}
 	if err := o.opts.Store.RecordScannerStatus(depsStatus); err != nil {
 		o.log.Warn("record scanner status (deps)", "err", err)
 	}
-
-	// --- OS-package enumerator (OS-Pkg category) ---------------------
-	osPkgStatus := state.ScannerStatus{ScanID: scanID, Category: "os-pkg"}
-	if !scannerCfg.OSPkg {
-		osPkgStatus = disabledStatus("os-pkg")
-	} else if !*o.opts.RunOSPkg {
-		osPkgStatus.Status = "unavailable"
-		_, osPkgStatus.ErrorText = ospkg.Available()
-		if osPkgStatus.ErrorText == "" {
-			osPkgStatus.ErrorText = "OS-package CVE detection disabled by configuration"
-		}
-	} else {
-		markRunning("os-pkg")
-		if err := o.runOSPkg(ctx, scanID, seen); err != nil {
-			osPkgStatus.Status = "error"
-			osPkgStatus.ErrorText = err.Error()
-			o.log.Error("os-pkg scan failed", "err", err)
-		} else {
-			osPkgStatus.Status = "ok"
-		}
-	}
 	if err := o.opts.Store.RecordScannerStatus(osPkgStatus); err != nil {
 		o.log.Warn("record scanner status (os-pkg)", "err", err)
+	}
+
+	// Union the per-scanner seen sets for resolution detection.
+	seen := make(map[string]struct{}, len(nativeSeen)+len(secretsSeen)+len(depsSeen)+len(osPkgSeen))
+	for _, src := range []map[string]struct{}{nativeSeen, secretsSeen, depsSeen, osPkgSeen} {
+		for fp := range src {
+			seen[fp] = struct{}{}
+		}
 	}
 
 	// --- Resolution detection ----------------------------------------
@@ -450,9 +505,30 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	// resolved. This is what produces the strike-through animation on
 	// the dashboard when the user fixes a finding (or via Claude
 	// Code's AI prompt).
+	//
+	// Critical guard: a missing finding only means "resolved" when its
+	// scanner actually ran successfully. If the scanner errored, was
+	// disabled, or wasn't available, the absence from `seen` is a lack
+	// of signal — not a "the issue is gone" signal. Resolving in that
+	// case would mark hundreds of findings green on the dashboard the
+	// moment trufflehog times out, then re-open them on the next scan
+	// (often under different fingerprints, leaving phantom "resolved
+	// today" entries that inflate the metric forever). Per-category
+	// gate fixes that.
+	okByCategory := map[string]bool{
+		"ai-agent": nativeStatus.Status == "ok",
+		"secrets":  secretsStatus.Status == "ok",
+		"deps":     depsStatus.Status == "ok",
+		"os-pkg":   osPkgStatus.Status == "ok",
+	}
 	resolved := 0
-	for fp := range previouslyOpen {
+	skippedByCategory := map[string]int{}
+	for fp, cat := range previouslyOpen {
 		if _, stillOpen := seen[fp]; stillOpen {
+			continue
+		}
+		if !okByCategory[cat] {
+			skippedByCategory[cat]++
 			continue
 		}
 		changed, err := o.opts.Store.ResolveFinding(fp)
@@ -463,6 +539,10 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 		if changed {
 			resolved++
 		}
+	}
+	for cat, n := range skippedByCategory {
+		o.log.Info("skipped resolving findings (scanner did not complete OK this cycle)",
+			"category", cat, "count", n, "status", scannerStatusFor(cat, nativeStatus, secretsStatus, depsStatus, osPkgStatus))
 	}
 
 	if err := o.opts.Store.CompleteScan(scanID); err != nil {
@@ -549,12 +629,14 @@ func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[st
 	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{
 		Roots:  roots,
 		Runner: lowprio.Runner{},
-		// Cap TruffleHog's worker pool at half the cores even
-		// though the lowprio wrapper already drops CPU priority.
-		// Fewer workers = less context-switching overhead + less
-		// peak memory, which matters more than the priority drop
-		// on a constrained laptop running a long first scan.
-		Jobs: secretscan.DefaultJobs(),
+		// Single worker for the daemon's continuous loop. nice 19 (via
+		// the lowprio wrapper) keeps the OS scheduler honest under
+		// contention but doesn't cap raw CPU usage on an idle box, so
+		// --concurrency=4 (the CLI default) still pegs four cores in
+		// the background. DefaultDaemonJobs() returns 1 to keep peak
+		// CPU at ~one core regardless of host size. Daemon scans trade
+		// latency for headroom; CLI scans trade headroom for latency.
+		Jobs: secretscan.DefaultDaemonJobs(),
 	})
 	if err != nil {
 		return err
@@ -684,6 +766,25 @@ func (o *Orchestrator) persistFindings(scanID int64, findings []finding.Finding,
 		}
 	}
 	return nil
+}
+
+// scannerStatusFor returns the terminal status of the scanner that
+// owns the given category. Used only for the diagnostic log line in
+// runOnce that explains why a previously-open finding was skipped
+// from resolution detection.
+func scannerStatusFor(cat string, native, secrets, deps, osPkg state.ScannerStatus) string {
+	switch cat {
+	case "ai-agent":
+		return native.Status
+	case "secrets":
+		return secrets.Status
+	case "deps":
+		return deps.Status
+	case "os-pkg":
+		return osPkg.Status
+	default:
+		return "unknown"
+	}
 }
 
 // pathInsideAny returns true if child is a path beneath any of

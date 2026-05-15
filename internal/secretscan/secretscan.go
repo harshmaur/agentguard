@@ -81,9 +81,9 @@ type RunOptions struct {
 }
 
 // DefaultJobs returns the TruffleHog --concurrency value audr uses
-// when the caller hasn't specified one explicitly. Half the logical
-// CPUs, minimum 1 — keeps a scan from monopolizing every core on
-// a developer machine.
+// for one-shot `audr scan` runs — the user is sitting there waiting,
+// so trade some idle cores for completion time. Half the logical
+// CPUs, minimum 1.
 //
 // Exported so the CLI's --scanner-jobs flag can print the computed
 // default in its help text.
@@ -93,6 +93,24 @@ func DefaultJobs() int {
 		return 1
 	}
 	return n
+}
+
+// DefaultDaemonJobs returns the TruffleHog --concurrency value audr's
+// daemon uses for its periodic background scan. Hard-coded to 1.
+//
+// Why not NumCPU/2 like DefaultJobs? The daemon runs continuously in
+// the background while the user is doing actual work — peak CPU
+// matters more than scan latency. Even with nice 19 (via the lowprio
+// wrapper), trufflehog with --concurrency=4 still burns 4 cores on
+// an otherwise-idle laptop because nice yields only under
+// contention; it doesn't cap usage. One worker = one core = the user
+// barely notices the daemon is running.
+//
+// Trade: a first-time daemon scan over $HOME takes ~Nx longer than
+// the CLI default, where N = NumCPU/2. On 8 cores that's ~4x. The
+// v1 spec accepts this: "Hours acceptable; resource hogging is not."
+func DefaultDaemonJobs() int {
+	return 1
 }
 
 type Status struct {

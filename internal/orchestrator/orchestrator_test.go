@@ -215,6 +215,72 @@ func TestOrchestratorRecordsScannerStatusForEveryCategory(t *testing.T) {
 	}
 }
 
+// TestOrchestratorDoesNotResolveWhenScannerDidNotRunOK pins the
+// per-category isolation guard in runOnce. A pre-existing "secrets"
+// finding must NOT be marked resolved just because the secrets
+// scanner wasn't available this cycle — absence from `seen` only
+// means "resolved" when the scanner actually ran and reported ok.
+//
+// Regression scenario: trufflehog timeout / sidecar uninstall used to
+// mass-resolve every previously-found secret. The next scan re-opened
+// them, often under different fingerprints, leaving phantom rows in
+// "resolved today" that inflated the metric without bound.
+func TestOrchestratorDoesNotResolveWhenScannerDidNotRunOK(t *testing.T) {
+	store := newTestStore(t)
+
+	// Seed a "secrets" finding as if a prior scan had found one.
+	scanID, err := store.OpenScan("all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := state.Finding{
+		Fingerprint:   "seedfingerprint000000000000000000000000000000000000000000000000",
+		RuleID:        "secret-trufflehog-unverified",
+		Severity:      "medium",
+		Category:      "secrets",
+		Kind:          "file",
+		Locator:       []byte(`{"path":"/x","line":1}`),
+		Title:         "seed",
+		Description:   "seed",
+		MatchRedacted: "[REDACTED]",
+		FirstSeenScan: scanID,
+		LastSeenScan:  scanID,
+	}
+	if _, err := store.UpsertFinding(seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteScan(scanID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run a cycle with the secrets scanner unavailable. The
+	// orchestrator will record status="unavailable" for secrets and
+	// must leave the seeded finding open.
+	orch, err := New(Options{
+		Store:      store,
+		Roots:      []string{t.TempDir()},
+		HomeDir:    t.TempDir(),
+		RunSecrets: ptr(false), // trufflehog "not installed" → unavailable
+		RunOSPkg:   ptr(false),
+		RunDeps:    ptr(false),
+		Interval:   time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := orch.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.FindingByFingerprint(context.Background(), seed.Fingerprint)
+	if err != nil {
+		t.Fatalf("FindingByFingerprint: %v", err)
+	}
+	if !got.Open() {
+		t.Fatalf("seeded secrets finding was resolved (resolved_at=%v) despite secrets scanner being unavailable; scanner-isolation guard failed", got.ResolvedAt)
+	}
+}
+
 func ruleIDs(findings []state.Finding) []string {
 	out := make([]string, 0, len(findings))
 	for _, f := range findings {

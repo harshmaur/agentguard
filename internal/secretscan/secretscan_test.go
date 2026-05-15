@@ -227,6 +227,17 @@ func TestDefaultJobsIsAtLeastOne(t *testing.T) {
 	}
 }
 
+// TestDefaultDaemonJobsIsOne pins the daemon's conservative
+// concurrency choice. Bumping this back up to NumCPU/2 silently
+// regresses the user-visible "trufflehog ate all my cores" bug:
+// nice 19 (via the lowprio wrapper) only yields under contention,
+// so on an idle laptop --concurrency=4 still pegs four cores.
+func TestDefaultDaemonJobsIsOne(t *testing.T) {
+	if got := DefaultDaemonJobs(); got != 1 {
+		t.Errorf("DefaultDaemonJobs() = %d, want 1 — daemon must default to a single worker so background scans don't peg every core", got)
+	}
+}
+
 // TestRunUpdatePlanTreatsCommandsAsFallbacks pins the semantic that
 // BinaryCommands are alternatives, not sequential steps. A user
 // with a working brew install of trufflehog would otherwise hit the

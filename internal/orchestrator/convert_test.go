@@ -228,3 +228,35 @@ func TestFindingToStateFindingFingerprintStableAcrossEquivalentInputs(t *testing
 		t.Errorf("fingerprint drift across equivalent inputs: %s vs %s", a.Fingerprint, b.Fingerprint)
 	}
 }
+
+// TestTruffleHogVerifiedAndUnverifiedShareFingerprint pins the
+// resolution-churn fix. When trufflehog's `Verified` flag flips
+// between scans (verification API rate-limit, transient network
+// failure, key briefly revoked then restored), the same secret
+// must keep the same fingerprint — otherwise the old row gets
+// marked resolved and a new one opens, inflating "Resolved Today"
+// with phantom resolutions for a secret that never went away.
+func TestTruffleHogVerifiedAndUnverifiedShareFingerprint(t *testing.T) {
+	mk := func(ruleID string) finding.Finding {
+		return finding.New(finding.Args{
+			RuleID: ruleID, Severity: finding.SeverityHigh,
+			Path: "/secrets/.env", Line: 1, Match: "detector=OpenAI secret=sk-abc",
+		})
+	}
+	verified, err := findingToStateFinding(mk("secret-trufflehog-verified"), 1, "secrets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unverified, err := findingToStateFinding(mk("secret-trufflehog-unverified"), 1, "secrets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Fingerprint != unverified.Fingerprint {
+		t.Errorf("trufflehog verified/unverified produced different fingerprints — every verification flap will churn the dashboard:\n  verified:   %s\n  unverified: %s", verified.Fingerprint, unverified.Fingerprint)
+	}
+	// The actual RuleID stored on each row should still differ —
+	// only the fingerprint hash collapses.
+	if verified.RuleID == unverified.RuleID {
+		t.Errorf("RuleID should reflect verification state for display: got %q == %q", verified.RuleID, unverified.RuleID)
+	}
+}

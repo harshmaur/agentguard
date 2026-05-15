@@ -78,10 +78,19 @@ func (s *Store) UpsertFinding(f Finding) (opened bool, err error) {
 		// Existing row. If currently resolved, reopen (clear resolved_at,
 		// bump first_seen_scan to "now" so the dashboard treats this as
 		// a fresh appearance).
+		//
+		// rule_id is updated alongside severity/title/description.
+		// Fingerprint identity (the PK) can be stable across rule_id
+		// variants — TruffleHog's verified/unverified pair both
+		// fingerprint as "secret-trufflehog" so a verification flap
+		// doesn't churn, but the row's rule_id should still reflect
+		// the latest detection state so remediation templates and
+		// severity stay correct.
 		if wasResolved {
 			_, err := tx.Exec(`
 				UPDATE findings
-				   SET severity = ?,
+				   SET rule_id = ?,
+				       severity = ?,
 				       title = ?,
 				       description = ?,
 				       match_redacted = ?,
@@ -90,7 +99,7 @@ func (s *Store) UpsertFinding(f Finding) (opened bool, err error) {
 				       resolved_at = NULL,
 				       updated_at = ?
 				 WHERE fingerprint = ?
-			`, f.Severity, f.Title, f.Description, nullableString(f.MatchRedacted),
+			`, f.RuleID, f.Severity, f.Title, f.Description, nullableString(f.MatchRedacted),
 				f.LastSeenScan, f.LastSeenScan, f.UpdatedAt, f.Fingerprint)
 			if err != nil {
 				return fmt.Errorf("reopen: %w", err)
@@ -101,18 +110,20 @@ func (s *Store) UpsertFinding(f Finding) (opened bool, err error) {
 		}
 
 		// Existing + open: re-detection. Bump last_seen + updated_at;
-		// allow severity / title / description to change (rule body
-		// might have been improved between scans).
+		// allow rule_id / severity / title / description to change
+		// (rule body might have been improved between scans, or a
+		// trufflehog finding flipped verified→unverified).
 		_, err := tx.Exec(`
 			UPDATE findings
-			   SET severity = ?,
+			   SET rule_id = ?,
+			       severity = ?,
 			       title = ?,
 			       description = ?,
 			       match_redacted = ?,
 			       last_seen_scan = ?,
 			       updated_at = ?
 			 WHERE fingerprint = ?
-		`, f.Severity, f.Title, f.Description, nullableString(f.MatchRedacted),
+		`, f.RuleID, f.Severity, f.Title, f.Description, nullableString(f.MatchRedacted),
 			f.LastSeenScan, f.UpdatedAt, f.Fingerprint)
 		if err != nil {
 			return fmt.Errorf("update: %w", err)
