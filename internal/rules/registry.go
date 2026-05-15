@@ -110,13 +110,79 @@ func ForFormat(f parse.Format) []Rule {
 
 // Apply runs every applicable rule on the document and returns all findings.
 // Used by the scanner per-document.
+//
+// Wraps ApplyWithPolicy with a nil filter — equivalent to v1.1
+// behavior: no policy overlay, no severity overrides, no
+// suppressions. Existing callers (the one-shot CLI scan, selfaudit,
+// rule tests) stay on this signature.
+//
+// The always-on daemon orchestrator calls ApplyWithPolicy directly
+// with a loaded Policy so users can edit `~/.audr/policy.yaml` to
+// adjust scan behavior without changing rule code.
 func Apply(doc *parse.Document) []finding.Finding {
+	return ApplyWithPolicy(doc, nil)
+}
+
+// PolicyFilter is the policy surface the rule registry consults
+// before invoking each rule. Plan section CQ2: rules themselves
+// stay policy-unaware — only the registry's Apply path threads
+// policy through.
+//
+// Implemented by *policy.Effective via the policy package (which
+// imports rules through this interface; we keep the interface here
+// to avoid a circular import).
+//
+// All methods MUST be safe for concurrent use — the scan walker
+// invokes Apply across many goroutines per cycle.
+type PolicyFilter interface {
+	IsRuleEnabled(ruleID string) bool
+	IsPathInScope(ruleID, path string) bool
+	IsSuppressed(ruleID, path string) bool
+	EffectiveSeverity(ruleID string, natural finding.Severity) finding.Severity
+}
+
+// ApplyWithPolicy is the policy-aware Apply. The PolicyFilter is
+// consulted in the order defined by plan section B3.4:
+//
+//   1. IsRuleEnabled       → skip rule entirely
+//   2. IsPathInScope       → skip rule for this doc
+//   3. rule.Apply runs
+//   4. IsSuppressed        → drop the finding
+//   5. EffectiveSeverity   → rewrite severity on surviving findings
+//
+// A nil PolicyFilter (or PolicyFilter{} struct value) is treated
+// as "permissive" — every check returns the default. This is the
+// CLI / no-daemon code path; new callers (the daemon orchestrator)
+// pass a real filter.
+//
+// Allowlists are deliberately NOT in this interface. Rules that need
+// allowlist data accept a separate context surface — see the
+// allowlist-aware rule example in `internal/rules/builtin/`. For
+// v1.2 no built-in rule consumes allowlists; the policy file accepts
+// allowlist definitions for forward-compat.
+func ApplyWithPolicy(doc *parse.Document, filter PolicyFilter) []finding.Finding {
 	if doc == nil {
 		return nil
 	}
 	var out []finding.Finding
 	for _, rule := range ForFormat(doc.Format) {
-		out = append(out, rule.Apply(doc)...)
+		ruleID := rule.ID()
+		if filter != nil && !filter.IsRuleEnabled(ruleID) {
+			continue
+		}
+		if filter != nil && !filter.IsPathInScope(ruleID, doc.Path) {
+			continue
+		}
+		findings := rule.Apply(doc)
+		for _, f := range findings {
+			if filter != nil && filter.IsSuppressed(ruleID, f.Path) {
+				continue
+			}
+			if filter != nil {
+				f.Severity = filter.EffectiveSeverity(ruleID, f.Severity)
+			}
+			out = append(out, f)
+		}
 	}
 	return out
 }

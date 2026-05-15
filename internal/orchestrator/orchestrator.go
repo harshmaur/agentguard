@@ -15,6 +15,7 @@ import (
 	"github.com/harshmaur/audr/internal/finding"
 	"github.com/harshmaur/audr/internal/lowprio"
 	"github.com/harshmaur/audr/internal/ospkg"
+	"github.com/harshmaur/audr/internal/policy"
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/state"
@@ -487,6 +488,26 @@ func (o *Orchestrator) runNative(ctx context.Context, scanID int64, seen map[str
 	opts.Logger = o.log
 	if opts.ScanTimeout == 0 {
 		opts.ScanTimeout = 5 * time.Minute
+	}
+
+	// Plan B3 — re-read policy at the top of every scan cycle so
+	// dashboard saves take effect within one cycle without a daemon
+	// restart. Missing file → DefaultPolicy → identical to v1.1.
+	// Corrupt file → log a warning + fall back to defaults rather
+	// than refusing to scan; the dashboard's "policy.yaml corrupt"
+	// banner will surface the diagnostic to the user.
+	policyPath, err := policy.Path()
+	if err != nil {
+		o.log.Warn("resolve policy path; using defaults this cycle", "err", err)
+	} else {
+		p, err := policy.Load(policyPath)
+		if err != nil {
+			o.log.Warn("load policy file; using defaults this cycle",
+				"path", policyPath, "err", err)
+			p = policy.DefaultPolicy()
+		}
+		eff := policy.NewEffective(p, time.Now())
+		opts.Policy = eff
 	}
 
 	res, err := scan.Run(ctx, opts)

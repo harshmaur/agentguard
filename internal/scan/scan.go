@@ -65,6 +65,12 @@ type Options struct {
 
 	// Logger receives slog records. nil → discard.
 	Logger *slog.Logger
+
+	// Policy is the rule-behavior overlay. nil = no overlay (v1.1
+	// behavior — every rule fires with its natural severity).
+	// The daemon orchestrator populates this from `~/.audr/policy.yaml`
+	// on every scan cycle; the one-shot CLI scan leaves it nil.
+	Policy rules.PolicyFilter
 }
 
 // Result is what a scan produces.
@@ -320,7 +326,7 @@ func worker(
 						Path:        path,
 					})
 				} else {
-					for _, f := range rules.Apply(doc) {
+					for _, f := range rules.ApplyWithPolicy(doc, opts.Policy) {
 						select {
 						case out <- f:
 						case <-ctx.Done():
