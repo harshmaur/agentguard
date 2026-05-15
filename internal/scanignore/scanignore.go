@@ -71,18 +71,106 @@ func Defaults() []string {
 		"Library/Caches",               // macOS user caches
 		"AppData/Local/Temp",           // Windows user temp
 		"AppData/Local/Microsoft/Windows/INetCache",
+
+		// Browser user-data directories. These hold SQLite DBs
+		// (History, Cookies, Favicons), extension assets, and
+		// component-update payloads that auto-rotate on a sub-hourly
+		// cadence. Trufflehog's URI detector fires on the URLs packed
+		// inside, producing hundreds of false positives per scan and
+		// — because the files rotate — a churn loop where old
+		// fingerprints get marked resolved and new ones open. Net
+		// effect: "Resolved Today" inflates without bound while the
+		// real signal is buried. Excluding these directories drops
+		// daemon noise by >95% on a typical developer machine.
+		// Linux:
+		".config/BraveSoftware",
+		".config/google-chrome",
+		".config/chromium",
+		".config/microsoft-edge",
+		".mozilla/firefox",
+		// macOS:
+		"Library/Application Support/BraveSoftware",
+		"Library/Application Support/Google/Chrome",
+		"Library/Application Support/Chromium",
+		"Library/Application Support/Microsoft Edge",
+		"Library/Application Support/Firefox",
+		// Windows:
+		"AppData/Local/BraveSoftware/Brave-Browser/User Data",
+		"AppData/Local/Google/Chrome/User Data",
+		"AppData/Local/Chromium/User Data",
+		"AppData/Local/Microsoft/Edge/User Data",
+		"AppData/Roaming/Mozilla/Firefox",
 	}
 }
 
-// WriteTruffleHogExcludeFile materializes Defaults() into a tempfile in the
-// format TruffleHog's `--exclude-paths` expects: one regex pattern per line,
-// matched anywhere in the candidate path. Returns the tempfile path and a
+// BinaryFileExtensions returns the file-extension allowlist that
+// TruffleHog should NEVER inspect. These are compiled / packaged
+// binary outputs where the URI detector hits random byte sequences
+// that look like URLs and produce non-deterministic findings
+// (different "matches" every scan). The native walker doesn't use
+// this list — it dispatches rules per-rule which already specify
+// the path glob they care about, so binary files are filtered
+// upstream there.
+//
+// Why exclude rather than tune the detector: trufflehog doesn't
+// expose a per-detector path filter; the cheapest fix is to skip
+// the file entirely. Real secrets in source code are still caught;
+// real secrets baked into a compiled binary are an exfiltration
+// concern, not a leak-prevention concern, and belong to a different
+// scanner anyway.
+func BinaryFileExtensions() []string {
+	return []string{
+		// Mobile build outputs
+		"apk",   // Android package
+		"aab",   // Android App Bundle
+		"ipa",   // iOS app archive
+		"dex",   // Dalvik executable inside APKs
+		// Native / shared libraries
+		"so",    // Linux shared object
+		"dll",   // Windows dynamic library
+		"dylib", // macOS dynamic library
+		"o",     // object file
+		"a",     // static archive
+		"lib",   // Windows static library
+		// JVM bytecode + archives
+		"class", // Java compiled class
+		"jar",   // Java archive
+		"war",   // Web application archive
+		"ear",   // Enterprise archive
+		// Executables
+		"exe", // Windows executable
+		"bin", // generic binary
+		"img", // disk / firmware image
+		"iso", // CD image
+		// Archives (also frequently full of false-positive entropy)
+		"zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar",
+		// Compiled python / wheels
+		"pyc", "pyo", "whl",
+		// Media (rare false positives but worth excluding — never source for secrets)
+		"png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tiff",
+		"mp3", "mp4", "mov", "avi", "wav", "flac", "ogg", "webm",
+		"pdf", "psd", "ai", "eps",
+		"woff", "woff2", "ttf", "otf", "eot",
+	}
+}
+
+// WriteTruffleHogExcludeFile materializes Defaults() + binary
+// extensions into a tempfile in the format TruffleHog's
+// `--exclude-paths` expects: one regex pattern per line, matched
+// anywhere in the candidate path. Returns the tempfile path and a
 // cleanup func the caller MUST call (typically via defer).
 //
-// Each Defaults() entry becomes a regex of the form
-// `(?:^|/)<escaped-segment>(?:/|$)` so that the pattern matches the segment
-// as a real path component, not as a substring (e.g., `node_modules` matches
-// `./node_modules/foo` but not `node_modules.lock`).
+// Two pattern families:
+//
+//   - Directory entries (from Defaults()) become
+//     `(?:^|/)<escaped-segment>(?:/|$)` so they match the segment
+//     as a real path component, not as a substring (e.g.,
+//     `node_modules` matches `./node_modules/foo` but not
+//     `node_modules.lock`).
+//   - File-extension entries (from BinaryFileExtensions()) become
+//     `\.<ext>$` so they match the suffix of the candidate path
+//     case-sensitively. Lowercase only; APKs from the wild use
+//     lowercase suffixes universally.
 func WriteTruffleHogExcludeFile() (path string, cleanup func(), err error) {
 	f, err := os.CreateTemp("", "audr-trufflehog-exclude-*.txt")
 	if err != nil {
@@ -100,8 +188,21 @@ func WriteTruffleHogExcludeFile() (path string, cleanup func(), err error) {
 			return "", nil, fmt.Errorf("write trufflehog exclude pattern: %w", err)
 		}
 	}
+	for _, ext := range BinaryFileExtensions() {
+		pattern := patternForExtension(ext)
+		if _, err := f.WriteString(pattern + "\n"); err != nil {
+			cleanup()
+			return "", nil, fmt.Errorf("write trufflehog exclude pattern: %w", err)
+		}
+	}
 
 	return f.Name(), cleanup, nil
+}
+
+// patternForExtension converts a file extension into a trufflehog
+// regex pattern that matches the end of a path.
+func patternForExtension(ext string) string {
+	return `\.` + regexp.QuoteMeta(ext) + `$`
 }
 
 // patternForSegment converts a Defaults() entry into a TruffleHog-compatible

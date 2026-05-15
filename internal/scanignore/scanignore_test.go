@@ -118,15 +118,66 @@ func TestWriteTruffleHogExcludeFileWritesAllPatterns(t *testing.T) {
 		}
 	}
 
-	// Line count matches the entry count: one pattern per line, no blanks.
+	// Every BinaryFileExtensions() entry must appear as an extension regex.
+	for _, ext := range BinaryFileExtensions() {
+		want := `\.` + regexp.QuoteMeta(ext) + `$`
+		if !strings.Contains(body, want) {
+			t.Fatalf("exclude file missing pattern %q for extension %q; body:\n%s", want, ext, body)
+		}
+	}
+
+	// Line count: one pattern per Defaults() entry + one per BinaryFileExtensions() entry.
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-	if len(lines) != len(Defaults()) {
-		t.Fatalf("exclude file has %d lines, want %d (one per Defaults() entry)", len(lines), len(Defaults()))
+	wantLines := len(Defaults()) + len(BinaryFileExtensions())
+	if len(lines) != wantLines {
+		t.Fatalf("exclude file has %d lines, want %d (Defaults+BinaryFileExtensions)", len(lines), wantLines)
 	}
 	for i, line := range lines {
 		if line == "" {
 			t.Fatalf("exclude file line %d is empty", i)
 		}
+	}
+}
+
+func TestPatternForExtensionMatchesAsSuffix(t *testing.T) {
+	tests := []struct {
+		ext            string
+		shouldMatch    []string
+		shouldNotMatch []string
+	}{
+		{
+			ext:            "apk",
+			shouldMatch:    []string{"build.apk", "/a/b/c.apk", "mobile/build-12345.apk"},
+			shouldNotMatch: []string{"apkthing.txt", "build.apk.bak", ".apk-config"},
+		},
+		{
+			ext:            "so",
+			shouldMatch:    []string{"libfoo.so", "/usr/lib/libssl.so"},
+			shouldNotMatch: []string{"hello.source", "so-cool.txt"},
+		},
+		{
+			ext:            "tar.gz",
+			shouldMatch:    []string{"backup.tar.gz", "/tmp/build.tar.gz"},
+			shouldNotMatch: []string{"backup.tar.gz.bak"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ext, func(t *testing.T) {
+			re, err := regexp.Compile(patternForExtension(tt.ext))
+			if err != nil {
+				t.Fatalf("compile pattern: %v", err)
+			}
+			for _, p := range tt.shouldMatch {
+				if !re.MatchString(p) {
+					t.Errorf("pattern %s should match %q but did not", re, p)
+				}
+			}
+			for _, p := range tt.shouldNotMatch {
+				if re.MatchString(p) {
+					t.Errorf("pattern %s should NOT match %q but did", re, p)
+				}
+			}
+		})
 	}
 }
 
