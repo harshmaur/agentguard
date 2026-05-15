@@ -93,6 +93,26 @@ func (w *Watcher) Run(ctx context.Context) error {
 		w.logger.Warn("policy watcher: add dir", "path", dir, "err", err)
 		return err
 	}
+	// Also watch the file directly when it exists.
+	//
+	// fsnotify backends differ on what a directory-watch sees:
+	//   - Linux (inotify): firing on file-content changes when
+	//     watching the parent dir is the default. Adding the file
+	//     too is redundant but harmless.
+	//   - macOS (kqueue): a directory-watch fires for directory
+	//     mutations (entries added/removed/renamed) but NOT for
+	//     content changes to existing files. We have to add the
+	//     file itself to see writes.
+	//   - Windows (ReadDirectoryChangesW): directory-watch sees both
+	//     directory mutations and file content changes; adding the
+	//     file is harmless.
+	//
+	// The dir-watch alone catches atomic-rename saves (write to
+	// .tmp + rename over) because the rename event lands at the
+	// directory level. The file-watch catches in-place writes —
+	// what `$EDITOR` does when configured to edit in place. Both
+	// matter for the policy hot-reload contract on every OS.
+	w.watchFileIfExists()
 
 	// Capture the channels under the lock once; subsequent receives
 	// don't need to re-fetch w.w because the underlying channel
@@ -113,6 +133,15 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 			if !w.relevant(ev) {
 				continue
+			}
+			// macOS kqueue note: when an atomic-rename save replaces
+			// the file (write .tmp + rename over original), the
+			// existing inode-level watch becomes stale. Re-add the
+			// file watch after every relevant event so we keep
+			// receiving content-change notifications on the new
+			// inode.
+			if ev.Op&(fsnotify.Create|fsnotify.Rename|fsnotify.Remove) != 0 {
+				w.watchFileIfExists()
 			}
 			w.debouncedFire()
 		case err, ok := <-errors:
@@ -142,6 +171,30 @@ func (w *Watcher) Close() error {
 // write, create, remove, rename).
 func (w *Watcher) relevant(ev fsnotify.Event) bool {
 	return filepath.Clean(ev.Name) == filepath.Clean(w.path)
+}
+
+// watchFileIfExists registers a watch on the policy file when it
+// exists on disk. Idempotent — fsnotify dedupes path adds internally.
+// Failures are logged but never fatal: the directory-watch keeps
+// working as a fallback (catches atomic-rename saves on every OS
+// and content changes on Linux).
+//
+// Critical for macOS where the directory-watch alone misses
+// in-place file content changes (kqueue dir events fire only for
+// directory mutations).
+func (w *Watcher) watchFileIfExists() {
+	if _, err := os.Stat(w.path); err != nil {
+		return // file doesn't exist yet; nothing to add
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.w == nil {
+		return
+	}
+	if err := w.w.Add(w.path); err != nil {
+		w.logger.Debug("policy watcher: add file watch",
+			"path", w.path, "err", err)
+	}
 }
 
 // debouncedFire schedules a callback fire if the last one was more
