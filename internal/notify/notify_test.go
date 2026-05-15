@@ -365,6 +365,100 @@ func TestPendingNotifySerializationShape(t *testing.T) {
 	}
 }
 
+// clickableFakeToaster wraps fakeToaster and reports
+// SupportsClickAction()==true so tests can drive the
+// body-composition-with-click code path.
+type clickableFakeToaster struct {
+	fakeToaster
+}
+
+func (clickableFakeToaster) SupportsClickAction() bool { return true }
+
+// TestBodyOmitsHintWhenClickActionSupported: with a clickable toaster
+// the body must NOT carry the "run audr open" suffix — the click IS
+// the action. Anchors the macOS terminal-notifier / Linux dbus /
+// Windows AppUserModelID success paths in one regression.
+func TestBodyOmitsHintWhenClickActionSupported(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: now}
+	ft := &clickableFakeToaster{}
+	n := newTestNotifier(t, &ft.fakeToaster, clock.now)
+	n.opts.Toaster = ft // re-bind so the clickable-aware interface is in play
+	n.firstScanDone = true
+
+	n.handleEvent(state.Event{
+		Kind: state.EventFindingOpened,
+		Payload: state.Finding{
+			Fingerprint: "fp-click",
+			Severity:    "critical",
+			Title:       "test critical",
+		},
+	})
+	calls := ft.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("toasts = %d, want 1", len(calls))
+	}
+	if !contains(calls[0].body, "CRITICAL: test critical") {
+		t.Errorf("body should lead with 'CRITICAL: test critical', got %q", calls[0].body)
+	}
+	if contains(calls[0].body, "audr open") {
+		t.Errorf("body must NOT carry 'audr open' hint when click works, got %q", calls[0].body)
+	}
+}
+
+// TestBodyIncludesHintWhenNoClickAction: the non-clickable fallback
+// (beeep on Windows, osascript on macOS without terminal-notifier)
+// MUST surface the "run audr open" hint so the user has a manual
+// path to the dashboard.
+func TestBodyIncludesHintWhenNoClickAction(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{t: now}
+	ft := &fakeToaster{} // plain fake, no SupportsClickAction
+	n := newTestNotifier(t, ft, clock.now)
+	n.firstScanDone = true
+
+	n.handleEvent(state.Event{
+		Kind: state.EventFindingOpened,
+		Payload: state.Finding{
+			Fingerprint: "fp-noclick",
+			Severity:    "critical",
+			Title:       "test critical",
+		},
+	})
+	calls := ft.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("toasts = %d, want 1", len(calls))
+	}
+	if !contains(calls[0].body, "run \"audr open\" to investigate") {
+		t.Errorf("non-clickable body must contain the hint, got %q", calls[0].body)
+	}
+}
+
+// TestAggregateBodyAdaptsToClickAction: the first-scan and rolling-cap
+// aggregate toasts also adapt their suffix — "Open dashboard" when
+// the click works (terminal-notifier / dbus / AppUserModelID),
+// "audr open" otherwise.
+func TestAggregateBodyAdaptsToClickAction(t *testing.T) {
+	ft := &clickableFakeToaster{}
+	n := newTestNotifier(t, &ft.fakeToaster, nil)
+	n.opts.Toaster = ft
+
+	// Trigger first-scan aggregate by firing scan-completed without
+	// any prior scan-completed (firstScanDone stays false until
+	// flushAggregate marks it).
+	n.handleEvent(state.Event{Kind: state.EventScanCompleted, Payload: state.Scan{ID: 1, Status: "completed"}})
+	calls := ft.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("aggregate toasts = %d, want 1", len(calls))
+	}
+	if !contains(calls[0].body, "Open dashboard") {
+		t.Errorf("clickable aggregate body should end with 'Open dashboard', got %q", calls[0].body)
+	}
+	if contains(calls[0].body, "audr open") {
+		t.Errorf("clickable aggregate body should NOT carry 'audr open' CLI hint, got %q", calls[0].body)
+	}
+}
+
 // ----- Helpers --------------------------------------------------
 
 func makeFp(i int) string {

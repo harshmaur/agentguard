@@ -71,6 +71,20 @@ type LifecycleToaster interface {
 	Close() error
 }
 
+// ClickableToaster is implemented by toasters that route notification
+// clicks back to the daemon. The Notifier consults this to decide
+// whether the toast body needs a `run "audr open"` hint — when the
+// click works, the hint is redundant noise. Toasters that report true
+// MUST route clicks via the OnClick callback supplied to defaultToaster.
+//
+// Dynamic on macOS/Windows: depends on whether terminal-notifier /
+// AppUserModelID are available at construction time. Static on Linux
+// (true whenever dbus session connected and OnClick non-nil).
+type ClickableToaster interface {
+	Toaster
+	SupportsClickAction() bool
+}
+
 // OnClick is the callback fired when the user clicks an audr
 // notification. On platforms where the OS notification supports
 // click actions (Linux dbus), the toaster invokes this. On other
@@ -322,7 +336,7 @@ func (n *Notifier) maybeNotify(f state.Finding) {
 	n.windowCount++
 	n.perFingerprintAt[f.Fingerprint] = now
 	title := "audr"
-	body := fmt.Sprintf("CRITICAL: %s · run \"audr open\" to investigate", f.Title)
+	body := composeBody(n.opts.Toaster, f.Title)
 	if err := n.opts.Toaster.Toast(title, body); err != nil {
 		n.opts.Logger.Warn("toast failed; falling back to pending-notify marker",
 			"fingerprint", f.Fingerprint, "err", err)
@@ -366,16 +380,45 @@ func (n *Notifier) flushAggregate(_ state.Scan) {
 		// that fails (rare), fall back to the suppressed counter.
 		critCount := n.criticalOpenCount()
 		title := "audr"
-		body := fmt.Sprintf("First scan complete · %d critical · audr open", critCount)
+		body := composeAggregateBody(n.opts.Toaster,
+			fmt.Sprintf("First scan complete · %d critical", critCount))
 		_ = n.opts.Toaster.Toast(title, body)
 		return
 	}
 
 	if suppressed > 0 {
 		title := "audr"
-		body := fmt.Sprintf("%d more critical findings since last alert · audr open", suppressed)
+		body := composeAggregateBody(n.opts.Toaster,
+			fmt.Sprintf("%d more critical findings since last alert", suppressed))
 		_ = n.opts.Toaster.Toast(title, body)
 	}
+}
+
+// composeBody builds the CRITICAL toast body, appending the
+// "run audr open to investigate" hint only when the toaster CANNOT
+// route a click. With click routing, the hint is noise — the click
+// IS the action. Without click routing, the user needs a CLI fallback.
+func composeBody(t Toaster, findingTitle string) string {
+	body := fmt.Sprintf("CRITICAL: %s", findingTitle)
+	if !clickable(t) {
+		body += " · run \"audr open\" to investigate"
+	}
+	return body
+}
+
+// composeAggregateBody is the equivalent for first-scan and rolling-cap
+// aggregates. "audr open" suffix only when click can't carry the user
+// through.
+func composeAggregateBody(t Toaster, lead string) string {
+	if clickable(t) {
+		return lead + " · Open dashboard"
+	}
+	return lead + " · audr open"
+}
+
+func clickable(t Toaster) bool {
+	ct, ok := t.(ClickableToaster)
+	return ok && ct.SupportsClickAction()
 }
 
 // criticalOpenCount returns the open critical count from the store.

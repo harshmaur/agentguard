@@ -1,15 +1,17 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package notify
 
-// defaultToaster picks the platform default toaster. On non-Linux
-// platforms today this is the beeep-backed toaster, which has no
-// click-action support — onClick is dropped.
+// defaultToaster picks the platform default toaster. Linux uses dbus
+// (toaster_linux.go); macOS uses terminal-notifier-or-osascript
+// (toaster_darwin.go); this file covers Windows (beeep fallback,
+// pre-WinRT) plus *BSD / Solaris / etc. that audr doesn't actively
+// target.
 //
-// macOS click-to-open lands when we either bundle audr as a .app or
-// detect terminal-notifier on PATH and route through it. Windows
-// click-to-open needs AppUserModelID registration. Both are
-// follow-up slices.
+// Windows click-to-open lands when toaster_windows.go ships in v1.1
+// with AppUserModelID registration at install time. Until then,
+// beeep's PowerShell-driven BurntToast path is the best we get —
+// it displays the toast but does not route clicks.
 func defaultToaster(_ OnClick) Toaster {
 	return beeepToaster{}
 }

@@ -202,6 +202,14 @@ func (lt *linuxToaster) handleNotificationClosed(sig *dbus.Signal) {
 	lt.mu.Unlock()
 }
 
+// SupportsClickAction reports true when this toaster will route
+// clicks back via OnClick. On Linux that's contingent on (a) a live
+// dbus session bus (set at constructor time) and (b) a non-nil
+// OnClick callback. Implements ClickableToaster.
+func (lt *linuxToaster) SupportsClickAction() bool {
+	return lt.conn != nil && lt.onClick != nil
+}
+
 // Close releases the dbus connection. Implements LifecycleToaster.
 // Idempotent.
 func (lt *linuxToaster) Close() error {
