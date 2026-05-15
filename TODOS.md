@@ -63,19 +63,18 @@ Captured during /plan-eng-review on 2026-04-27. Items are deferred from v1 with 
 
 ---
 
-## TODO 5 — Windows Authenticode signing (EV cert)
+## TODO 5 — Windows Authenticode signing (closed — won't do)
 
-**What:** Sign Windows release binaries with Authenticode using an EV cert. Replaces v1.1's "SmartScreen workaround documented" with a signed install that passes SmartScreen reputation silently after enough downloads.
+**Decision (2026-05-16):** explicitly closed. audr is open-source; the $300–500/yr EV-cert recurring spend isn't worth removing a first-run SmartScreen warning that a SHA-256-verifying installer already mitigates. Users can verify the cosign-signed `SHA256SUMS` before "Run anyway" — that's the trust anchor.
 
-**Why:** Every first-time Windows install in v1.1 hits SmartScreen. Half of CISO reviews will block on this. Buying the cert is the path through that objection.
+Original rationale (kept as historical context):
 
-**Pros:** Removes the trust-thesis killshot on Windows; matches what every commercial security tool ships; reputation builds with downloads.
+> Sign Windows release binaries with Authenticode using an EV cert.
+> Every first-time Windows install in v1.1 hits SmartScreen.
+> ...
+> Cons: $300–500/year recurring; hardware token shipped physically; EV cert vendor diligence.
 
-**Cons:** $300–500/year recurring; hardware token (Yubikey-style) shipped to a physical address; one extra CI secret (cert + PIN); EV cert vendor diligence is its own onboarding flow.
-
-**Context:** v1.1 deferred this per /plan-eng-review issue A5 — founder chose to validate Windows-as-a-market-wedge before paying. Trigger: 3+ design partners ask for signed Windows binaries during v1.1 trial.
-
-**Depends on / blocked by:** v1.1 design partner feedback. Target: v1.2 if asked, otherwise v1.3.
+Re-open this TODO if a paying customer demands Authenticode and underwrites the cert cost.
 
 ---
 

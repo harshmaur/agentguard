@@ -3,6 +3,34 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.8.0] - 2026-05-16 — Notification subsystem removed; trust story simplified
+
+Major surface reduction. v0.4.2–v0.7.x carried OS-native toast notifications across Linux (dbus + ActionInvoked click routing), macOS (terminal-notifier-or-osascript with the brew-install dance), and Windows (beeep + the WinRT/AppUserModelID work that was still planned for v1.1.x). The polish was real, the complexity was a tax — three OSes worth of preflight registry probes, permission prompts, focus-mode detection, debouncing, batching, cooldown, dedup, pending-fallback files, dashboard banners surfacing dropped toasts. The dashboard already serves the live finding stream via SSE — toasts were a nice-to-have that was actively expensive to maintain.
+
+Removed. The dashboard is the product. `audr open` is one command. Users who want a "something fired" signal can keep the dashboard tab open; the SSE stream is already live. v0.8.0 trades the toast UI for ~2120 deleted lines, kills the v1.1.x WinRT work entirely before it was ever built, and lets the trust story stop apologizing for unsigned Windows binaries.
+
+### Removed
+
+- **`internal/notify/`** package (5 .go files, ~1240 lines): the cross-platform Toaster + ClickableToaster + LifecycleToaster interfaces, Linux godbus toaster with ActionInvoked listener, macOS terminal-notifier-or-osascript toaster, Windows beeep fallback, the entire cooldown/dedup/rate-cap/first-scan-suppression policy machinery, and the pending-notify.json fallback file.
+- **`cmd/audr/notify_preflight_{linux,darwin,windows,other}.go`** (4 files, ~480 lines): Linux libnotify probe, macOS Script Editor permission detection + focus-mode detection, Windows registry probes (ToastEnabled, NoToastApplicationNotification, NOC_GLOBAL_SETTING_TOASTS_ENABLED, AppUserModelID Start Menu shortcut), BSD no-op.
+- **`audr daemon notify`** CLI subcommand and its `--off / --on / --status / --test` flags. The on-demand verification toast UX, the disabled-vs-enabled state file at `${state_dir}/notify.config.json`, all gone.
+- **macOS osascript notification-permission probe** at `audr daemon install` time.
+- **Notifier daemon subsystem** from the lifecycle chain in `cmd/audr/daemon.go`.
+- **`DELETE /api/notify/pending`** server endpoint + `handleNotifyPendingDismiss` handler.
+- **`DaemonInfo.PendingNotifications`** field + the snapshot path that populated it.
+- **`NOTIFICATIONS DROPPED`** dashboard banner in `dashboard.js`.
+- **Dependencies:** `github.com/gen2brain/beeep` and `github.com/godbus/dbus/v5` dropped from `go.mod` (transitively, also their child deps from `go.sum`).
+- **Planned-but-never-built:** v1.1.x WinRT toaster + AppUserModelID Start Menu shortcut registration. Codex outside-voice review flagged this as the single highest schedule risk in the audr roadmap; it never had to ship and never will.
+
+### Changed
+
+- **`audr daemon install` on macOS** no longer fires the osascript permission-prompt probe. Install is silent on every OS now.
+- **TODO 5 (Windows Authenticode signing)** marked closed in `TODOS.md`. audr is open-source; the EV-cert recurring spend isn't worth removing a first-run SmartScreen warning that a SHA-256-verifying installer already mitigates. The cosign-signed `SHA256SUMS` is the trust anchor; users verify it, click "Run anyway" once, and `Unblock-File` clears the Zone.Identifier for subsequent runs. Re-open the TODO if a paying customer demands Authenticode and underwrites the cert.
+
+### Migration note for users on v0.7.x
+
+If you were using `audr daemon notify --off / --on / --status / --test`, the subcommand is gone. Notifications themselves are gone. Keep the dashboard tab open in your browser for the live stream; `audr open` opens it. Existing `${state_dir}/notify.config.json` and `${state_dir}/pending-notify.json` files on disk are harmless — the daemon no longer reads or writes them. You can `rm` them at your leisure.
+
 ## [0.7.2] - 2026-05-16 — v1.3 Policy Editor UI completeness
 
 Closes the two surfaces v1.2.x explicitly named as v1.3 deferrals: full
