@@ -3,6 +3,54 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.7.0] - 2026-05-16 — v1.2 Policy Lake
+
+User-editable rule-behavior overlay. Built-in detection logic stays Go-coded; v1.2 ships the surface that lets users adjust HOW those rules behave: disable per-rule, override severity, narrow scope, manage named allowlists, and suppress findings with required reasons. The whole spec from the v1.2 policy lake plan, end-to-end.
+
+This is a **policy overlay system**, not a rules-as-data refactor. Custom rule definitions (Semgrep-style YAML detection logic) stay deferred to v1.3 per TODO 7 — the distinction matters: this release changes how existing rules behave, it does not add new detection logic.
+
+### Added — Policy overlay
+
+- **`internal/policy/` package** — full `Policy` type with `Load` / `Save` / `Validate` / `MarshalCanonical` / `Hash`. The on-disk file at `~/.audr/policy.yaml` is canonical-generated: every save fully rewrites it with deterministic sort order (rules by ID, allowlists by name, entries within each allowlist, suppressions by rule+path), deterministic indent + LF line endings, file mode forced to 0600, and atomic write via `.tmp` + rename. The canonical file header documents the regeneration contract so hand-editors aren't surprised when their comments disappear. Comment-preservation escape hatch: every entry ships a `notes:` field that DOES round-trip.
+- **`internal/policy/merge.go`** — `Effective` view implements the precedence model from plan section B3.4:
+  1. Rule not registered → never fires.
+  2. `rules.X.enabled = false` → skip globally.
+  3. `rules.X.scope.exclude` matches path → skip.
+  4. `rules.X.scope.include` set but path not included → skip.
+  5. Rule runs; allowlists pass through as context.
+  6. Suppressions (union of policy.yaml + `.audrignore`) — ANY match silences.
+  7. Severity override rewrites surviving findings.
+  8. Emit.
+  Expired suppressions are ignored at scan time but kept on disk until the next save (the dashboard surfaces them so users can prune).
+- **Rule registry wrap (CQ2)** — `rules.ApplyWithPolicy(doc, filter)` is the new policy-aware entry point. `rules.Apply(doc)` keeps the v1.1 signature and is now equivalent to passing a nil filter, so existing callers (CLI scan, self-audit, rule tests) need no code change. **Regression contract:** an empty policy produces byte-identical scan results to v1.1. Anchored by `TestEmptyPolicy_BehavesIdenticallyToNoPolicy` in `internal/rules/registry_policy_test.go`.
+- **Daemon orchestrator hot-reload** — `runNative` re-loads `~/.audr/policy.yaml` at the top of every scan cycle. Same pattern as v0.5.0's `scanner.config.json`. No daemon restart needed; dashboard saves take effect within one scan interval.
+- **`audr policy` CLI subcommand** — `show` / `path` / `edit` / `validate` / `init`. `audr policy edit` opens the file in `$VISUAL` / `$EDITOR` / `code` / `vi` (Windows: `notepad`) and re-validates on exit. `audr policy validate ~/.audr/policy.yaml` returns exit code 1 on a malformed file — usable as a CI gate.
+
+### Added — Dashboard policy editor
+
+- **`/policy/edit` page** — separate route reached via `audr open` or via a top-bar link from the main dashboard. Form view with category nav on the left (counts per category: MCP / Claude / Codex / Cursor / PowerShell / Shell / GitHub Actions / Skill / Shai-Hulud / OpenClaw / Other), rule rows on the right showing toggle + rule-id + description + severity dropdown. Each toggle / severity change updates an in-memory draft; the SAVE button stays disabled until the draft differs from what's persisted. Tab-close protection via `beforeunload` keeps unsaved changes safe.
+- **`/api/policy`** — GET returns the current policy + rule catalog + canonical YAML + load warnings. POST validates and saves; returns the canonical YAML the server actually persisted so the editor stays in sync.
+- **`/api/policy/validate`** — POST validates without writing. For future client-side as-you-type linting.
+- **`/api/rules`** — GET returns the rule catalog (id, title, default severity, category). Standalone for clients that only need the catalog.
+- **`policy.html` + `policy.css` + `policy.js`** — vanilla JS, no build step, no node_modules. Uses audr's existing dashboard tokens (Plex Mono/Sans, dark-only palette). The visual contract matches the design-reviewed mockup at `~/.gstack/projects/harshmaur-audr/designs/policy-editor-20260515/mockup.html`.
+
+### Deferred from v1.2 (documented as v1.2.x slices)
+
+- **CodeMirror 6 YAML editor.** Plan B2 called for a vendored ESM bundle. Building it requires the Node toolchain we deliberately keep out of the audr repo per the trust thesis. v1.2.0 ships the YAML view as a `<textarea>` in read-only mode (status line explains: "edit via Form tab or hand-edit policy.yaml on disk"). v1.2.x will ship a vetted prebuilt bundle vendored as a single binary blob.
+- **htmx-based main-dashboard refactor.** Plan B2 called for the whole dashboard to migrate to htmx + Alpine fragments. The policy editor is the only piece v1.2 needs htmx-style behavior from, and it works fine as vanilla JS — a wholesale dashboard rewrite would have shipped weeks of risk for no functional gain. The main dashboard's existing 895-line `dashboard.js` keeps working unchanged.
+- **fsnotify watcher for dashboard live-reload of the policy editor.** Per-scan-cycle re-read is the primary hot-reload path and ships in v1.2.0; the editor itself can refresh on user "reload from disk" click. The fsnotify integration for instant editor refresh when the user hand-edits the file via `$EDITOR` lands in v1.2.x.
+- **Diff preview modal + destructive-action confirm modal.** Plan B4.1 and B4.2 designed these. v1.2.0 ships a simpler "SAVE" button without the diff preview interstitial. v1.2.x will add the modal flow when the destructive-action heuristic per Codex review #11 (coverage-delta math instead of raw counts) is settled.
+
+### Changed
+
+- **`scan.Options` gains a `Policy rules.PolicyFilter` field.** Nil = no overlay (CLI default, v1.1 behavior). The daemon orchestrator populates this from the live `~/.audr/policy.yaml` on every scan cycle.
+
+### Tests
+
+- `internal/policy/policy_test.go` — 11 tests covering round-trip, deterministic sort, validation, atomic save, backup rotation, restrictive file mode, future-schema rejection, notes preservation, header presence, expiry round-trip, hash stability.
+- `internal/policy/merge_test.go` — 9 tests covering each precedence step + path glob semantics including the Windows-path normalization regression.
+- `internal/rules/registry_policy_test.go` — 5 integration tests: empty policy equals v1.1 behavior, disable-by-policy, severity override, suppression silences, scope exclude.
+
 ## [0.6.0] - 2026-05-15 — v1.1 Platform Completeness Lake
 
 First release shipping audr as a first-class Windows tool plus click-to-open notifications on macOS. The v1.1 milestone per `/plan-eng-review` of 2026-05-15. Two outside-voice review passes (Codex + Claude subagent) ran against the plan before implementation; their feedback shaped the deferred-vs-shipped split below.

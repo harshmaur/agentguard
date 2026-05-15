@@ -376,9 +376,18 @@ Inline `# audr:disable=rule-id` is on the v0.3 list.
 - **v1.1.x (deferred from v1.1):** Windows click-to-open notifications via
   WinRT toast + AppUserModelID registration, Authenticode signing (depends
   on EV cert spend).
-- **v1.2 (next):** user-editable policy overlay (`~/.audr/policy.yaml`) with
-  dual YAML/UI editor in the dashboard, rules-as-data overlay system,
-  dashboard restructure on htmx + Alpine + CodeMirror.
+- **v0.7 / v1.2 (this release):** user-editable policy overlay
+  (`~/.audr/policy.yaml`) with daemon hot-reload on every scan cycle.
+  `audr policy show / path / edit / validate / init` CLI subcommands.
+  Dashboard policy editor at `/policy/edit` with Form view, per-rule
+  enable/disable + severity overrides + named allowlists + suppressions
+  (each requires a reason). Canonical-generated YAML format with notes
+  field for comment-preservation. Precedence model: enable check → scope
+  filter → suppression union (policy.yaml + .audrignore) → severity
+  override.
+- **v1.2.x (deferred from v1.2):** CodeMirror 6 YAML editor with linting,
+  htmx-based main-dashboard refactor, fsnotify watcher for live-reload,
+  diff-preview modal with destructive-action confirm gate.
 - **v1.3+:** custom rule definitions (Semgrep-style YAML), BYOD privacy
   mode, GitHub Action template, more harness detectors (Cline / Continue /
   Roo / Aider / OpenClaw / Hermes / Goose), tool-description prompt-injection
