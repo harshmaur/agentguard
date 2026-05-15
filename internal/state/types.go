@@ -52,12 +52,13 @@ type ScannerStatus struct {
 type EventKind string
 
 const (
-	EventScanStarted    EventKind = "scan-started"
-	EventScanCompleted  EventKind = "scan-completed"
-	EventFindingOpened  EventKind = "finding-opened"
-	EventFindingUpdated EventKind = "finding-updated" // seen again, last_seen_scan bumped
+	EventScanStarted     EventKind = "scan-started"
+	EventScanCompleted   EventKind = "scan-completed"
+	EventFindingOpened   EventKind = "finding-opened"
+	EventFindingUpdated  EventKind = "finding-updated" // seen again, last_seen_scan bumped
 	EventFindingResolved EventKind = "finding-resolved"
-	EventScannerStatus  EventKind = "scanner-status"
+	EventScannerStatus   EventKind = "scanner-status"
+	EventPolicyChanged   EventKind = "policy-changed" // fsnotify saw ~/.audr/policy.yaml change on disk
 )
 
 // Event is the pub-sub payload Subscribe() returns on. Payload
@@ -66,6 +67,8 @@ const (
 //   - EventScanStarted, EventScanCompleted: Scan
 //   - EventFindingOpened, EventFindingUpdated, EventFindingResolved: Finding
 //   - EventScannerStatus: ScannerStatus
+//   - EventPolicyChanged: nil (the event itself is the signal — the
+//     dashboard re-fetches /api/policy to read the new state)
 type Event struct {
 	Kind    EventKind
 	Payload any

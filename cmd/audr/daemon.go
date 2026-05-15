@@ -16,6 +16,7 @@ import (
 	"github.com/harshmaur/audr/internal/notify"
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/ospkg"
+	"github.com/harshmaur/audr/internal/policy"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
 	"github.com/harshmaur/audr/internal/templates"
@@ -589,18 +590,32 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build server: %w", err)
 				}
 
+				// Policy file watcher (v1.2.x). When the user
+				// hand-edits ~/.audr/policy.yaml via $EDITOR the
+				// dashboard receives a "policy-changed" SSE event
+				// and refreshes. The per-scan-cycle reload in
+				// orchestrator.runNative remains the primary
+				// hot-reload path; this subsystem is the UI
+				// polish layer.
+				policyPath, err := policy.Path()
+				if err != nil {
+					return fmt.Errorf("resolve policy path: %w", err)
+				}
+				policyWatcher := policy.NewSubsystem(store, policyPath, orchLogger.With("subsystem", "policy-watcher"))
+
 				// Register subsystems in dependency order. Lifecycle
 				// closes in REVERSE registration order:
-				//   1. watcher stops first (no new triggers fire)
-				//   2. orchestrator drains in-flight scan + sees the
+				//   1. fs watcher stops first (no new triggers fire)
+				//   2. policy watcher stops (no more policy-changed events)
+				//   3. orchestrator drains in-flight scan + sees the
 				//      watcher channel close, falls back to ticker-only
-				//   3. server drains in-flight HTTP requests
-				//   4. notifier stops consuming store events
-				//   5. updater stops (just halts the poll loop)
-				//   6. store closes the DB last
+				//   4. server drains in-flight HTTP requests
+				//   5. notifier stops consuming store events
+				//   6. updater stops (just halts the poll loop)
+				//   7. store closes the DB last
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{store, upd, notifier, srv, orch, watcher},
+					Subsystems: []daemon.Subsystem{store, upd, notifier, srv, orch, policyWatcher, watcher},
 				})
 			})
 			if err != nil {

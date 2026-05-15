@@ -35,6 +35,18 @@ func (s *Store) Subscribe() (<-chan Event, func()) {
 	return sub.ch, unsub
 }
 
+// Publish fans an event out to every current subscriber. Exported
+// for daemon subsystems (the policy watcher, future hot-reload
+// signals) that need to push notifications to the dashboard without
+// touching the persistent store. Internal Store methods continue to
+// call the lowercase publish helper.
+//
+// Safe to call from any goroutine. Non-blocking per subscriber; a
+// slow consumer is dropped (the consumer's SSE retry will reconnect).
+func (s *Store) Publish(e Event) {
+	s.publish(e)
+}
+
 // publish fans an event out to every current subscriber, non-blocking.
 // If a subscriber's channel is full (consumer fell behind), we drop
 // the subscription rather than block — the consumer's SSE retry will
