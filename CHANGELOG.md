@@ -3,6 +3,37 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.8.1] - 2026-05-16 — `audr open` diagnostic fix
+
+Hotfix for a pre-v0.4 message that survived the daemon refactor and
+shipped through v0.8.0.
+
+### Fixed
+
+- **`audr open` no longer prints "the dashboard HTTP server lands in
+  phase 2 of the v1 build".** The "running but state file missing"
+  diagnostic in `cmd/audr/open.go` carried copy from the Phase 1
+  scaffold (pre-v0.4 — before the dashboard HTTP server shipped).
+  In every release since v0.4, the daemon's service status returning
+  "running" with no state file actually means one of:
+  1. Daemon just started; the state file is written AFTER the HTTP
+     server's Bind() succeeds — usually 50–500ms later but can drift
+     to several seconds on cold-start with sidecar reprobing.
+  2. HTTP server failed to bind (port in use, permission, etc.) and
+     the daemon is alive but useless.
+
+  `audr open` now polls the state file for up to 3 seconds when the
+  service reports running. If it appears, opens the browser. If
+  not, surfaces the daemon log path (`Paths.LogFile()`) so the user
+  can read the actual bind error. Also handles the intermediate
+  case where the state file appears but the port still isn't
+  answering yet — prints the URL and the log path with "wait and
+  retry" guidance.
+- **`audr open` "stopped" branch** also dropped its stale Phase 1
+  reference ("the dashboard HTTP server lands in phase 2; for now
+  `audr daemon start` runs the scaffolded daemon only"). Replaced
+  with the concrete `Run: audr daemon start` next step.
+
 ## [0.8.0] - 2026-05-16 — Notification subsystem removed; trust story simplified
 
 Major surface reduction. v0.4.2–v0.7.x carried OS-native toast notifications across Linux (dbus + ActionInvoked click routing), macOS (terminal-notifier-or-osascript with the brew-install dance), and Windows (beeep + the WinRT/AppUserModelID work that was still planned for v1.1.x). The polish was real, the complexity was a tax — three OSes worth of preflight registry probes, permission prompts, focus-mode detection, debouncing, batching, cooldown, dedup, pending-fallback files, dashboard banners surfacing dropped toasts. The dashboard already serves the live finding stream via SSE — toasts were a nice-to-have that was actively expensive to maintain.
