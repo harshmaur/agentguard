@@ -3,6 +3,36 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.7.1] - 2026-05-16 — v1.2.x Policy Editor UI (htmx + Alpine, diff modal, fsnotify)
+
+Lands the four pieces v1.2.0 deferred — the planned dashboard stack, the diff-preview modal, the destructive-action confirm gate, and the fsnotify-driven live reload. The policy editor now matches the design-reviewed mockup end-to-end.
+
+### Added
+
+- **htmx + Alpine.js vendored** under `internal/server/dashboard/vendor/` as single-file `//go:embed` blobs. No Node toolchain in the audr repo's build; no `package.json`, no `npm ci`. Provenance, SHA-256 hashes, and upgrade procedure documented in `VENDORED.md` so the audit story stays intact. Single-file libs were picked specifically because they don't drag in build-time complexity: htmx is ~50KB unminified-and-uncompressed (~14KB gzipped over the wire), Alpine is ~45KB unminified (~15KB gzipped).
+- **Policy editor refactored to use the planned stack.** `policy.html` is now an Alpine `x-data="policyEditor()"`-rooted page with declarative bindings throughout — `:class`, `x-show`, `x-text`, `x-for`, `@click`, `x-model`. The 350-line vanilla-JS `policy.js` becomes a clean factory function returning a single reactive object; bindings re-render automatically when its fields mutate. htmx attributes are wired in for future server-fragment integration (`hx-headers='js:{"X-Audr-Token": getToken()}'`); v1.2.x uses fetch+JSON for the structured form round-trip because policy state is genuinely tabular, but the seam is in place.
+- **Diff preview modal (plan B4.1).** Clicking SAVE opens a modal showing the unified diff against the persisted policy plus an "Effective scope after save" stat strip (rules enabled / at Critical / at High, with deltas). Color + glyph signal kind: `+` green for additions, `−` red for removals. Anti-slop: no drop shadows, no gradients, no emoji, no decorative chrome. Backdrop is `rgba(14,14,12,0.85)`; modal is a centered 720px surface with hairline border.
+- **Destructive-action confirm gate (plan B4.2).** Fires when the diff includes ANY of: ≥5 rule disables, severity downgrade on a critical-default rule, allowlist deletion, non-expired suppression deletion. The same modal shell becomes the destructive-confirm view: header gains a `⚠ Destructive change` tag (amber `--high` foreground, mono uppercase), summary bullets list the destructive deltas, the diff collapses behind a "Show full diff" toggle, and the confirm button stays disabled until the user types `I understand` into the inline input. Pressing Enter in the input submits when the phrase matches exactly.
+- **Tiny inline YAML highlighter** for the YAML tab. ~60 lines of regex-based highlighting inside `policy.js` covers keys, strings, numbers, booleans, comments, list dashes, inline arrays, and ISO 8601 dates. Renders into a `<pre class="yaml-overlay">` positioned behind a transparent `<textarea>` so the user sees highlighted text while editing into a real textarea (no `contenteditable` footguns). Replaces the deferred CodeMirror 6 plan: ~60 lines instead of a 150KB ESM bundle that would need a Node build step. The YAML tab remains read-only in v1.2.x — primary editing happens in the Form view.
+- **fsnotify policy watcher** (`internal/policy/watcher.go`). New `Watcher` and `Subsystem` types. Watches the parent directory of `~/.audr/policy.yaml` (not the inode — atomic-rename saves invalidate file-inode watches), filters for the specific file basename, debounces bursts within 150ms (a single save typically fires write+chmod+rename in <10ms), and invokes its onChange callback at most once per logical save. Wired as a daemon subsystem after the orchestrator + server in registration order (closes before them on shutdown). On fire, publishes a new `state.EventPolicyChanged` event; the dashboard's SSE stream forwards it as `event: policy-changed`. The policy editor listens for that event:
+  - **No unsaved edits:** silently reloads the policy from disk.
+  - **Unsaved edits present:** shows a "policy.yaml changed on disk" banner in the eyebrow with an inline reload button. User decides between their in-flight edits and the new on-disk state.
+
+### Changed
+
+- **`internal/state.Publish(Event)` is now exported.** Daemon subsystems outside `state/` (the policy watcher today; future hot-reload signals tomorrow) push events through this entry point. The lowercase `publish` helper is unchanged for internal Store callers.
+- **`policy.css` doubled in size.** Added the modal styling (backdrop, hairline-bordered modal, unified diff colors, scope-summary stat strip, destructive-warning tag, confirm input section), the YAML textarea-overlay positioning math, and an `[x-cloak]` rule so pre-hydration HTML doesn't flash unstyled Alpine bindings.
+
+### Tests
+
+- 8 watcher tests covering fire-on-write, debounce, sibling-file filtering, dir auto-creation, idempotent Close, nil-callback rejection, parallel-write stress (80 writes from 8 goroutines must coalesce to ≤10 callbacks).
+- 7 server-side policy-endpoint tests: GET returns the catalog + canonical YAML, POST persists and returns canonical YAML, POST rejects malformed severity with 422, POST `/validate` works without writing, GET `/rules` returns the catalog standalone, every endpoint rejects missing tokens, the editor page references both vendor scripts.
+
+### What's still deferred
+
+- **Allowlist + suppression editing UI.** v1.2.x covers rule overrides (toggle, severity, scope). Adding/editing allowlists and suppressions through the dashboard form view lands in v1.3 — the file format already supports both surfaces, and `audr policy edit` opens the YAML directly for users who need them now.
+- **Server-side YAML round-trip parser.** The YAML tab is read-only in v1.2.x because round-tripping a hand-edited YAML through the `Policy` struct requires a YAML-aware diff that preserves the user's text. Plumbing exists for v1.3 to make the YAML tab fully editable.
+
 ## [0.7.0] - 2026-05-16 — v1.2 Policy Lake
 
 User-editable rule-behavior overlay. Built-in detection logic stays Go-coded; v1.2 ships the surface that lets users adjust HOW those rules behave: disable per-rule, override severity, narrow scope, manage named allowlists, and suppress findings with required reasons. The whole spec from the v1.2 policy lake plan, end-to-end.
