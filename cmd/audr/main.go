@@ -73,6 +73,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUpdateScannersCmd())
 	cmd.AddCommand(newDaemonCmd())
 	cmd.AddCommand(newOpenCmd())
+	cmd.AddCommand(newPolicyCmd())
 	cmd.AddCommand(newVersionCmd())
 	return cmd
 }

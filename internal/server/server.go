@@ -279,6 +279,13 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("DELETE /api/notify/pending", s.requireToken(s.handleNotifyPendingDismiss))
 	mux.HandleFunc("POST /api/scanners", s.requireToken(s.handleScannersToggle))
 
+	// Policy editor (v1.2 — user-editable rule overlay).
+	mux.HandleFunc("GET /policy/edit", s.requireToken(s.handlePolicyPage))
+	mux.HandleFunc("GET /api/policy", s.requireToken(s.handleGetPolicy))
+	mux.HandleFunc("POST /api/policy", s.requireToken(s.handlePutPolicy))
+	mux.HandleFunc("POST /api/policy/validate", s.requireToken(s.handleValidatePolicy))
+	mux.HandleFunc("GET /api/rules", s.requireToken(s.handleRulesList))
+
 	return s.hostCheck(mux)
 }
 
