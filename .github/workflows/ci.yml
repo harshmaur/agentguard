@@ -135,8 +135,11 @@ jobs:
       - name: vet
         run: go vet ./...
 
-      - name: test (race detector, unit only)
-        run: go test -race -count=1 ./...
+      - name: test (unit only)
+        # Windows platform coverage is for real OS-specific test execution;
+        # Linux and macOS keep race-detector coverage. The Windows race lane
+        # is brittle on hosted runners and can fail before smoke/build runs.
+        run: go test -count=1 ./...
 
       - name: build
         run: go build -v ./cmd/audr
