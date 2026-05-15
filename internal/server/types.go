@@ -70,13 +70,6 @@ type DaemonInfo struct {
 	// the next scan-completed SSE event.
 	LastScanCompleted int64 `json:"last_scan_completed,omitempty"`
 
-	// PendingNotifications counts the entries in
-	// ${state_dir}/pending-notify.json — toasts that were dropped by
-	// the OS (permission denied / missing notify-send / Focus mode).
-	// Non-zero triggers a dashboard banner pointing the user at
-	// `audr daemon notify --status` and macOS notification settings.
-	PendingNotifications int `json:"pending_notifications,omitempty"`
-
 	// ScannerEnabled mirrors the on-disk scanner.config.json so the
 	// dashboard knows which categories are user-disabled vs
 	// unavailable. Keys are the canonical category identifiers

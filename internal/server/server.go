@@ -14,10 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"os"
-
 	"github.com/harshmaur/audr/internal/daemon"
-	"github.com/harshmaur/audr/internal/notify"
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/state"
 )
@@ -276,7 +273,6 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("GET /api/findings", s.requireToken(s.handleFindings))
 	mux.HandleFunc("GET /api/events", s.requireToken(s.handleEvents))
 	mux.HandleFunc("GET /api/remediation/{fp}", s.requireToken(s.handleRemediation))
-	mux.HandleFunc("DELETE /api/notify/pending", s.requireToken(s.handleNotifyPendingDismiss))
 	mux.HandleFunc("POST /api/scanners", s.requireToken(s.handleScannersToggle))
 
 	// Policy editor (v1.2 — user-editable rule overlay).
@@ -361,19 +357,6 @@ func (s *Server) handleScannersToggle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// handleNotifyPendingDismiss clears the pending-notify.json file so
-// the next dashboard snapshot won't carry the pending count. Called
-// by the dashboard JS when the user dismisses the
-// NOTIFICATIONS DROPPED banner. Idempotent — missing file is a 204
-// not an error.
-func (s *Server) handleNotifyPendingDismiss(w http.ResponseWriter, _ *http.Request) {
-	if err := notify.ClearPending(s.opts.Paths.State); err != nil && !os.IsNotExist(err) {
-		http.Error(w, "clear pending: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -434,13 +417,6 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 			daemonInfo.InotifyLow = true
 		}
 		daemonInfo.RemoteFsSkipped = len(s.opts.WatcherProbe.RemoteRoots())
-	}
-	// Pending-notification fallback: when the OS dropped toasts,
-	// `notify` writes ${state_dir}/pending-notify.json. Surface the
-	// count so the dashboard banner can prompt the user toward
-	// `audr daemon notify --status` + OS settings.
-	if pending, err := notify.ReadPending(s.opts.Paths.State); err == nil {
-		daemonInfo.PendingNotifications = len(pending)
 	}
 	// Scanner enable/disable config. The dashboard click-to-toggle
 	// UI reads this to render correct on/off state per category.

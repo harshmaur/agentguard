@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/lowprio"
-	"github.com/harshmaur/audr/internal/notify"
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/ospkg"
 	"github.com/harshmaur/audr/internal/policy"
@@ -22,7 +19,6 @@ import (
 	"github.com/harshmaur/audr/internal/templates"
 	"github.com/harshmaur/audr/internal/updater"
 	"github.com/harshmaur/audr/internal/watch"
-	"github.com/gen2brain/beeep"
 	"github.com/spf13/cobra"
 )
 
@@ -52,7 +48,6 @@ Tear down:
 	cmd.AddCommand(newDaemonStartCmd())
 	cmd.AddCommand(newDaemonStopCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
-	cmd.AddCommand(newDaemonNotifyCmd())
 	cmd.AddCommand(newDaemonScannersCmd())
 	cmd.AddCommand(newDaemonRunInternalCmd())
 	return cmd
@@ -161,135 +156,6 @@ User-disabled scanners show 'disabled' and point back to this command.`,
 	return cmd
 }
 
-// newDaemonNotifyCmd toggles OS notification delivery without
-// restarting the daemon. Writes the config file the running notifier
-// re-reads on every event. No subcommand: --off / --on / --status as
-// flags so the muscle memory is `audr daemon notify --off`.
-func newDaemonNotifyCmd() *cobra.Command {
-	var off, on, showStatus, runTest bool
-	cmd := &cobra.Command{
-		Use:   "notify",
-		Short: "Manage OS notifications (toasts on new CRITICAL findings)",
-		Long: `Manage OS-native toast notifications for new CRITICAL findings.
-
-Notifications are on by default. v0.4.2 batching:
-  - Per-fingerprint 24h cooldown — a re-detected CRITICAL won't re-fire
-  - 5-minute rolling cap of 3 toasts — overflow rolls into a single
-    "audr · N more critical findings since last alert" aggregate
-    emitted on scan-completed
-  - First scan after install emits one aggregate
-    "audr first scan complete · N critical · audr open" toast, never
-    per-finding toasts
-
-Disabling does NOT halt the daemon — findings still appear on the
-dashboard. It only suppresses the OS-level toast surface.
-
-Use --test to fire an on-demand verification toast that bypasses
-the cooldown + rate-cap + first-scan-suppression logic. If you see
-the toast, the OS-level pipeline (Linux notify-send / macOS
-osascript / Windows toast) works. If you don't, the command will
-print the underlying error (permission denied, missing notify-send
-binary, Focus mode, etc.) — which is what gets written to
-pending-notify.json in normal operation.`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			set := 0
-			for _, b := range []bool{off, on, showStatus, runTest} {
-				if b {
-					set++
-				}
-			}
-			if set == 0 {
-				showStatus = true
-			}
-			if set > 1 {
-				return fmt.Errorf("specify exactly one of --off / --on / --status / --test")
-			}
-			paths, err := daemon.Resolve()
-			if err != nil {
-				return fmt.Errorf("resolve daemon paths: %w", err)
-			}
-			if runTest {
-				// Preflight diagnostics that detect common silent-
-				// failure modes BEFORE we send the toast — saves the
-				// user the "beeep said success but I saw nothing"
-				// confusion.
-				w := cmd.OutOrStdout()
-				if warnings := preflightNotifications(); len(warnings) > 0 {
-					fmt.Fprintln(w, "audr: notification preflight detected potential issues:")
-					for _, msg := range warnings {
-						fmt.Fprintf(w, "  - %s\n", msg)
-					}
-					fmt.Fprintln(w, "audr: continuing with test toast anyway. If you don't see it,")
-					fmt.Fprintln(w, "      address the items above and re-run `audr daemon notify --test`.")
-					fmt.Fprintln(w)
-				}
-				// Fire an on-demand toast via beeep directly. Skips the
-				// notifier's Subsystem / event-bus / batching paths so
-				// this works whether the daemon is running or not — and
-				// surfaces the underlying OS error cleanly when toasts
-				// are blocked.
-				err := beeep.Notify(
-					"audr",
-					"Test notification · if you see this, OS notifications work. Run \"audr daemon notify --off\" to suppress real alerts.",
-					"",
-				)
-				if err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"audr: test toast failed: %v\n"+
-							"Hints:\n"+
-							"  Linux: ensure libnotify is installed (apt install libnotify-bin) and a notification daemon is running.\n"+
-							"  macOS: check System Settings → Notifications → audr is allowed.\n"+
-							"  Windows: ensure Focus Assist isn't suppressing notifications for audr.\n",
-						err)
-					return err
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), "audr: test toast dispatched. Check your notification area.")
-				return nil
-			}
-			if off {
-				if err := notify.WriteConfig(paths.State, notify.Config{Enabled: false}); err != nil {
-					return fmt.Errorf("write notify config: %w", err)
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), "audr: OS notifications disabled.")
-				return nil
-			}
-			if on {
-				if err := notify.WriteConfig(paths.State, notify.Config{Enabled: true}); err != nil {
-					return fmt.Errorf("write notify config: %w", err)
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), "audr: OS notifications enabled.")
-				return nil
-			}
-			// --status (default when nothing passed).
-			cfg, err := notify.ReadConfig(paths.State)
-			if err != nil {
-				return fmt.Errorf("read notify config: %w", err)
-			}
-			state := "enabled"
-			if !cfg.Enabled {
-				state = "disabled"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "audr: OS notifications %s.\n", state)
-			// Also surface any drops from pending-notify.json. The
-			// dashboard banner reads from the same file; printing here
-			// gives CLI users the same diagnostic surface.
-			if pending, err := notify.ReadPending(paths.State); err == nil && len(pending) > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(),
-					"audr: %d dropped notification(s) in pending-notify.json — toasts the OS suppressed.\n",
-					len(pending))
-				fmt.Fprintln(cmd.OutOrStdout(),
-					"      Run `audr daemon notify --test` to verify the OS pipeline.")
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&off, "off", false, "disable OS notifications")
-	cmd.Flags().BoolVar(&on, "on", false, "enable OS notifications")
-	cmd.Flags().BoolVar(&showStatus, "status", false, "print current notification status (default if no flag passed)")
-	cmd.Flags().BoolVar(&runTest, "test", false, "fire an on-demand test toast (bypasses all batching/cooldown to verify the OS pipeline)")
-	return cmd
-}
-
 func newDaemonInstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
@@ -310,26 +176,6 @@ This only registers the service. Use 'audr daemon start' to actually run it.`,
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "audr daemon: installed")
-
-			// On macOS, trigger the system notification permission
-			// dialog so the user sees it under audr's identity
-			// before any real CRITICAL toast fires. osascript fires
-			// a one-shot dummy notification; the first run shows the
-			// "Allow Notifications" prompt, subsequent calls are
-			// silent. We swallow any error — the daemon falls back
-			// to pending-notify.json when toasts get denied.
-			if runtime.GOOS == "darwin" {
-				osa := exec.Command("osascript", "-e",
-					`display notification "audr is installed. Permission prompt will appear once so audr can alert you to CRITICAL findings." with title "audr"`)
-				if err := osa.Run(); err != nil {
-					fmt.Fprintln(cmd.OutOrStdout(),
-						"audr: macOS notification permission probe failed; you can request it later via System Settings → Notifications.")
-				} else {
-					fmt.Fprintln(cmd.OutOrStdout(),
-						"audr: macOS notification permission requested (check the system dialog).")
-				}
-			}
-
 			fmt.Fprintln(cmd.OutOrStdout(), "next: audr daemon start")
 			return nil
 		},
@@ -540,40 +386,6 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build updater: %w", err)
 				}
 
-				// Notify subsystem. Subscribes to the store's event
-				// bus and produces OS-native toasts for new CRITICAL
-				// findings, with batching so a first-run sweep
-				// doesn't bombard the user. Disabled-via-config does
-				// not stop the subsystem — it just no-ops the toast
-				// call, so the user can flip with `audr daemon
-				// notify --off` without restarting.
-				//
-				// OnClick (Linux only today) opens the dashboard on
-				// notification click. Reads the live state file each
-				// time so token rotation across daemon restarts
-				// doesn't strand stale URLs.
-				notifier, err := notify.New(notify.Options{
-					Store:    store,
-					StateDir: paths.State,
-					Logger:   orchLogger,
-					OnClick: func() {
-						st, found, err := daemon.ReadStateFile(paths.StateFile())
-						if err != nil || !found {
-							orchLogger.Warn("notification clicked but state file unreadable",
-								"err", err, "found", found)
-							return
-						}
-						url := fmt.Sprintf("http://127.0.0.1:%d/?t=%s", st.Port, st.Token)
-						if err := openDashboardURL(url); err != nil {
-							orchLogger.Warn("notification clicked but browser launch failed", "err", err)
-						}
-					},
-				})
-				if err != nil {
-					_ = store.Close()
-					return fmt.Errorf("build notifier: %w", err)
-				}
-
 				// HTTP server subsystem. ListenPort=0 lets the kernel
 				// assign a free port; the daemon publishes the chosen
 				// port via the daemon.state file.
@@ -610,12 +422,11 @@ func newDaemonRunInternalCmd() *cobra.Command {
 				//   3. orchestrator drains in-flight scan + sees the
 				//      watcher channel close, falls back to ticker-only
 				//   4. server drains in-flight HTTP requests
-				//   5. notifier stops consuming store events
-				//   6. updater stops (just halts the poll loop)
-				//   7. store closes the DB last
+				//   5. updater stops (just halts the poll loop)
+				//   6. store closes the DB last
 				return daemon.Run(ctx, daemon.Options{
 					Paths:      paths,
-					Subsystems: []daemon.Subsystem{store, upd, notifier, srv, orch, policyWatcher, watcher},
+					Subsystems: []daemon.Subsystem{store, upd, srv, orch, policyWatcher, watcher},
 				})
 			})
 			if err != nil {
