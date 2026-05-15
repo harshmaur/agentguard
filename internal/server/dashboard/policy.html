@@ -7,69 +7,166 @@
 <link rel="stylesheet" href="dashboard.css">
 <link rel="stylesheet" href="policy.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230e0e0c'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='18' font-weight='600' text-anchor='middle' fill='%23f5f5f0'%3EA%3C/text%3E%3C/svg%3E">
+<!--
+  htmx + Alpine vendored locally per the trust thesis. No CDN deps,
+  no node_modules at build. See vendor/VENDORED.md for provenance +
+  upgrade instructions.
+
+  htmx loads first so its attribute-driven request handling is wired
+  before Alpine's reactive bindings boot.
+-->
+<script src="vendor/htmx.min.js"></script>
+<script defer src="vendor/alpine.min.js"></script>
 </head>
-<body>
+<body
+  x-data="policyEditor()"
+  x-init="init()"
+  hx-headers='js:{"X-Audr-Token": getToken()}'>
 
 <header class="topbar" role="banner">
   <div class="brand">A U D R</div>
   <div class="breadcrumb" role="navigation" aria-label="breadcrumb">
-    <a href="/" id="back-link">Dashboard</a>
+    <a :href="`/?t=${token}`" id="back-link">Dashboard</a>
     <span class="sep">/</span>
     <span class="current">Policy</span>
   </div>
   <div class="topbar-actions">
-    <div class="unsaved-indicator" id="unsaved-indicator" hidden>
+    <div class="unsaved-indicator" x-show="dirty" x-cloak>
       <span class="unsaved-dot" aria-hidden="true"></span>
-      <span id="unsaved-count">Unsaved</span>
+      <span x-text="unsavedLabel()"></span>
     </div>
-    <button class="save-btn" id="save-btn" disabled>Save</button>
-    <a href="/" id="cancel-link" class="cancel-link">Cancel</a>
+    <button
+      class="save-btn"
+      :class="{ pulse: justSaved }"
+      :disabled="!dirty || saving"
+      @click="openDiffModal()"
+      x-text="saving ? 'Saving…' : (justSaved ? 'Saved' : 'Save')">Save</button>
+    <a :href="`/?t=${token}`" class="cancel-link" @click="cancelGuard($event)">Cancel</a>
   </div>
 </header>
 
-<section class="banner-stack" id="banners" aria-live="polite"></section>
+<section class="banner-stack" aria-live="polite">
+  <template x-for="(b, i) in banners" :key="i">
+    <div class="banner" :class="'banner-' + b.kind" role="status">
+      <span x-text="b.message"></span>
+      <button class="banner-close" aria-label="Dismiss" @click="banners.splice(i, 1)">×</button>
+    </div>
+  </template>
+</section>
 
-<div class="eyebrow" id="policy-eyebrow">
+<div class="eyebrow">
   <span class="label">Policy</span><span class="sep">·</span>
-  <span id="version-label">v1</span><span class="sep">·</span>
-  <span id="path-label">~/.audr/policy.yaml</span>
+  <span x-text="'v' + (policy.version || 1)"></span><span class="sep">·</span>
+  <span x-text="path || '~/.audr/policy.yaml'"></span>
+  <template x-if="staleOnDisk">
+    <span class="eyebrow-warn">
+      <span class="sep">·</span>
+      <strong>policy.yaml changed on disk</strong>
+      <button class="inline-link" @click="reload()">reload</button>
+    </span>
+  </template>
 </div>
 
 <nav class="tabs" role="tablist">
-  <button class="tab active" id="tab-form" role="tab" aria-selected="true">Form</button>
-  <button class="tab" id="tab-yaml" role="tab" aria-selected="false">YAML</button>
+  <button class="tab" :class="{ active: tab === 'form' }" role="tab"
+    :aria-selected="tab === 'form'" @click="tab = 'form'">Form</button>
+  <button class="tab" :class="{ active: tab === 'yaml' }" role="tab"
+    :aria-selected="tab === 'yaml'" @click="tab = 'yaml'">YAML</button>
 </nav>
 
-<div class="editor-layout" id="form-view">
+<!-- Form view -->
+<div class="editor-layout" x-show="tab === 'form'" x-cloak>
   <aside class="category-nav" aria-label="Rule categories">
     <div class="filter-input-wrap">
-      <input class="filter-input" id="filter-input" placeholder="Filter rules…" type="search" aria-label="Filter rules">
+      <input
+        class="filter-input"
+        placeholder="Filter rules…"
+        type="search"
+        aria-label="Filter rules"
+        x-model="filterText"
+        @keydown.escape="filterText = ''">
     </div>
-    <ul class="category-list" id="category-list" role="list"></ul>
+    <ul class="category-list" role="list">
+      <template x-for="cat in categoryList()" :key="cat.label">
+        <li class="category-item"
+            :class="{ active: activeCategory === cat.value }"
+            @click="activeCategory = cat.value"
+            role="button"
+            tabindex="0">
+          <span x-text="cat.label"></span>
+          <span class="count" x-text="cat.count"></span>
+        </li>
+      </template>
+    </ul>
   </aside>
 
-  <main class="rule-pane" id="rule-pane">
+  <main class="rule-pane">
     <div class="rule-pane-header">
-      <h2 class="rule-pane-title" id="rule-pane-title">All rules</h2>
-      <div class="rule-pane-meta" id="rule-pane-meta">…</div>
+      <h2 class="rule-pane-title" x-text="paneTitle()"></h2>
+      <div class="rule-pane-meta" x-text="paneMeta()"></div>
     </div>
-    <div class="rule-list" id="rule-list" aria-live="polite">
-      <div class="empty">Loading rules…</div>
+    <div class="rule-list" aria-live="polite">
+      <template x-if="filteredRules().length === 0">
+        <div class="empty" x-text="filterText
+          ? 'No rules match “' + filterText + '”. Clear filter.'
+          : 'No rules in this category.'"></div>
+      </template>
+      <template x-for="r in filteredRules()" :key="r.id">
+        <article class="rule-row" :class="{ disabled: !isEnabled(r.id) }">
+          <button
+            class="rule-toggle"
+            :class="{ on: isEnabled(r.id) }"
+            :aria-pressed="String(isEnabled(r.id))"
+            :aria-label="(isEnabled(r.id) ? 'Disable ' : 'Enable ') + 'rule ' + r.id"
+            @click="toggleRule(r)"></button>
+
+          <div class="rule-meta">
+            <div class="rule-id" x-text="r.id"></div>
+            <div class="rule-desc" x-text="r.title || '(no description)'"></div>
+            <template x-if="hasScope(r.id)">
+              <div class="rule-scope-meta" x-text="scopeMetaText(r.id)"></div>
+            </template>
+          </div>
+
+          <select
+            class="severity-pill"
+            :class="effectiveSeverity(r)"
+            :aria-label="'Severity for ' + r.id"
+            :disabled="!isEnabled(r.id)"
+            @change="setSeverity(r, $event.target.value)">
+            <template x-for="s in ['critical','high','medium','low']" :key="s">
+              <option :value="s" :selected="effectiveSeverity(r) === s" x-text="s.toUpperCase()"></option>
+            </template>
+          </select>
+        </article>
+      </template>
     </div>
   </main>
 </div>
 
-<div class="yaml-editor-wrap" id="yaml-view" hidden>
+<!-- YAML view -->
+<div class="yaml-editor-wrap" x-show="tab === 'yaml'" x-cloak>
   <div class="yaml-editor-header">
-    <div class="rule-pane-meta">policy.yaml — canonical-generated; hand-edit at your own discretion (comments will be dropped on next save)</div>
-    <div class="rule-pane-meta" id="yaml-status"></div>
+    <div class="rule-pane-meta">
+      policy.yaml — canonical-generated; every save fully rewrites the file
+    </div>
+    <div class="rule-pane-meta" x-text="yamlStatus" :class="yamlStatusClass"></div>
   </div>
-  <textarea
-    class="yaml-textarea"
-    id="yaml-textarea"
-    spellcheck="false"
-    aria-label="Policy YAML"
-    rows="30"></textarea>
+  <!--
+    The textarea is the source-of-truth input; the <pre class="yaml-overlay">
+    behind it is the syntax-highlighted view. CSS keeps them aligned and the
+    textarea transparent so the user sees highlighted text while typing
+    against a real textarea (no contenteditable footguns).
+  -->
+  <div class="yaml-editor">
+    <pre class="yaml-overlay" aria-hidden="true" x-html="highlightYAML(yamlText)"></pre>
+    <textarea
+      class="yaml-textarea"
+      spellcheck="false"
+      aria-label="Policy YAML (read-only in v1.2.x; edit via Form tab)"
+      x-model="yamlText"
+      readonly></textarea>
+  </div>
   <noscript>
     <p style="padding: 16px 32px; color: var(--text-muted);">
       JavaScript is required for the policy editor. You can still
@@ -78,11 +175,114 @@
   </noscript>
 </div>
 
+<!-- Diff preview + destructive-action confirm modal (B4.1 + B4.2). -->
+<div class="modal-backdrop"
+     x-show="modal === 'diff' || modal === 'destructive'"
+     x-cloak
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="diff-modal-title"
+     @click.self="closeModal()"
+     @keydown.escape.window="closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title" id="diff-modal-title">
+        Review changes
+        <template x-if="modal === 'destructive'">
+          <span class="destructive-warning">⚠ Destructive change</span>
+        </template>
+      </h2>
+      <button class="modal-close" @click="closeModal()" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-label" x-text="diffCountLabel()"></div>
+
+      <template x-if="modal === 'destructive'">
+        <ul class="destructive-summary">
+          <template x-for="(line, i) in destructiveSummary()" :key="i">
+            <li x-text="line"></li>
+          </template>
+        </ul>
+      </template>
+
+      <div class="diff-block" role="region" aria-label="Policy diff">
+        <template x-for="(line, i) in diffLines" :key="i">
+          <span class="diff-line"
+                :class="line.kind"
+                x-text="line.text"></span>
+        </template>
+      </div>
+
+      <div class="modal-section-label">Effective scope after save</div>
+      <div class="scope-summary">
+        <div class="scope-stat">
+          <div class="scope-stat-label">Rules enabled</div>
+          <div class="scope-stat-value">
+            <span x-text="scopeAfter().enabled"></span>
+            <span class="delta"
+                  :class="{ down: scopeAfter().enabledDelta < 0, up: scopeAfter().enabledDelta > 0 }"
+                  x-show="scopeAfter().enabledDelta !== 0"
+                  x-text="scopeAfter().enabledDelta > 0
+                    ? '+' + scopeAfter().enabledDelta
+                    : scopeAfter().enabledDelta"></span>
+          </div>
+        </div>
+        <div class="scope-stat">
+          <div class="scope-stat-label">At Critical</div>
+          <div class="scope-stat-value">
+            <span x-text="scopeAfter().critical"></span>
+            <span class="delta"
+                  :class="{ down: scopeAfter().criticalDelta < 0, up: scopeAfter().criticalDelta > 0 }"
+                  x-show="scopeAfter().criticalDelta !== 0"
+                  x-text="scopeAfter().criticalDelta > 0
+                    ? '+' + scopeAfter().criticalDelta
+                    : scopeAfter().criticalDelta"></span>
+          </div>
+        </div>
+        <div class="scope-stat">
+          <div class="scope-stat-label">At High</div>
+          <div class="scope-stat-value">
+            <span x-text="scopeAfter().high"></span>
+            <span class="delta"
+                  :class="{ down: scopeAfter().highDelta < 0, up: scopeAfter().highDelta > 0 }"
+                  x-show="scopeAfter().highDelta !== 0"
+                  x-text="scopeAfter().highDelta > 0
+                    ? '+' + scopeAfter().highDelta
+                    : scopeAfter().highDelta"></span>
+          </div>
+        </div>
+      </div>
+
+      <template x-if="modal === 'destructive'">
+        <div class="confirm-input-section">
+          <div class="confirm-prompt">
+            Type <code>I understand</code> to enable save:
+          </div>
+          <input type="text"
+                 class="confirm-input"
+                 x-model="confirmInput"
+                 aria-label="Confirmation phrase"
+                 @keydown.enter.prevent="confirmInput.trim() === 'I understand' && save()">
+        </div>
+      </template>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-back" @click="closeModal()">Back</button>
+      <button class="btn-confirm"
+              :disabled="modal === 'destructive' && confirmInput.trim() !== 'I understand'"
+              @click="save()"
+              x-text="modal === 'destructive' ? 'Apply destructive change' : 'Confirm save'">
+        Confirm save
+      </button>
+    </div>
+  </div>
+</div>
+
 <footer class="footer">
   <div>audr · policy editor · token authenticated</div>
   <div>
-    <a href="#" id="reload-link">reload from disk</a> ·
-    <a href="/" id="footer-back">back to dashboard</a>
+    <a href="#" @click.prevent="reload()">reload from disk</a> ·
+    <a :href="`/?t=${token}`" @click="cancelGuard($event)">back to dashboard</a>
   </div>
 </footer>
 

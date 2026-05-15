@@ -334,3 +334,325 @@
 @media (prefers-reduced-motion: reduce) {
   .save-btn.pulse { animation: none; }
 }
+
+/* ===== YAML editor — textarea over highlighted <pre> ============ */
+
+.yaml-editor {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  min-height: 70vh;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* The <pre> sits behind the textarea showing the highlighted view.
+ * The textarea is transparent so the user sees highlighted text but
+ * still types into a real textarea (no contenteditable footguns). */
+.yaml-overlay,
+.yaml-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 16px 20px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  border: 0;
+  outline: none;
+}
+
+.yaml-overlay {
+  color: var(--text);
+  background: transparent;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.yaml-textarea {
+  color: rgba(245, 245, 240, 0.001); /* near-invisible; caret stays visible */
+  caret-color: var(--text);
+  background: transparent;
+  resize: none;
+  z-index: 2;
+  overflow: auto;
+}
+
+.yaml-textarea[readonly] {
+  caret-color: var(--text-muted);
+}
+
+.yaml-key { color: var(--low); }
+.yaml-str { color: var(--ok); }
+.yaml-num { color: var(--medium); }
+.yaml-bool { color: var(--high); }
+.yaml-comment { color: var(--text-muted); font-style: italic; }
+.yaml-dash { color: var(--text-muted); }
+.yaml-array { color: var(--ok); }
+
+#yaml-status.invalid { color: var(--critical); }
+#yaml-status.valid { color: var(--ok); }
+
+/* x-cloak hides Alpine-bound elements until Alpine boots, so the
+ * pre-hydration page doesn't flash unstyled bindings. */
+[x-cloak] { display: none !important; }
+
+/* ===== Eyebrow inline warn / link ================================ */
+
+.eyebrow-warn {
+  color: var(--high);
+  text-transform: none;
+  font-family: var(--mono);
+}
+.inline-link {
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--low);
+  cursor: pointer;
+  padding: 0 0 0 8px;
+  border-bottom: 1px solid transparent;
+}
+.inline-link:hover {
+  border-bottom-color: var(--low);
+}
+
+/* ===== Modal (diff preview + destructive-action confirm) ======== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 14, 12, 0.85);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  width: 720px;
+  max-width: calc(100vw - 64px);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-body { padding: 24px; }
+
+.modal-section-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.diff-block {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--surface-2);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.diff-line {
+  display: block;
+  padding-left: 16px;
+  position: relative;
+}
+.diff-line.added,
+.diff-line.removed {
+  color: var(--text);
+}
+.diff-line.added::before {
+  content: "+";
+  position: absolute;
+  left: 0;
+  color: var(--ok);
+}
+.diff-line.removed::before {
+  content: "−";
+  position: absolute;
+  left: 0;
+  color: var(--critical);
+}
+
+.scope-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.scope-stat {
+  padding: 16px 20px;
+  border-right: 1px solid var(--border);
+}
+.scope-stat:last-child {
+  border-right: 0;
+}
+
+.scope-stat-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.scope-stat-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-stat-value .delta {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+.scope-stat-value .delta.down { color: var(--medium); }
+.scope-stat-value .delta.up { color: var(--ok); }
+
+.destructive-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--high);
+  margin-left: 12px;
+}
+
+.destructive-summary {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+}
+.destructive-summary li {
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+}
+.destructive-summary li::before {
+  content: "−";
+  position: absolute;
+  left: 0;
+  color: var(--critical);
+}
+
+.confirm-input-section {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 20px;
+}
+
+.confirm-prompt {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.confirm-prompt code {
+  font-family: var(--mono);
+  background: var(--surface-2);
+  padding: 2px 8px;
+  color: var(--text);
+}
+
+.confirm-input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  outline: none;
+}
+.confirm-input:focus { border-color: var(--low); }
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-back {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--text-muted);
+  border: 0;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.btn-back:hover {
+  color: var(--text);
+  border-bottom-color: var(--text-muted);
+}
+
+.btn-confirm {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  background: var(--critical);
+  color: var(--bg);
+  border: 0;
+  cursor: pointer;
+}
+.btn-confirm:hover { background: #ff4a3f; }
+.btn-confirm:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
