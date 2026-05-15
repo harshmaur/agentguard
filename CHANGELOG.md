@@ -3,6 +3,88 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.9.0] - 2026-05-16 — Resolved-counter accuracy, parallel sidecars, 1-core daemon trufflehog
+
+Multiple fixes to the daemon scan loop. The dashboard's "Resolved Today"
+metric no longer inflates with phantom resolutions, the secret scanner
+no longer pegs every core in the background, and the OSV scanners now
+run alongside trufflehog instead of waiting for it to finish.
+
+### Fixed
+
+- **Resolved-counter inflation from browser-cache churn.** Brave,
+  Chrome, Chromium, Edge, and Firefox user-data directories on Linux,
+  macOS, and Windows are now in `scanignore.Defaults()`. Browsers
+  auto-update component-filter extensions every few hours and ship
+  hundreds of URLs in each new version dir; trufflehog's URI detector
+  fired on every one of those URLs and the orchestrator resolved the
+  old version dir's findings the moment the browser deleted it. On a
+  typical developer machine, this single source produced 95%+ of the
+  daemon's "resolved today" entries. The browser caches contain no
+  audit signal for audr's purposes — there's no reason to scan them.
+
+- **Resolved-counter inflation from binary-blob noise.** APK / IPA /
+  AAB / DEX, native libraries (`.so`/`.dll`/`.dylib`), JVM archives
+  (`.jar`/`.war`/`.class`), executables, archives (`.zip`/`.tar.gz`/
+  etc.), images, audio, video, fonts, and compiled Python now all
+  match a new `BinaryFileExtensions()` allowlist written into
+  trufflehog's `--exclude-paths`. The trufflehog URI detector hits
+  random byte sequences in binary blobs that look like
+  `http://x:y@host`, producing different "matches" each scan and an
+  endless churn of fingerprint-resolve-reopen for a single 8MB Android
+  APK build artifact.
+
+- **Resolved-counter inflation from scanner-status conflation.** When
+  a scanner errored, was disabled, or was unavailable, every
+  previously-open finding in its category got mass-resolved on the
+  next cycle because it wasn't in the cycle's `seen` set. Next scan,
+  those findings re-opened — often under different fingerprints,
+  leaving phantom "resolved today" rows that never aged out.
+  `orchestrator.runOnce` now tracks each previously-open finding's
+  category and only resolves findings whose scanner reported `status:
+  ok` this cycle. If trufflehog times out, secret findings stay open
+  until the next successful scan instead of flashing green.
+
+- **Resolved-counter inflation from verification flapping.**
+  TruffleHog's verification API (rate limits, transient network
+  failures, briefly-revoked keys) caused the same secret to flip
+  between `secret-trufflehog-verified` and `secret-trufflehog-unverified`
+  scan to scan. Because rule_id is part of the fingerprint hash, each
+  flip resolved the old row and opened a new one — even though the
+  secret never moved. `convert.go`'s new `fingerprintRuleID()` helper
+  collapses both rule-id variants to a stable `secret-trufflehog` for
+  fingerprint hashing; the row's actual rule_id and severity still
+  update on re-detection via the updated `UpsertFinding`, so dashboards,
+  severity, and remediation templates stay accurate.
+
+### Changed
+
+- **Daemon TruffleHog concurrency dropped from `NumCPU/2` to 1.** The
+  daemon runs continuously in the background while you're doing actual
+  work — peak CPU matters more than scan latency. Even with `nice 19`
+  (via the lowprio wrapper), `--concurrency=4` on an 8-core developer
+  laptop kept ~450% CPU pinned during the secret scan because nice
+  only yields under contention. New `secretscan.DefaultDaemonJobs()`
+  returns 1 unconditionally; `secretscan.DefaultJobs()` (used by
+  one-shot `audr scan`, where you're sitting there waiting) stays at
+  `NumCPU/2`. Daemon scans now hold to roughly one core.
+
+- **Sidecar scanners run in parallel.** Native rules still run first
+  (they walk the filesystem and would contend with trufflehog for the
+  page cache), then secrets + deps + os-pkg launch concurrently as
+  goroutines synced by a `WaitGroup`. trufflehog is CPU+disk and
+  capped at one worker; osv-scanner for deps and os-pkg is dominated
+  by network IO against `api.osv.dev`. Running them serially burned
+  ~30s per cycle waiting on the OSV API while trufflehog wasn't using
+  the network anyway. Each scanner gets its own private `seen` map
+  (no mutex needed; the state store is already single-writer-safe via
+  its writer goroutine), and the orchestrator unions them before
+  resolution detection.
+
+### Removed
+
+Nothing.
+
 ## [0.8.1] - 2026-05-16 — `audr open` diagnostic fix
 
 Hotfix for a pre-v0.4 message that survived the daemon refactor and
