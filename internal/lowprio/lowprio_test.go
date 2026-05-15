@@ -53,7 +53,7 @@ func TestRunnerReportsNonZeroExit(t *testing.T) {
 // which doesn't surface a numeric nice in `ps`).
 func TestRunnerActuallyDropsPriority(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows uses priority class, not numeric nice")
+		t.Skip("Windows uses priority class, not numeric nice — see TestRunnerWindowsLowPriority")
 	}
 	out, err := Runner{}.Run(context.Background(), "/bin/sh", "-c", "ps -p $$ -o nice= 2>/dev/null")
 	if err != nil {
@@ -71,5 +71,38 @@ func TestRunnerActuallyDropsPriority(t *testing.T) {
 	// silently no-op'd somehow.
 	if n < 10 {
 		t.Errorf("child nice = %d, want >= 10 (priority drop should have applied)", n)
+	}
+}
+
+// TestRunnerWindowsLowPriority is the Windows analogue of
+// TestRunnerActuallyDropsPriority. It can't read a nice value via
+// `ps` so it probes priority via PowerShell's
+// (Get-Process -Id $PID).PriorityClass which returns one of the
+// PROCESS_PRIORITY_CLASS names (Idle, BelowNormal, Normal,
+// AboveNormal, High, RealTime).
+//
+// Asserts the child reports "BelowNormal" — the priority class set
+// by applyPreStart. IoPriorityHintLow doesn't surface in this query;
+// verifying that needs SetThreadInformation-readable counterparts
+// and a per-thread test which we don't write here (the syscall is
+// stateless and either succeeds or no-ops gracefully — the
+// applyPostStart contract).
+//
+// Runs only on Windows; skipped elsewhere.
+func TestRunnerWindowsLowPriority(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-specific priority-class test")
+	}
+	// `powershell -Command "(Get-Process -Id $PID).PriorityClass"` prints
+	// the enum name as text. $PID expands to the PowerShell process's
+	// own PID — which is the process Runner started.
+	out, err := Runner{}.Run(context.Background(), "powershell.exe",
+		"-NoProfile", "-Command", "(Get-Process -Id $PID).PriorityClass")
+	if err != nil {
+		t.Fatalf("Run powershell: %v", err)
+	}
+	got := strings.TrimSpace(string(out))
+	if got != "BelowNormal" {
+		t.Errorf("PriorityClass = %q, want BelowNormal", got)
 	}
 }
