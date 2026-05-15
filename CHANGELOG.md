@@ -3,6 +3,88 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.7.2] - 2026-05-16 — v1.3 Policy Editor UI completeness
+
+Closes the two surfaces v1.2.x explicitly named as v1.3 deferrals: full
+allowlist + suppression editing UI in the dashboard, and a server-side
+YAML round-trip parser that makes the YAML tab editable. The policy
+editor is now complete end-to-end — every field in the on-disk
+`policy.yaml` schema is reachable through both the Form view (curated)
+and the YAML view (raw).
+
+### Added — Allowlist + suppression editing UI
+
+Two new categories in the policy editor's left rail under a "Lists"
+section heading: **Allowlists** and **Suppressions**.
+
+**Allowlists pane** — CRUD over named string-sets that rules consult
+via `ctx.AllowlistContains(name, item)`. Each allowlist card surfaces:
+inline rename input (renaming auto-updates references in
+`rules.*.allowlists`), one-row-per-entry editing with per-entry
+remove buttons, an "+ Add entry" affordance with dashed border, a
+free-text `notes:` field that round-trips through canonical YAML,
+and a delete-allowlist button with confirmation.
+
+**Suppressions pane** — CRUD over `(rule, path, reason)` triples.
+Each card uses a 2x2 grid of label-over-input controls:
+  - **Rule** — `<select>` populated from the live rule catalog. No
+    free-typing — every suppression references a rule audr actually
+    knows about.
+  - **Path glob** — free-text matching the file's path. Tooltip
+    hint about glob semantics.
+  - **Expires** — optional RFC3339 timestamp. Empty clears the
+    field.
+  - **Reason** — required free text. Validation rejects whitespace-
+    only on save; the explainer above the list states why.
+
+Both surfaces participate in the dirty/save flow already established
+in v0.7.1: changes mark the SAVE button live, the diff preview modal
+shows allowlist + suppression deltas, and the destructive-action
+confirm gate fires when an allowlist or non-expired suppression is
+deleted.
+
+### Added — Server-side YAML round-trip
+
+- **`POST /api/policy/yaml`** — accepts raw YAML body (`Content-Type:
+  application/yaml`), parses through `policy.Parse`, validates,
+  persists via the same `policy.Save` path as the JSON endpoint, and
+  returns the canonical YAML the server actually wrote. The
+  canonical-generated contract still applies — comments and field
+  order are rewritten on save, the header comment explains this.
+- **`POST /api/policy/yaml/validate`** — same parse + validate flow
+  without persisting. Used by the dashboard's debounced-as-you-type
+  lint loop.
+
+The dashboard's YAML tab is now editable. As-you-type:
+- 300ms debounced validate hits `/api/policy/yaml/validate`.
+- Inline status indicator next to the editor header shows `✓ valid`
+  (green) or `✗ <error>` (red).
+- Save (via the SAVE button) routes through `/api/policy/yaml` when
+  the YAML tab has unsaved edits; Form-view edits still route
+  through the existing `/api/policy` JSON path. The save flow
+  picks the right endpoint automatically — `yamlTabDirty()`
+  compares the textarea content against the last server response.
+
+### Tests
+
+8 new server-side tests: PUT YAML valid round-trip, PUT YAML rejects
+invalid (422), validate-yaml with 4 cases (valid / bad severity /
+missing reason / malformed YAML), every YAML endpoint requires the
+token, and the editor page renders all 4 new UI surface markers
+(`__allowlists__`, `__suppressions__`, "+ Add allowlist", "+ Add
+suppression").
+
+### Changed
+
+- **Policy editor `dirty` getter** now considers YAML-tab edits — a
+  user who only touched the YAML tab still sees the SAVE button
+  enabled and the unsaved-changes indicator.
+- **`category-section-label`** class added to the dashboard for the
+  "Lists" sub-heading in the left rail.
+- **`readAllBody` test helper** swapped from a 16KB-capped manual
+  read to `io.ReadAll` — the policy.html grew past 16KB with the
+  new UI elements and the test was silently truncating.
+
 ## [0.7.1] - 2026-05-16 — v1.2.x Policy Editor UI (htmx + Alpine, diff modal, fsnotify)
 
 Lands the four pieces v1.2.0 deferred — the planned dashboard stack, the diff-preview modal, the destructive-action confirm gate, and the fsnotify-driven live reload. The policy editor now matches the design-reviewed mockup end-to-end.
