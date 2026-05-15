@@ -3,6 +3,47 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.6.0] - 2026-05-15 — v1.1 Platform Completeness Lake
+
+First release shipping audr as a first-class Windows tool plus click-to-open notifications on macOS. The v1.1 milestone per `/plan-eng-review` of 2026-05-15. Two outside-voice review passes (Codex + Claude subagent) ran against the plan before implementation; their feedback shaped the deferred-vs-shipped split below.
+
+### Added — macOS click-to-open
+
+- **`internal/notify/toaster_darwin.go`** — new macOS toaster that prefers `terminal-notifier` on PATH for click-to-open routing (`-execute "audr open"` opens the dashboard via the CLI's state-file-read path, same restart-survival as Linux dbus). Absent terminal-notifier: degrades to `osascript display notification` without click action. The Notifier's body-composition logic auto-appends the `run "audr open" to investigate` hint to the toast body only when click won't route — users always have a working manual path.
+- **`internal/notify` — new `ClickableToaster` interface.** `SupportsClickAction() bool` tells the Notifier whether to include the manual-fallback hint. Linux toaster implements it (true when dbus connected + onClick non-nil). The Windows beeep fallback omits the interface so the hint always appears there.
+- **`audr daemon notify --test` on macOS** now skips the Script Editor diagnostic when terminal-notifier is in use (only relevant on the osascript fallback path) and upgrades the terminal-notifier suggestion from a "future" hint to a real install recommendation with concrete consequences.
+
+### Added — Windows
+
+- **`internal/daemon/service_windows.go`** — new Windows install backend that registers a per-user **Scheduled Task at user logon** instead of a Windows Service Manager entry. Windows Services run in Session 0, which is desktop-isolated since Vista — a Session 0 process can't deliver toast notifications, which would break audr's notification contract. The Scheduled Task runs in the user's interactive logon session with normal desktop access, mirroring the macOS LaunchAgent / systemd `--user` model already in use.
+  - Task XML composed in-process with `LogonTrigger` (fires at user login), `InteractiveToken` logon type (no stored credentials), `LeastPrivilege` run level (no UAC prompt), `DisallowStartIfOnBatteries=false` + `StopIfGoingOnBatteries=false` (daemon keeps running unplugged), `MultipleInstancesPolicy=IgnoreNew` (defense vs trigger races), `Hidden=true` (keeps Task Scheduler UI list short).
+  - `schtasks /Create /F` force-overwrites an existing task — re-installing after an upgrade rewrites the binary path naturally; no stale entries left behind. Codex outside-voice review flagged install-path drift as a real concern (#8); the `/F` semantics resolve it.
+  - `Status()` parses `schtasks /Query /FO LIST` output and normalizes to audr's vocabulary (running / stopped / not-installed / unknown).
+  - `Run()` skips the kardianos service-manager protocol entirely (there is none — Task Scheduler just spawns the binary as a normal user process) and wires `signal.NotifyContext` directly so a `schtasks /End` (CTRL_BREAK_EVENT) or interactive Ctrl-C both cancel the run-context cleanly.
+- **`internal/lowprio` — Windows IoPriorityHintLow.** v0.5.5 shipped `BELOW_NORMAL_PRIORITY_CLASS` at process creation (CPU drop only). v0.6.0 adds the IO-class analogue: `NtSetInformationProcess(ProcessIoPriority, IoPriorityHintLow)` via ntdll.dll. Same shape as Linux's `ioprio_set(IOPRIO_CLASS_IDLE)` — both axes matter for the "never hog the laptop" promise. Graceful no-op when ntdll lacks the proc (Server Core) or older Windows returns `STATUS_INVALID_PARAMETER`.
+- **`internal/parse/powershell.go`** — new PowerShell profile parser handling `$env:KEY = ...` assignments, bare `$var = ...` (scope prefix stripped), dot-source (`. ./other.ps1`), `Import-Module` / `Add-PSSnapin` / `using module`, `Set-Alias` / `New-Alias` (positional + named forms), pipeline detection (splits on `|` outside paired quotes; leaves `||` logical-or + quoted pipes alone), trailing-backtick line continuation, conservative trailing-`#`-comment trimming. Mirrors `parseShellRC`'s shape so rules port cleanly.
+- **`internal/parse/document.go` — `FormatPowerShellProfile`** detection. Catches `Microsoft.PowerShell_profile.ps1`, `Microsoft.VSCode_profile.ps1`, `profile.ps1` (PS7+ canonical name), and `ConsoleHost_history.txt` (PSReadLine command-history, a known secret-leak surface for users who paste tokens at the prompt). `DetectFormat` now normalizes backslashes to forward slashes before basename extraction so Windows-native paths classify correctly on any host audr runs on.
+- **PowerShell rule pack (3 new rules)**:
+  - `powershell-iwr-iex` — **Critical** — pipeline pattern that fetches from the network and pipes into `Invoke-Expression` / `iex` / `Add-Type`. The Windows analogue of `curl | bash`. Order-aware: fetch must precede exec in pipeline order. Intermediate stages between them (ForEach-Object, ConvertFrom-Json) don't break detection.
+  - `powershell-secret-env` — **High** — `$env:KEY = "value"` assignments where the value matches a credential pattern. Reuses the existing `matchesCredential` helper so AWS / GitHub / GitLab / Stripe / Anthropic / Google / Slack / HF / npm prefix recognition applies identically to `.ps1` sources.
+  - `powershell-execution-policy-bypass` — **Medium** — `Set-ExecutionPolicy Bypass` / `Unrestricted` in a profile silently disables the signature gate every session. RemoteSigned / AllSigned / Restricted (safer values) do not flag.
+- **Windows scan-root coverage.** `os.UserHomeDir()` returns `C:\Users\X` on Windows; the default scan walker now covers `%USERPROFILE%`, `%APPDATA%`, PowerShell profile + history paths, and VS Code / Cursor / Claude desktop / Windsurf settings dirs. Default `SkipDirs` extended with Windows cache basenames so a $HOME scan doesn't tank on browser caches: `INetCache`, `WindowsApps`, `NuGet`, `.nuget`, `npm-cache`, `go-build`. `pkg` is deliberately NOT skipped — it collides with the Go layout convention.
+- **`cmd/audr/notify_preflight_windows.go`** — diagnostic probes via `golang.org/x/sys/windows/registry`: master `ToastEnabled` switch, group-policy `NoToastApplicationNotification` (corporate-managed laptops), Focus Assist / Quiet Hours state (`NOC_GLOBAL_SETTING_TOASTS_ENABLED`), and AppUserModelID Start Menu shortcut presence. `audr daemon notify --test` surfaces concrete fixes when toasts are silently suppressed.
+- **`install.ps1`** — Windows PowerShell installer. Downloads the matching release ZIP from GitHub Releases, verifies SHA-256 against the published `SHA256SUMS`, extracts to `%LOCALAPPDATA%\audr\audr.exe`, `Unblock-File`s to clear the Zone.Identifier ADS so SmartScreen doesn't re-prompt on subsequent runs, adds the install dir to user PATH (user-scope; no admin required). Prominently documents the SmartScreen warning users will hit on first run and the cosign-signed SHA-256 as the trust anchor for unsigned Windows builds.
+- **CI / release pipeline.** `release.yml` now cross-compiles `windows-amd64` + `windows-arm64` artifacts, packages them as `.zip` (alongside the existing `.tar.gz` for macOS/Linux), cosign-signs every Windows artifact, includes them in SLSA L2 provenance attestations, and attaches them to the GitHub Release. New `test-windows` + `test-macos` jobs in `ci.yml` run the full unit-test suite on real Windows + macOS hosts so platform-tagged code (toaster_darwin.go, lowprio_windows.go, service_windows.go) gets actually-executed coverage rather than only cross-compile validation.
+
+### Deferred from v1.1 (documented in TODOS.md)
+
+The plan's `/codex review` outside-voice pass surfaced 12 findings, three of which were applied as plan-text patches before implementation started. The remaining six are conscious deferrals visible to users:
+
+- **Windows click-to-open notifications via WinRT** — Codex review flagged the WinRT activation surface as the single highest schedule risk in v1.1 (`COM activator plumbing for unpackaged Win32 toast click handling`, not just the `x/sys/windows` syscalls). v1.1 ships Windows toasts via beeep's PowerShell backend without click action; the Notifier appends the manual-fallback hint to the body so users have a working path. v1.1.x will land the WinRT + AppUserModelID slice.
+- **Windows Authenticode signing** — `TODOS.md` TODO 5. Triggers EV cert spend ($300–500/year). v1.1 ships unsigned Windows binaries with the SmartScreen workaround prominently documented; the cosign-signed SHA-256 is the trust anchor.
+
+### Fixed
+
+- **`internal/parse/DetectFormat` was OS-aware via `filepath.Base`** — on Linux it returned the whole string for backslash-separated paths, silently classifying Windows-native paths as `FormatUnknown`. Now normalizes backslashes to forward slashes before basename extraction. Side effect: Windows path classification works on any host audr runs on, useful for the future cross-machine fleet aggregation in Phase 3.
+- **`cmd/audr/notify_preflight_other.go`** build tag tightened to `!linux && !darwin && !windows` so each mainline platform has its own preflight file rather than silently no-op'ing on Windows.
+
 ## [0.5.8] - 2026-05-14
 
 ### Added

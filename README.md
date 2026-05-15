@@ -95,10 +95,35 @@ persistence tasks, GitHub Actions workflows that serialize `toJSON(secrets)`,
 curl -fsSL https://raw.githubusercontent.com/harshmaur/audr/main/install.sh | sh
 ```
 
-The script downloads the latest signed release tarball from GitHub Releases,
-verifies the SHA-256 against the published `SHA256SUMS`, verifies the cosign
-signature against the sigstore transparency log if `cosign` is on PATH, then
-installs the binary to `~/.local/bin/audr`.
+```powershell
+# Windows (PowerShell):
+iwr https://raw.githubusercontent.com/harshmaur/audr/main/install.ps1 -UseBasicParsing | iex
+```
+
+The scripts download the latest signed release artifact from GitHub Releases,
+verify the SHA-256 against the published `SHA256SUMS`, then install the
+binary. On macOS + Linux the installer also verifies the cosign signature
+against the sigstore transparency log when `cosign` is on PATH. The Linux /
+macOS binary lands at `~/.local/bin/audr`; the Windows binary at
+`%LOCALAPPDATA%\audr\audr.exe`.
+
+### About the Windows SmartScreen warning
+
+v1.1 Windows binaries are **not Authenticode-signed.** The first time you
+run `audr.exe`, Windows may show "Windows protected your PC — unknown
+publisher". Click `More info → Run anyway`. The installer also
+`Unblock-File`s the binary so subsequent runs are silent.
+
+The trust anchor for the Windows install path is the **cosign-signed
+SHA-256** hash the installer verifies against the published `SHA256SUMS`
+file — not an Authenticode certificate. Verify the hash; the binary is
+what it claims to be.
+
+An Authenticode-signed Windows build is on the roadmap (see `TODOS.md`
+item 5). It depends on design-partner demand justifying the EV cert
+spend. In the meantime CISO security teams running their own diligence
+can verify against the cosign transparency log per the
+[Verify before installing](#verify-before-installing) section.
 
 **Build from source:**
 
@@ -185,12 +210,15 @@ and full prose walkthrough; the same outcome line shows on stdout.
 | `**/.claude/skills/**/*.md` | Skill (Markdown + frontmatter) | shell-hijack patterns, undeclared dangerous tools |
 | `.github/workflows/*.yml` | GitHub Actions | `permissions: write-all`, secrets exposed to agent steps |
 | `~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.zprofile` | Shell rc | exported credentials |
+| `Microsoft.PowerShell_profile.ps1`, `profile.ps1`, PSReadLine `ConsoleHost_history.txt` | PowerShell profile (Windows) | `iwr | iex` RCE pattern, credential env vars, ExecutionPolicy bypass |
 
 Cursor, Codex, and Windsurf MCP configs share a normalized model — adding
 the next harness costs one parser, zero new rules.
 
 Always-skipped directories (defensive default): `node_modules`, `vendor`,
-`.git`, `dist`, `build`, `target`, `__pycache__`, `.next`, `.cache`.
+`.git`, `dist`, `build`, `target`, `__pycache__`, `.next`, `.cache`,
+plus Windows-specific cache trees: `INetCache`, `WindowsApps`, `NuGet`,
+`.nuget`, `npm-cache`, `go-build`.
 
 ---
 
@@ -334,12 +362,27 @@ Inline `# audr:disable=rule-id` is on the v0.3 list.
 
 ## Roadmap
 
-- **v0.2 (shipped):** 4 format families (Claude / Codex / Cursor / Windsurf),
-  20 rules, normalized MCP model, 5 attack chains, forensic-document HTML
-  report, signed binary + cosign + SBOM + SLSA L2.
-- **v0.3 (next):** more harness detectors (Cline / Continue / Roo / Kilo /
-  Aider / OpenClaw / Hermes / Goose), tool-description prompt-injection
-  rules, inline `# audr:disable=` suppression syntax, Windows support.
+- **v0.4 (shipped):** always-on daemon, live local dashboard, hybrid
+  watch+poll engine, OS-package CVE detection, AI chat-transcript secret
+  scanning, OS-native toast notifications.
+- **v0.5 (shipped):** click-to-open notifications on Linux, user-controllable
+  scanner toggles, SQLite migration framework, sidecar lowprio (CPU + IO),
+  sidecar PATH augmentation, runtime-info detection.
+- **v0.6 / v1.1 (this release):** Windows support end-to-end (scanner walker,
+  daemon install via Scheduled Task at user logon, lowprio with
+  IoPriorityHintLow, PowerShell profile parser + 3 PowerShell-specific rules,
+  Windows scan-root coverage, notification preflight diagnostics), macOS
+  click-to-open via `terminal-notifier`, cross-platform format detection.
+- **v1.1.x (deferred from v1.1):** Windows click-to-open notifications via
+  WinRT toast + AppUserModelID registration, Authenticode signing (depends
+  on EV cert spend).
+- **v1.2 (next):** user-editable policy overlay (`~/.audr/policy.yaml`) with
+  dual YAML/UI editor in the dashboard, rules-as-data overlay system,
+  dashboard restructure on htmx + Alpine + CodeMirror.
+- **v1.3+:** custom rule definitions (Semgrep-style YAML), BYOD privacy
+  mode, GitHub Action template, more harness detectors (Cline / Continue /
+  Roo / Aider / OpenClaw / Hermes / Goose), tool-description prompt-injection
+  rules, inline `# audr:disable=` suppression syntax.
 
 ---
 
