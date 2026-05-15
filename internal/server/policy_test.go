@@ -148,7 +148,10 @@ func TestPolicyRoutes_ValidateEndpoint(t *testing.T) {
 	req2, _ := http.NewRequest("POST", baseURL+"/api/policy/validate?t="+token,
 		bytes.NewReader(invalid))
 	req2.Header.Set("Content-Type", "application/json")
-	res2, _ := http.DefaultClient.Do(req2)
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer res2.Body.Close()
 	var result2 map[string]any
 	json.NewDecoder(res2.Body).Decode(&result2)

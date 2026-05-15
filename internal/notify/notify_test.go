@@ -372,7 +372,7 @@ type clickableFakeToaster struct {
 	fakeToaster
 }
 
-func (clickableFakeToaster) SupportsClickAction() bool { return true }
+func (*clickableFakeToaster) SupportsClickAction() bool { return true }
 
 // TestBodyOmitsHintWhenClickActionSupported: with a clickable toaster
 // the body must NOT carry the "run audr open" suffix — the click IS
