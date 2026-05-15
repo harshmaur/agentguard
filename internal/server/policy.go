@@ -115,6 +115,73 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePutPolicyYAML accepts raw YAML, parses it into a Policy,
+// validates, and persists. POST /api/policy/yaml. Body is the raw
+// YAML text the user typed in the YAML tab.
+//
+// The on-disk file is still canonical-generated (sorted, deterministic
+// indent, header re-emitted). Any hand-typed comments or field-order
+// the user wrote get dropped on save — the canonical header explains
+// this contract and the dashboard surfaces a warning before the user
+// edits.
+//
+// This is the dashboard's editable-YAML-tab path. Pairs with
+// handlePutPolicy (JSON body) — same persistence + same validation,
+// different input shape.
+func (s *Server) handlePutPolicyYAML(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB cap
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, err := policy.Parse(body)
+	if err != nil {
+		http.Error(w, "policy validation failed: "+err.Error(),
+			http.StatusUnprocessableEntity)
+		return
+	}
+	path, err := policy.Path()
+	if err != nil {
+		http.Error(w, "policy path: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := policy.Save(path, p); err != nil {
+		http.Error(w, "save: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	yamlBytes, _ := policy.MarshalCanonical(p)
+	writeJSON(w, http.StatusOK, policyAPIResponse{
+		Path:   path,
+		Policy: p,
+		YAML:   string(yamlBytes),
+		Rules:  catalogRules(),
+	})
+}
+
+// handleValidatePolicyYAML validates raw YAML without writing.
+// POST /api/policy/yaml/validate. Mirrors handleValidatePolicy
+// but for the editable YAML tab — debounced as-you-type lint.
+func (s *Server) handleValidatePolicyYAML(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"valid":  false,
+			"errors": []string{"read body: " + err.Error()},
+		})
+		return
+	}
+	if _, err := policy.Parse(body); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"valid":  false,
+			"errors": []string{err.Error()},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true})
+}
+
 // handleValidatePolicy validates a policy WITHOUT writing it.
 // POST /api/policy/validate. Useful for the dashboard's
 // debounced-as-you-type lint loop.

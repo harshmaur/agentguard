@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -210,7 +211,7 @@ func TestPolicyRoutes_RequiresToken(t *testing.T) {
 
 // TestPolicyEditPageRenders: GET /policy/edit with a valid token
 // returns the HTML page including the htmx + Alpine script
-// references.
+// references and the allowlist/suppression UI surfaces.
 func TestPolicyEditPageRenders(t *testing.T) {
 	srv, baseURL, token, cleanup := newPolicyTestServer(t)
 	defer cleanup()
@@ -232,10 +233,151 @@ func TestPolicyEditPageRenders(t *testing.T) {
 		"vendor/alpine.min.js",
 		"policy.css",
 		"policy.js",
+		// v0.7.2 — allowlist + suppression editing UI surfaces.
+		"__allowlists__",
+		"__suppressions__",
+		"+ Add allowlist",
+		"+ Add suppression",
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("policy.html missing %q", want)
 		}
+	}
+}
+
+// TestPolicyRoutes_PutYAMLValid: POST /api/policy/yaml with raw YAML
+// parses, validates, persists, and returns the canonical YAML
+// form. The dashboard's editable YAML tab uses this endpoint.
+func TestPolicyRoutes_PutYAMLValid(t *testing.T) {
+	srv, baseURL, token, cleanup := newPolicyTestServer(t)
+	defer cleanup()
+	_ = srv
+
+	yamlBody := []byte(`version: 1
+rules:
+  mcp-unpinned-npx:
+    enabled: false
+    notes: "test fixture"
+`)
+	req, _ := http.NewRequest("POST", baseURL+"/api/policy/yaml?t="+token,
+		bytes.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/yaml")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := readAllBody(res)
+		t.Fatalf("status = %d, want 200 (body: %s)", res.StatusCode, body)
+	}
+	var resp policyAPIResponse
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	ov, ok := resp.Policy.Rules["mcp-unpinned-npx"]
+	if !ok {
+		t.Fatalf("rule not in saved policy: %+v", resp.Policy.Rules)
+	}
+	if ov.Enabled == nil || *ov.Enabled != false {
+		t.Errorf("enabled = %+v, want false-pointer", ov.Enabled)
+	}
+	if ov.Notes != "test fixture" {
+		t.Errorf("notes = %q, want 'test fixture'", ov.Notes)
+	}
+	// The returned YAML is canonical-marshalled — header re-emitted.
+	if !strings.HasPrefix(resp.YAML, "# ~/.audr/policy.yaml") {
+		t.Errorf("canonical header missing from YAML response:\n%s", resp.YAML)
+	}
+}
+
+// TestPolicyRoutes_PutYAMLRejectsInvalid: malformed YAML → 422 with
+// the parse error in the response body.
+func TestPolicyRoutes_PutYAMLRejectsInvalid(t *testing.T) {
+	srv, baseURL, token, cleanup := newPolicyTestServer(t)
+	defer cleanup()
+	_ = srv
+
+	yamlBody := []byte(`version: 1
+rules:
+  x:
+    severity: ULTRA
+`)
+	req, _ := http.NewRequest("POST", baseURL+"/api/policy/yaml?t="+token,
+		bytes.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/yaml")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		body, _ := readAllBody(res)
+		t.Errorf("status = %d, want 422 (body: %s)", res.StatusCode, body)
+	}
+}
+
+// TestPolicyRoutes_ValidateYAML: POST /api/policy/yaml/validate
+// returns the valid:bool diagnostic without writing.
+func TestPolicyRoutes_ValidateYAML(t *testing.T) {
+	srv, baseURL, token, cleanup := newPolicyTestServer(t)
+	defer cleanup()
+	_ = srv
+
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"valid", "version: 1\nrules: {}\n", true},
+		{"bad severity", "version: 1\nrules:\n  x:\n    severity: ULTRA\n", false},
+		{"missing reason on suppression", "version: 1\nsuppressions:\n  - rule: r\n    path: /x\n", false},
+		{"malformed YAML", "version: 1\nrules:\n  x:\n    enabled: [not, valid", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest("POST",
+				baseURL+"/api/policy/yaml/validate?t="+token,
+				bytes.NewReader([]byte(tc.body)))
+			req.Header.Set("Content-Type", "application/yaml")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			var result map[string]any
+			json.NewDecoder(res.Body).Decode(&result)
+			v, _ := result["valid"].(bool)
+			if v != tc.want {
+				t.Errorf("valid = %v, want %v (errors: %v)", v, tc.want, result["errors"])
+			}
+		})
+	}
+}
+
+// TestPolicyRoutes_YAMLRoundTripRequiresToken: every YAML endpoint
+// must reject unauthenticated requests just like the JSON ones.
+func TestPolicyRoutes_YAMLRoundTripRequiresToken(t *testing.T) {
+	srv, baseURL, _, cleanup := newPolicyTestServer(t)
+	defer cleanup()
+	_ = srv
+
+	for _, path := range []string{
+		"/api/policy/yaml",
+		"/api/policy/yaml/validate",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req, _ := http.NewRequest("POST", baseURL+path,
+				bytes.NewReader([]byte("version: 1")))
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			if res.StatusCode == http.StatusOK {
+				t.Errorf("%s served without token (status %d)", path, res.StatusCode)
+			}
+		})
 	}
 }
 
@@ -302,10 +444,5 @@ func newPolicyTestServer(t *testing.T) (*Server, string, string, func()) {
 }
 
 func readAllBody(res *http.Response) ([]byte, error) {
-	buf := make([]byte, 16<<10)
-	n, err := res.Body.Read(buf)
-	if err != nil && err.Error() != "EOF" {
-		return buf[:n], err
-	}
-	return buf[:n], nil
+	return io.ReadAll(res.Body)
 }

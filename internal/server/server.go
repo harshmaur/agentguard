@@ -284,6 +284,8 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("GET /api/policy", s.requireToken(s.handleGetPolicy))
 	mux.HandleFunc("POST /api/policy", s.requireToken(s.handlePutPolicy))
 	mux.HandleFunc("POST /api/policy/validate", s.requireToken(s.handleValidatePolicy))
+	mux.HandleFunc("POST /api/policy/yaml", s.requireToken(s.handlePutPolicyYAML))
+	mux.HandleFunc("POST /api/policy/yaml/validate", s.requireToken(s.handleValidatePolicyYAML))
 	mux.HandleFunc("GET /api/rules", s.requireToken(s.handleRulesList))
 
 	return s.hostCheck(mux)
