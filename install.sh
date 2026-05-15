@@ -41,9 +41,14 @@ os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$os" in
   darwin) os="darwin" ;;
   linux)  os="linux" ;;
+  mingw*|msys*|cygwin*)
+    echo "audr: detected Windows shell — use install.ps1 instead:" >&2
+    echo "  iwr https://raw.githubusercontent.com/harshmaur/audr/main/install.ps1 -UseBasicParsing | iex" >&2
+    exit 1
+    ;;
   *)
     echo "audr: unsupported OS: $os" >&2
-    echo "audr: macOS and Linux are supported in v1; Windows is on the v2 roadmap." >&2
+    echo "audr: macOS, Linux, and Windows are supported. BSDs are best-effort via 'go install'." >&2
     exit 1
     ;;
 esac

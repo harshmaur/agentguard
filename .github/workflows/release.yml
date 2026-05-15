@@ -35,6 +35,8 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
+          # macOS + Linux artifacts → .tar.gz (Unix tradition; install.sh
+          # extracts them).
           for os_arch in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             os="${os_arch%/*}"
             arch="${os_arch#*/}"
@@ -50,7 +52,24 @@ jobs:
             (cd dist && tar -czf "audr-${VERSION}-${os}-${arch}.tar.gz" "audr-${VERSION}-${os}-${arch}")
             rm -rf "$out_dir"
           done
-          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          # Windows artifacts → .zip. The install.ps1 helper consumes
+          # this format. Including install.ps1 inside the zip too so
+          # offline installs work after the user downloads a single
+          # artifact.
+          for arch in amd64 arm64; do
+            out_dir="dist/audr-${VERSION}-windows-${arch}"
+            mkdir -p "$out_dir"
+            GOOS=windows GOARCH=$arch CGO_ENABLED=0 \
+              go build \
+                -trimpath \
+                -buildvcs=false \
+                -ldflags="-s -w -X main.Version=${VERSION}" \
+                -o "$out_dir/audr.exe" ./cmd/audr
+            cp README.md TODOS.md install.ps1 "$out_dir/" || true
+            (cd dist && zip -qr "audr-${VERSION}-windows-${arch}.zip" "audr-${VERSION}-windows-${arch}")
+            rm -rf "$out_dir"
+          done
+          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS)
           cat dist/SHA256SUMS
 
       - name: generate SBOM
@@ -63,7 +82,7 @@ jobs:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           cd dist
-          for f in *.tar.gz SHA256SUMS *.sbom.*.json; do
+          for f in *.tar.gz *.zip SHA256SUMS *.sbom.*.json; do
             cosign sign-blob --yes \
               --output-signature "${f}.sig" \
               --output-certificate "${f}.crt" \
@@ -78,6 +97,7 @@ jobs:
         with:
           subject-path: |
             dist/*.tar.gz
+            dist/*.zip
             dist/SHA256SUMS
 
       - name: create github release
@@ -87,6 +107,9 @@ jobs:
             dist/*.tar.gz
             dist/*.tar.gz.sig
             dist/*.tar.gz.crt
+            dist/*.zip
+            dist/*.zip.sig
+            dist/*.zip.crt
             dist/SHA256SUMS
             dist/SHA256SUMS.sig
             dist/SHA256SUMS.crt
