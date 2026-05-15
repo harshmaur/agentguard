@@ -53,12 +53,15 @@
       diffLines: [],
       staleOnDisk: false,
 
-      // YAML view status
+      // YAML view status — reflects last validation result.
       get yamlStatus() {
-        return this.yamlReadOnlyNotice();
+        if (!this.yamlText.trim()) return "";
+        if (this.yamlValid) return "✓ valid";
+        return "✗ " + (this.yamlError || "invalid");
       },
       get yamlStatusClass() {
-        return "rule-pane-meta";
+        if (!this.yamlText.trim()) return "rule-pane-meta";
+        return this.yamlValid ? "rule-pane-meta valid" : "rule-pane-meta invalid";
       },
 
       // ---------- Initial load ----------
@@ -85,6 +88,9 @@
           this.policy = this.draft;
           this.path = data.path || "~/.audr/policy.yaml";
           this.yamlText = data.yaml || "";
+          this._lastYamlFromServer = this.yamlText;
+          this.yamlValid = true;
+          this.yamlError = "";
           this.staleOnDisk = false;
           if (data.warnings && data.warnings.length) {
             for (const w of data.warnings) {
@@ -140,6 +146,10 @@
 
       get dirty() {
         if (!this.draft) return false;
+        // YAML tab dirty counts too — the user may have only edited
+        // there. Either side being out of sync with persisted means
+        // "user has unsaved work."
+        if (this.yamlTabDirty()) return true;
         return JSON.stringify(this.draft) !== JSON.stringify(this.persisted);
       },
 
@@ -275,6 +285,149 @@
           }
         } else {
           this.ensureOverride(rule.id).severity = value;
+        }
+      },
+
+      // ---------- Allowlist CRUD ----------
+
+      addAllowlist() {
+        if (!this.draftSafe.allowlists) this.draftSafe.allowlists = {};
+        // Pick a unique placeholder name. The user renames it to
+        // something meaningful via the inline rename input.
+        let i = 1;
+        let name = "new-allowlist";
+        while (this.draftSafe.allowlists[name]) {
+          name = "new-allowlist-" + ++i;
+        }
+        this.draftSafe.allowlists[name] = { entries: [], notes: "" };
+      },
+
+      renameAllowlist(oldName, newName) {
+        newName = (newName || "").trim();
+        if (!newName || oldName === newName) return;
+        if (this.draftSafe.allowlists[newName]) {
+          this.banners.push({
+            kind: "warn",
+            message: 'Allowlist "' + newName + '" already exists; rename ignored',
+          });
+          return;
+        }
+        this.draftSafe.allowlists[newName] = this.draftSafe.allowlists[oldName];
+        delete this.draftSafe.allowlists[oldName];
+        // Update any rule.allowlists references to the new name.
+        const rules = this.draftSafe.rules || {};
+        for (const id of Object.keys(rules)) {
+          const al = rules[id].allowlists;
+          if (al && Array.isArray(al)) {
+            rules[id].allowlists = al.map((x) => (x === oldName ? newName : x));
+          }
+        }
+      },
+
+      removeAllowlist(name) {
+        if (!confirm('Delete allowlist "' + name + '"?')) return;
+        delete this.draftSafe.allowlists[name];
+        // Strip references from rules.
+        const rules = this.draftSafe.rules || {};
+        for (const id of Object.keys(rules)) {
+          if (Array.isArray(rules[id].allowlists)) {
+            rules[id].allowlists = rules[id].allowlists.filter((x) => x !== name);
+            if (rules[id].allowlists.length === 0) delete rules[id].allowlists;
+            this.cleanOverride(id);
+          }
+        }
+      },
+
+      addAllowlistEntry(name) {
+        if (!this.draftSafe.allowlists[name]) return;
+        if (!this.draftSafe.allowlists[name].entries) {
+          this.draftSafe.allowlists[name].entries = [];
+        }
+        this.draftSafe.allowlists[name].entries.push("");
+      },
+
+      updateAllowlistEntry(name, index, value) {
+        if (!this.draftSafe.allowlists[name]) return;
+        const entries = this.draftSafe.allowlists[name].entries;
+        if (!entries || index < 0 || index >= entries.length) return;
+        entries[index] = value;
+      },
+
+      removeAllowlistEntry(name, index) {
+        if (!this.draftSafe.allowlists[name]) return;
+        const entries = this.draftSafe.allowlists[name].entries;
+        if (!entries || index < 0 || index >= entries.length) return;
+        entries.splice(index, 1);
+      },
+
+      updateAllowlistNotes(name, notes) {
+        if (!this.draftSafe.allowlists[name]) return;
+        this.draftSafe.allowlists[name].notes = notes;
+      },
+
+      // ---------- Suppression CRUD ----------
+
+      addSuppression() {
+        if (!this.draftSafe.suppressions) this.draftSafe.suppressions = [];
+        this.draftSafe.suppressions.push({
+          rule: "",
+          path: "",
+          reason: "",
+        });
+      },
+
+      updateSuppression(index, field, value) {
+        if (!this.draftSafe.suppressions) return;
+        const s = this.draftSafe.suppressions[index];
+        if (!s) return;
+        if (field === "expires" && !value) {
+          delete s.expires;
+        } else {
+          s[field] = value;
+        }
+      },
+
+      removeSuppression(index) {
+        if (!this.draftSafe.suppressions) return;
+        if (!confirm("Delete this suppression?")) return;
+        this.draftSafe.suppressions.splice(index, 1);
+      },
+
+      // ---------- YAML tab editing ----------
+      //
+      // The textarea is the source-of-truth in YAML view. On change:
+      //   1. Debounced validate via POST /api/policy/yaml/validate.
+      //   2. UI shows valid/invalid status inline.
+      //   3. Save (via SAVE button) POSTs YAML to /api/policy/yaml
+      //      which parses, validates, persists, and returns the
+      //      canonical re-marshal that swaps back into the textarea.
+
+      yamlValid: true,
+      yamlError: "",
+
+      async onYAMLChange() {
+        // Don't validate empty edits — let the user clear and
+        // re-type. The save flow still validates on actual save.
+        if (!this.yamlText.trim()) {
+          this.yamlValid = true;
+          this.yamlError = "";
+          return;
+        }
+        try {
+          const res = await fetch(
+            "/api/policy/yaml/validate?t=" + this.token,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/yaml" },
+              body: this.yamlText,
+            }
+          );
+          const json = await res.json();
+          this.yamlValid = !!json.valid;
+          this.yamlError = json.errors ? (json.errors[0] || "") : "";
+        } catch (err) {
+          this.yamlValid = false;
+          this.yamlError = err.message;
         }
       },
 
@@ -488,11 +641,22 @@
         }
         this.saving = true;
         try {
-          const resp = await this.apiPost("/api/policy", this.draftSafe);
+          let resp;
+          // YAML tab dirty: POST raw YAML so the server's parser is
+          // authoritative + the user keeps the file shape they typed
+          // (modulo canonicalization on next save).
+          if (this.tab === "yaml" && this.yamlTabDirty()) {
+            resp = await this.apiPostYAML(this.yamlText);
+          } else {
+            resp = await this.apiPost("/api/policy", this.draftSafe);
+          }
           this.persisted = JSON.parse(JSON.stringify(resp.policy));
           this.draft = JSON.parse(JSON.stringify(resp.policy));
           this.policy = this.draft;
           this.yamlText = resp.yaml || "";
+          this._lastYamlFromServer = this.yamlText;
+          this.yamlValid = true;
+          this.yamlError = "";
           this.staleOnDisk = false;
           this.justSaved = true;
           this.modal = null;
@@ -506,6 +670,37 @@
         } finally {
           this.saving = false;
         }
+      },
+
+      // yamlTabDirty: are we on the YAML tab AND the user has typed
+      // something different than what the server returned? If so the
+      // YAML save path runs; otherwise the JSON-form save path runs.
+      // Catches the case where the user opens the YAML tab to look,
+      // then switches back to Form — we shouldn't POST YAML the user
+      // never edited.
+      yamlTabDirty() {
+        if (!this._lastYamlFromServer) return false;
+        return this.yamlText.trim() !== this._lastYamlFromServer.trim();
+      },
+      _lastYamlFromServer: "",
+
+      async apiPostYAML(yamlBody) {
+        const url = new URL("/api/policy/yaml", location.origin);
+        url.searchParams.set("t", this.token);
+        const res = await fetch(url.toString(), {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/yaml",
+            Accept: "application/json",
+          },
+          body: yamlBody,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("/api/policy/yaml: " + res.status + " — " + text.slice(0, 200));
+        }
+        return res.json();
       },
 
       // ---------- YAML highlighter ----------

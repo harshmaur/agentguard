@@ -98,49 +98,199 @@
         </li>
       </template>
     </ul>
+
+    <div class="category-section-label">Lists</div>
+    <ul class="category-list" role="list">
+      <li class="category-item"
+          :class="{ active: activeCategory === '__allowlists__' }"
+          @click="activeCategory = '__allowlists__'"
+          role="button" tabindex="0">
+        <span>Allowlists</span>
+        <span class="count" x-text="Object.keys(draftSafe.allowlists || {}).length"></span>
+      </li>
+      <li class="category-item"
+          :class="{ active: activeCategory === '__suppressions__' }"
+          @click="activeCategory = '__suppressions__'"
+          role="button" tabindex="0">
+        <span>Suppressions</span>
+        <span class="count" x-text="(draftSafe.suppressions || []).length"></span>
+      </li>
+    </ul>
   </aside>
 
   <main class="rule-pane">
-    <div class="rule-pane-header">
-      <h2 class="rule-pane-title" x-text="paneTitle()"></h2>
-      <div class="rule-pane-meta" x-text="paneMeta()"></div>
-    </div>
-    <div class="rule-list" aria-live="polite">
-      <template x-if="filteredRules().length === 0">
-        <div class="empty" x-text="filterText
-          ? 'No rules match “' + filterText + '”. Clear filter.'
-          : 'No rules in this category.'"></div>
-      </template>
-      <template x-for="r in filteredRules()" :key="r.id">
-        <article class="rule-row" :class="{ disabled: !isEnabled(r.id) }">
-          <button
-            class="rule-toggle"
-            :class="{ on: isEnabled(r.id) }"
-            :aria-pressed="String(isEnabled(r.id))"
-            :aria-label="(isEnabled(r.id) ? 'Disable ' : 'Enable ') + 'rule ' + r.id"
-            @click="toggleRule(r)"></button>
+    <!-- Rules pane -->
+    <template x-if="activeCategory !== '__allowlists__' && activeCategory !== '__suppressions__'">
+      <div>
+        <div class="rule-pane-header">
+          <h2 class="rule-pane-title" x-text="paneTitle()"></h2>
+          <div class="rule-pane-meta" x-text="paneMeta()"></div>
+        </div>
+        <div class="rule-list" aria-live="polite">
+          <template x-if="filteredRules().length === 0">
+            <div class="empty" x-text="filterText
+              ? 'No rules match “' + filterText + '”. Clear filter.'
+              : 'No rules in this category.'"></div>
+          </template>
+          <template x-for="r in filteredRules()" :key="r.id">
+            <article class="rule-row" :class="{ disabled: !isEnabled(r.id) }">
+              <button
+                class="rule-toggle"
+                :class="{ on: isEnabled(r.id) }"
+                :aria-pressed="String(isEnabled(r.id))"
+                :aria-label="(isEnabled(r.id) ? 'Disable ' : 'Enable ') + 'rule ' + r.id"
+                @click="toggleRule(r)"></button>
 
-          <div class="rule-meta">
-            <div class="rule-id" x-text="r.id"></div>
-            <div class="rule-desc" x-text="r.title || '(no description)'"></div>
-            <template x-if="hasScope(r.id)">
-              <div class="rule-scope-meta" x-text="scopeMetaText(r.id)"></div>
-            </template>
-          </div>
+              <div class="rule-meta">
+                <div class="rule-id" x-text="r.id"></div>
+                <div class="rule-desc" x-text="r.title || '(no description)'"></div>
+                <template x-if="hasScope(r.id)">
+                  <div class="rule-scope-meta" x-text="scopeMetaText(r.id)"></div>
+                </template>
+              </div>
 
-          <select
-            class="severity-pill"
-            :class="effectiveSeverity(r)"
-            :aria-label="'Severity for ' + r.id"
-            :disabled="!isEnabled(r.id)"
-            @change="setSeverity(r, $event.target.value)">
-            <template x-for="s in ['critical','high','medium','low']" :key="s">
-              <option :value="s" :selected="effectiveSeverity(r) === s" x-text="s.toUpperCase()"></option>
-            </template>
-          </select>
-        </article>
-      </template>
-    </div>
+              <select
+                class="severity-pill"
+                :class="effectiveSeverity(r)"
+                :aria-label="'Severity for ' + r.id"
+                :disabled="!isEnabled(r.id)"
+                @change="setSeverity(r, $event.target.value)">
+                <template x-for="s in ['critical','high','medium','low']" :key="s">
+                  <option :value="s" :selected="effectiveSeverity(r) === s" x-text="s.toUpperCase()"></option>
+                </template>
+              </select>
+            </article>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- Allowlists pane -->
+    <template x-if="activeCategory === '__allowlists__'">
+      <div>
+        <div class="rule-pane-header">
+          <h2 class="rule-pane-title">Allowlists</h2>
+          <button class="add-btn" @click="addAllowlist()">+ Add allowlist</button>
+        </div>
+        <div class="rule-pane-meta" style="margin-bottom: 16px;">
+          Named string-sets rules consult via <code>ctx.AllowlistContains(name, item)</code>.
+          A rule decides what to do with a match — adding entries here doesn't silence findings
+          on its own.
+        </div>
+        <template x-if="Object.keys(draftSafe.allowlists || {}).length === 0">
+          <div class="empty">No allowlists yet. Click "+ Add allowlist" to create one.</div>
+        </template>
+        <template x-for="name in Object.keys(draftSafe.allowlists || {}).sort()" :key="name">
+          <article class="allowlist-card">
+            <div class="allowlist-header">
+              <input
+                type="text"
+                class="allowlist-name"
+                :value="name"
+                @change="renameAllowlist(name, $event.target.value)"
+                aria-label="Allowlist name">
+              <button class="remove-btn" @click="removeAllowlist(name)"
+                aria-label="Delete allowlist">× delete</button>
+            </div>
+            <div class="allowlist-entries">
+              <template x-for="(entry, i) in draftSafe.allowlists[name].entries" :key="i">
+                <div class="allowlist-entry">
+                  <input
+                    type="text"
+                    class="allowlist-entry-input"
+                    :value="entry"
+                    @change="updateAllowlistEntry(name, i, $event.target.value)"
+                    placeholder="e.g. @modelcontextprotocol/server-fs"
+                    aria-label="Allowlist entry">
+                  <button class="entry-remove" @click="removeAllowlistEntry(name, i)"
+                    aria-label="Remove entry">×</button>
+                </div>
+              </template>
+              <button class="add-entry-btn" @click="addAllowlistEntry(name)">+ Add entry</button>
+            </div>
+            <div class="notes-field">
+              <label class="notes-label">Notes (round-trip through canonical YAML)</label>
+              <input
+                type="text"
+                class="notes-input"
+                :value="draftSafe.allowlists[name].notes || ''"
+                @change="updateAllowlistNotes(name, $event.target.value)"
+                placeholder="why is this allowlist here?">
+            </div>
+          </article>
+        </template>
+      </div>
+    </template>
+
+    <!-- Suppressions pane -->
+    <template x-if="activeCategory === '__suppressions__'">
+      <div>
+        <div class="rule-pane-header">
+          <h2 class="rule-pane-title">Suppressions</h2>
+          <button class="add-btn" @click="addSuppression()">+ Add suppression</button>
+        </div>
+        <div class="rule-pane-meta" style="margin-bottom: 16px;">
+          Silence specific (rule, path) pairs post-scan. Every entry requires a reason —
+          stale exclusions accumulate without it. Use <code>expires</code> when the
+          suppression should auto-clear.
+        </div>
+        <template x-if="(draftSafe.suppressions || []).length === 0">
+          <div class="empty">No suppressions yet. Click "+ Add suppression" to add one.</div>
+        </template>
+        <template x-for="(s, i) in (draftSafe.suppressions || [])" :key="i">
+          <article class="suppression-card">
+            <div class="suppression-grid">
+              <div class="suppression-field">
+                <label class="notes-label">Rule</label>
+                <select
+                  class="suppression-input"
+                  :value="s.rule"
+                  @change="updateSuppression(i, 'rule', $event.target.value)"
+                  aria-label="Suppression rule">
+                  <option value="" disabled :selected="!s.rule">— select rule —</option>
+                  <template x-for="r in rules" :key="r.id">
+                    <option :value="r.id" :selected="s.rule === r.id" x-text="r.id"></option>
+                  </template>
+                </select>
+              </div>
+              <div class="suppression-field">
+                <label class="notes-label">Path glob</label>
+                <input
+                  type="text"
+                  class="suppression-input"
+                  :value="s.path"
+                  @change="updateSuppression(i, 'path', $event.target.value)"
+                  placeholder="~/.cursor/**"
+                  aria-label="Suppression path">
+              </div>
+              <div class="suppression-field">
+                <label class="notes-label">Expires (optional, RFC3339)</label>
+                <input
+                  type="text"
+                  class="suppression-input"
+                  :value="s.expires || ''"
+                  @change="updateSuppression(i, 'expires', $event.target.value)"
+                  placeholder="2026-12-31T00:00:00Z"
+                  aria-label="Suppression expiry">
+              </div>
+              <div class="suppression-field">
+                <label class="notes-label">Reason (required)</label>
+                <input
+                  type="text"
+                  class="suppression-input"
+                  :value="s.reason"
+                  @change="updateSuppression(i, 'reason', $event.target.value)"
+                  placeholder="why is this suppression here?"
+                  aria-label="Suppression reason">
+              </div>
+            </div>
+            <div class="suppression-actions">
+              <button class="remove-btn" @click="removeSuppression(i)">× delete</button>
+            </div>
+          </article>
+        </template>
+      </div>
+    </template>
   </main>
 </div>
 
@@ -149,6 +299,7 @@
   <div class="yaml-editor-header">
     <div class="rule-pane-meta">
       policy.yaml — canonical-generated; every save fully rewrites the file
+      (comments and field-order will be rewritten)
     </div>
     <div class="rule-pane-meta" x-text="yamlStatus" :class="yamlStatusClass"></div>
   </div>
@@ -163,9 +314,9 @@
     <textarea
       class="yaml-textarea"
       spellcheck="false"
-      aria-label="Policy YAML (read-only in v1.2.x; edit via Form tab)"
+      aria-label="Policy YAML"
       x-model="yamlText"
-      readonly></textarea>
+      @input.debounce.300ms="onYAMLChange()"></textarea>
   </div>
   <noscript>
     <p style="padding: 16px 32px; color: var(--text-muted);">

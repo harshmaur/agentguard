@@ -322,6 +322,200 @@
   text-transform: uppercase;
 }
 
+.category-section-label {
+  padding: 24px 24px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* ===== Allowlist / Suppression cards ============================ */
+
+.add-btn {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.add-btn:hover {
+  background: var(--surface);
+  border-color: var(--text-muted);
+}
+
+.remove-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--text-muted);
+  border: 0;
+  cursor: pointer;
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+}
+.remove-btn:hover {
+  color: var(--critical);
+  border-bottom-color: var(--critical);
+}
+
+.allowlist-card,
+.suppression-card {
+  border: 1px solid var(--border);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  background: var(--surface);
+}
+
+.allowlist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.allowlist-name {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  outline: none;
+}
+.allowlist-name:focus { border-color: var(--low); }
+
+.allowlist-entries {
+  margin-bottom: 16px;
+}
+
+.allowlist-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.allowlist-entry-input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  outline: none;
+}
+.allowlist-entry-input:focus { border-color: var(--low); }
+.allowlist-entry-input::placeholder { color: var(--text-muted); }
+
+.entry-remove {
+  background: transparent;
+  color: var(--text-muted);
+  border: 0;
+  font-family: var(--mono);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.entry-remove:hover { color: var(--critical); }
+
+.add-entry-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  padding: 6px 12px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.add-entry-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  border-style: solid;
+}
+
+.notes-field {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.notes-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.notes-input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  outline: none;
+}
+.notes-input:focus { border-color: var(--low); }
+.notes-input::placeholder { color: var(--text-muted); }
+
+/* Suppression card layout: 2x2 grid of label-over-input. */
+.suppression-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.suppression-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.suppression-input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  outline: none;
+}
+.suppression-input:focus { border-color: var(--low); }
+.suppression-input::placeholder { color: var(--text-muted); }
+
+.suppression-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* Inline code in rule-pane-meta for the explainer text. */
+.rule-pane-meta code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  color: var(--text);
+  font-family: var(--mono);
+}
+
 /* Save-success ephemeral pulse — runs once on the save button when a
  * POST /api/policy returns 200. prefers-reduced-motion: skip. */
 .save-btn.pulse {
