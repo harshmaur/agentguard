@@ -62,6 +62,12 @@ func builtins() []rules.Rule {
 		// Shell rc rules.
 		shellrcSecretExport{},
 
+		// PowerShell profile rules — same family runs against profile
+		// scripts and PSReadLine ConsoleHost_history.
+		powershellIWRIEX{},
+		powershellSecretEnv{},
+		powershellExecutionPolicyBypass{},
+
 		// Dependency CVE coverage is delegated to external OSV-Scanner.
 		miniShaiHuludMaliciousOptionalDependency{},
 		miniShaiHuludClaudePersistence{},
