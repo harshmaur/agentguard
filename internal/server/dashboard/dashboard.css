@@ -38,11 +38,32 @@ a:visited { color: var(--text-muted); }
 /* --- Top bar ----------------------------------------------------- */
 .topbar {
   position: sticky; top: 0; z-index: 10;
-  display: grid; grid-template-columns: 200px 1fr 1fr;
+  display: grid; grid-template-columns: 200px 1fr 1fr auto;
   align-items: center; gap: 32px;
   padding: 14px 32px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+}
+.topbar-nav { display: flex; align-items: center; gap: 18px; }
+.topbar-nav .nav-link {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding: 2px 0;
+  transition: color 120ms, border-color 120ms;
+}
+.topbar-nav .nav-link:hover,
+.topbar-nav .nav-link:focus-visible {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+.topbar-nav .nav-link[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--ok);
 }
 .brand { font-family: var(--mono); font-weight: 500; font-size: 18px; letter-spacing: 0.18em; }
 .state-indicator {
@@ -502,6 +523,7 @@ a.copy-btn {
   .topbar { grid-template-columns: 1fr; gap: 12px; }
   .scan-status { justify-self: start; }
   .state-indicator { justify-self: start; }
+  .topbar-nav { justify-self: start; }
   .expanded-detail { grid-template-columns: 1fr; gap: 16px; }
 }
 @media (max-width: 768px) {
