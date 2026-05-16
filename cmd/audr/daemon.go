@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/lowprio"
@@ -77,7 +78,8 @@ Examples:
 
 Disabling a category is permanent (persists across daemon restarts).
 The orchestrator re-reads the config at the start of each scan
-cycle, so toggles take effect within one interval (~10 minutes).
+cycle, so toggles take effect within one interval (~1 hour by
+default, overridable via AUDR_SCAN_INTERVAL).
 
 A disabled scanner is distinct from a missing-sidecar scanner.
 Missing sidecars show 'unavailable' and point to audr update-scanners.
@@ -318,9 +320,11 @@ func newDaemonRunInternalCmd() *cobra.Command {
 
 				// Phase 4: the orchestrator subsystem replaces the
 				// Phase 2 demo seeder. It runs an initial scan
-				// immediately and then on a 10-minute cadence,
+				// immediately and then on a configurable cadence
+				// (default 1 hour; AUDR_SCAN_INTERVAL overrides),
 				// producing real findings + scanner statuses for the
-				// dashboard.
+				// dashboard. The watcher fires reactive scans on top
+				// of this for any filesystem change in scope.
 				//
 				// --demo additionally seeds the 8 hand-crafted demo
 				// findings so the dashboard isn't empty on first
@@ -358,11 +362,30 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("build watcher: %w", err)
 				}
 
+				// Allow the user to override the scan cadence via
+				// AUDR_SCAN_INTERVAL (Go duration string — "30m",
+				// "2h", "6h"). Unset / unparseable → 1-hour default
+				// applied by orchestrator.New. Logged either way so
+				// the daemon log makes the effective cadence
+				// explicit.
+				interval := resolveScanInterval(orchLogger)
+
 				orch, err := orchestrator.New(orchestrator.Options{
 					Store:            store,
 					Logger:           orchLogger,
+					Interval:         interval,
 					ExternalTriggers: watcher.Triggers(),
 					StateDir:         paths.State,
+					// Gate the periodic ticker behind the watcher's
+					// backoff state machine. The watcher's trigger
+					// forwarder already drops/throttles triggers under
+					// SLOW/PAUSE, but the ticker bypassed that gate —
+					// a thrashing machine kept scanning regardless.
+					// AV/EDR products yield the machine under load;
+					// we should too.
+					SkipTickerWhen: func() bool {
+						return watcher.CurrentState() == watch.StatePause
+					},
 				})
 				if err != nil {
 					_ = watcher.Close()
@@ -470,6 +493,33 @@ func newDaemonRunInternalCmd() *cobra.Command {
 // templates registry always claims, so in practice the demo layer
 // only matters for the few demo fingerprints whose canned text we
 // want to preserve.
+// resolveScanInterval reads AUDR_SCAN_INTERVAL and returns the parsed
+// duration. Returns 0 on unset / parse failure / non-positive so the
+// orchestrator's own default kicks in. The env-var path is the only
+// user-facing knob today — a policy.yaml field is the v1.5 plan once
+// the dashboard grows a daemon settings panel.
+//
+// Logged both on success ("using interval X from AUDR_SCAN_INTERVAL")
+// and failure ("AUDR_SCAN_INTERVAL=X invalid, falling back to
+// default") so the effective cadence is auditable in daemon.log.
+func resolveScanInterval(logger *slog.Logger) time.Duration {
+	raw := strings.TrimSpace(os.Getenv("AUDR_SCAN_INTERVAL"))
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		logger.Warn("AUDR_SCAN_INTERVAL parse failed; using default", "value", raw, "err", err)
+		return 0
+	}
+	if d <= 0 {
+		logger.Warn("AUDR_SCAN_INTERVAL non-positive; using default", "value", raw)
+		return 0
+	}
+	logger.Info("scan interval overridden via AUDR_SCAN_INTERVAL", "interval", d)
+	return d
+}
+
 func buildRemediation(includeDemo bool) (server.RemediationLookup, error) {
 	tmpl := templates.New()
 	if !includeDemo {

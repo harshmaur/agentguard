@@ -66,10 +66,17 @@ type Options struct {
 	// Roots are the filesystem paths to scan. Empty defaults to $HOME.
 	Roots []string
 
-	// Interval between scan cycles. Defaults to 10 minutes. With
-	// Phase 3's watcher wired via ExternalTriggers, the interval
-	// becomes a safety-net fallback — most scans fire from filesystem
-	// quiescence events.
+	// Interval between scan cycles. Defaults to 1 hour. The watcher
+	// (via ExternalTriggers) is the primary scan trigger for anything
+	// inside its scope — git repos, ~/.claude/~/.cursor, dotfiles —
+	// firing within ~5s of the filesystem settling. The periodic
+	// ticker is the catch-all for state the watcher can't observe:
+	// /var/lib/dpkg/status (new apt install), the rpmdb (new yum
+	// install), kernel package upgrades, etc. Pre-1.4 default was
+	// 10 min, which churned CPU on idle machines; the incremental
+	// scan_cache landed in 1.4 makes each cycle nearly free, but the
+	// hourly default still matches user intuition about a background
+	// security tool's cadence.
 	Interval time.Duration
 
 	// ExternalTriggers, when non-nil, is an additional channel the
@@ -117,6 +124,20 @@ type Options struct {
 	// fingerprint-mismatch paths without needing a real package DB.
 	OSPkgFingerprint func() (string, error)
 
+	// SkipTickerWhen, when non-nil, is consulted before every periodic
+	// (Interval ticker) scan. Returning true suppresses that one scan
+	// — the next tick re-checks. Watcher-driven (ExternalTriggers)
+	// scans are NOT gated here because the watcher applies its own
+	// backoff (RUN/SLOW/PAUSE) to its trigger channel; this knob
+	// closes the loophole where the ticker fired regardless.
+	//
+	// Daemon production: wires to a closure that returns true when the
+	// watcher's backoff state is PAUSE (load > 4.0 or thermal
+	// pressure). Result: under sustained load the daemon stops both
+	// trigger-driven AND ticker-driven scans, matching the AV/EDR
+	// behavior of yielding the machine to interactive work.
+	SkipTickerWhen func() bool
+
 	// HomeDir is used to discover AI chat transcript paths. Empty
 	// defaults to os.UserHomeDir().
 	HomeDir string
@@ -141,7 +162,7 @@ func New(opts Options) (*Orchestrator, error) {
 		return nil, errors.New("orchestrator: Store is required")
 	}
 	if opts.Interval <= 0 {
-		opts.Interval = 10 * time.Minute
+		opts.Interval = 1 * time.Hour
 	}
 	if opts.HomeDir == "" {
 		home, err := os.UserHomeDir()
@@ -264,6 +285,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-tick.C:
+			if o.opts.SkipTickerWhen != nil && o.opts.SkipTickerWhen() {
+				o.log.Info("ticker scan suppressed", "reason", "backoff state requested skip")
+				continue
+			}
 			o.log.Debug("scan triggered by interval", "interval", o.opts.Interval)
 			if err := o.runOnce(ctx); err != nil {
 				o.log.Error("scan cycle failed", "err", err)
