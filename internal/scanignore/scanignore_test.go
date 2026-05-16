@@ -18,6 +18,7 @@ func TestDefaultsContainsCanonicalSkipNames(t *testing.T) {
 		".bun", ".pnpm-store", ".yarn", ".deno", ".gem", ".m2", ".gradle", ".cargo",
 		".npm/_cacache", "go/pkg", ".gradle/caches",
 		"Library/Caches", "AppData/Local/Temp",
+		".local/state/audr",
 	}
 	for _, name := range want {
 		if !contains(got, name) {
@@ -70,11 +71,17 @@ func TestPathExcludedHandlesBothBasenameAndMultiSeg(t *testing.T) {
 		{"/home/u/Library/Caches/Yarn", true, "macOS Library/Caches"},
 		{"/c/Users/u/AppData/Local/Temp/x", true, "Windows AppData/Local/Temp"},
 
+		// audr self-exclusion: the daemon's own state dir must be
+		// skipped to prevent the audr.db self-scan churn loop.
+		{"/home/u/.local/state/audr/audr.db", true, "audr's own state dir"},
+		{"/home/u/.local/state/audr/audr.db-wal", true, "audr WAL sidecar"},
+
 		// Non-matches.
 		{"/home/u/code/proj/src/lodash.go", false, "code path"},
 		{"/home/u/go/src/github.com/foo/bar", false, "go/src is code, not cache"},
 		{"/home/u/somepkg/.gradle.bak", false, "must be whole segment"},
 		{"/home/u/projects/myrepo/package.json", false, "real project"},
+		{"/home/u/.local/state/something-else/foo.log", false, ".local/state not blanket-excluded"},
 		{"", false, "empty path"},
 	}
 	for _, tt := range cases {
@@ -155,6 +162,22 @@ func TestPatternForExtensionMatchesAsSuffix(t *testing.T) {
 			ext:            "tar.gz",
 			shouldMatch:    []string{"backup.tar.gz", "/tmp/build.tar.gz"},
 			shouldNotMatch: []string{"backup.tar.gz.bak"},
+		},
+		{
+			// SQLite primary file: matches `*.db` (audr's own
+			// audr.db plus every hermes/codex DB) but not random
+			// suffixes that share the prefix.
+			ext:            "db",
+			shouldMatch:    []string{"audr.db", "/var/lib/foo.db", "state.db"},
+			shouldNotMatch: []string{"audr.dbg", "weird.dbf", "noext"},
+		},
+		{
+			// WAL sidecar lands as `<file>.db-wal` — the suffix
+			// after the last dot is `db-wal`, so the regex matches.
+			// Same churn-driver as the parent .db file.
+			ext:            "db-wal",
+			shouldMatch:    []string{"audr.db-wal", "/tmp/x.db-wal"},
+			shouldNotMatch: []string{"audr.db", "audr.db-wal.bak"},
 		},
 	}
 	for _, tt := range tests {

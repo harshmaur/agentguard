@@ -72,6 +72,23 @@ func Defaults() []string {
 		"AppData/Local/Temp",           // Windows user temp
 		"AppData/Local/Microsoft/Windows/INetCache",
 
+		// audr's own SQLite state directory. Scanning it triggers a
+		// self-amplifying loop: betterleaks reads audr.db (binary),
+		// matches generic-api-key / jwt / private-key bytes inside the
+		// page data, and emits hundreds-to-thousands of findings per
+		// scan. Those findings get persisted back into audr.db, which
+		// changes the file, shifts the byte offsets, mutates the
+		// fingerprints next cycle, and the resolve-detector marks the
+		// old fingerprints resolved while opening brand-new rows for
+		// the same bytes under different offsets. The "Resolved today"
+		// metric balloons into the hundreds of thousands with zero real
+		// remediation work. (Same shape as the browser-DB churn the
+		// list above already mitigates.) BinaryFileExtensions below
+		// excludes the .db / .db-wal / .db-shm files generally; this
+		// path entry is the belt-and-suspenders self-exclusion so any
+		// future non-DB state file audr drops here is also skipped.
+		".local/state/audr",
+
 		// Browser user-data directories. These hold SQLite DBs
 		// (History, Cookies, Favicons), extension assets, and
 		// component-update payloads that auto-rotate on a sub-hourly
@@ -145,6 +162,21 @@ func BinaryFileExtensions() []string {
 		"zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar",
 		// Compiled python / wheels
 		"pyc", "pyo", "whl",
+		// SQLite-family databases. Apps write redacted secrets,
+		// session tokens, URLs, and JWT-shaped page metadata into
+		// these as routine state; betterleaks's regex detectors hit
+		// the bytes and emit thousands of false positives per scan.
+		// Worse, the WAL/SHM sidecars rotate on every write, so the
+		// daemon's fingerprint hashes shift between scans, mass-
+		// resolving old rows and opening new ones for the same bytes —
+		// the "Resolved today" counter inflates without bound. Covers
+		// audr's own audr.db (single biggest offender — 99% of the
+		// reported phantom resolutions in one user repro), plus
+		// .hermes/state.db, .codex/logs_*.sqlite, and the entire
+		// state-snapshot trees Hermes/Codex keep around for rollback.
+		"db", "db-wal", "db-shm",
+		"sqlite", "sqlite3",
+		"sqlite-wal", "sqlite-shm",
 		// Media (rare false positives but worth excluding — never source for secrets)
 		"png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tiff",
 		"mp3", "mp4", "mov", "avi", "wav", "flac", "ogg", "webm",
