@@ -14,6 +14,7 @@
 !docs/*.html
 !docs/*.json
 !internal/rules/builtin/advisories/*.json
+!internal/output/schema/*.json
 !internal/server/dashboard/*.html
 
 # editor

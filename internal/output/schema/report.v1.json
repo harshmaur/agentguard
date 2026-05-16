@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audr.dev/schema/report.v1.json",
+  "title": "audr Report (v1)",
+  "description": "Wire-shape of `audr scan -f json` and `audr findings ls --format json`. Audr commits to this shape across the v1 line: new optional fields may land in minor releases, existing fields keep their names and types.",
+  "type": "object",
+  "required": ["schema", "version", "generated_at", "stats", "findings"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "https://audr.dev/schema/report.v1.json",
+      "description": "URL identifying the schema this Report conforms to. Consumers fetch this URL to validate the rest of the document."
+    },
+    "version": {
+      "type": "string",
+      "description": "Version of the audr binary that produced this Report (e.g. \"1.1.0\")."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp when the scan completed."
+    },
+    "stats": { "$ref": "#/$defs/Stats" },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Finding" },
+      "description": "List of findings in this Report. May be filtered (see applied_filters) and may respect suppressions; the baseline_diff section uses the unsuppressed truth."
+    },
+    "roots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Scan roots that produced this Report."
+    },
+    "self_audit": {
+      "type": "string",
+      "description": "Result of audr's own integrity check: \"clean (cosign-verified)\" | \"clean (unverified)\" | \"TAMPERED\" | \"skipped\"."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Scanner coverage warnings (e.g., missing backends) that must be surfaced in every Report."
+    },
+    "attack_chains": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/AttackChain" },
+      "description": "Narrative scenarios connecting two or more findings into a single attack path."
+    },
+    "environment": {
+      "type": "object",
+      "description": "Runtime detection result (bare-metal / container / VM / WSL). Present only when --runtime-info was used."
+    },
+    "scan_mounts": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Host-bound vs container-local classification of each scan root. Linux-only; present only when --runtime-info was used."
+    },
+    "applied_filters": {
+      "$ref": "#/$defs/AppliedFilters",
+      "description": "Set by `audr findings ls` when one or more filter flags were active. Absent on direct `audr scan -f json` output."
+    },
+    "baseline_diff": {
+      "$ref": "#/$defs/BaselineDiff",
+      "description": "Set by `audr scan --baseline=<prior.json>`. Lists which finding ids were resolved, are still present, or are newly introduced compared to the baseline scan."
+    }
+  },
+  "$defs": {
+    "Severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "Taxonomy": {
+      "type": "string",
+      "enum": ["enforced", "detectable", "advisory"],
+      "description": "Honest classification of the finding's actionability."
+    },
+    "FixAuthority": {
+      "type": "string",
+      "enum": ["you", "maintainer", "upstream"],
+      "description": "Who can fix this finding: the user (`you`), a vendored-plugin maintainer (`maintainer`), or an upstream third party (`upstream`). Only `you` findings are agent-fixable; `maintainer`/`upstream` require human action."
+    },
+    "Stats": {
+      "type": "object",
+      "required": ["files_seen", "files_parsed", "suppressed", "skipped", "total", "critical", "high", "medium", "low"],
+      "additionalProperties": true,
+      "properties": {
+        "files_seen": { "type": "integer", "minimum": 0 },
+        "files_parsed": { "type": "integer", "minimum": 0 },
+        "suppressed": { "type": "integer", "minimum": 0, "description": "Count of findings dropped via .audrignore." },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "critical": { "type": "integer", "minimum": 0 },
+        "high": { "type": "integer", "minimum": 0 },
+        "medium": { "type": "integer", "minimum": 0 },
+        "low": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Finding": {
+      "type": "object",
+      "required": ["rule_id", "severity", "taxonomy", "title", "description"],
+      "additionalProperties": true,
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "description": "Stable rule identifier (e.g. \"secret-anthropic-api-key\", \"mcp-plaintext-api-key\")."
+        },
+        "severity": { "$ref": "#/$defs/Severity" },
+        "taxonomy": { "$ref": "#/$defs/Taxonomy" },
+        "title": {
+          "type": "string",
+          "description": "Audr-controlled one-line summary. Safe to render verbatim in prompts."
+        },
+        "description": {
+          "type": "string",
+          "description": "Audr-controlled prose explaining why the finding fires. Safe to render verbatim."
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute or repo-relative path the finding was detected at. Not a secret; safe to render verbatim."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "match": {
+          "type": "string",
+          "description": "The matched value, post-redaction. May contain attacker-controlled text — render only inside an injection-safe envelope."
+        },
+        "context": {
+          "type": "string",
+          "description": "Per-rule metadata (e.g. `source=betterleaks validation=valid entropy=4.31`). May contain attacker-controlled text from file content — render only inside an injection-safe envelope."
+        },
+        "suggested_fix": {
+          "type": "string",
+          "description": "Audr-controlled remediation hint. Safe to render verbatim."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dedup_group_key": {
+          "type": "string",
+          "description": "Groups findings that represent the same underlying vulnerability across multiple paths. For OSV findings: `osv:<ecosystem>:<pkg>:<fixed>:<advisory-id>`."
+        },
+        "fix_authority": { "$ref": "#/$defs/FixAuthority" },
+        "secondary_notify": {
+          "type": "string",
+          "description": "Maintainer hint when the finding's path lives in a vendored plugin tree (e.g. \"vercel\"). Renders a \"report to <vendor>\" link alongside the primary action."
+        }
+      }
+    },
+    "AttackChain": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": true,
+      "description": "Narrative correlation across multiple findings. Schema is permissive in v1; consumers should treat unknown fields as forward-compatible."
+    },
+    "AppliedFilters": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "severity": {
+          "type": "string",
+          "description": "Severity filter expression (e.g. \"ge:high\"). Format: {ge|gt|le|lt|eq}:{critical|high|medium|low}."
+        },
+        "fix_authority": { "$ref": "#/$defs/FixAuthority" },
+        "rule_id": {
+          "type": "string",
+          "description": "Glob pattern (filepath.Match) used to filter findings by rule_id."
+        }
+      }
+    },
+    "BaselineDiff": {
+      "type": "object",
+      "required": ["baseline_path", "resolved", "still_present", "newly_introduced", "suppressions_off"],
+      "additionalProperties": true,
+      "properties": {
+        "baseline_path": {
+          "type": "string",
+          "description": "Path of the prior scan JSON file used as the baseline."
+        },
+        "baseline_scanned_at": {
+          "type": "string",
+          "description": "RFC 3339 timestamp of the baseline scan. Empty when the baseline file did not record one."
+        },
+        "resolved": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+          "description": "Finding ids present in the baseline but absent from the current scan. The agent fixed these."
+        },
+        "still_present": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+          "description": "Finding ids present in BOTH the baseline and the current scan. Not yet fixed."
+        },
+        "newly_introduced": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+          "description": "Finding ids absent from the baseline but present in the current scan. The agent introduced these — could be a regression caused by the fix."
+        },
+        "suppressions_off": {
+          "type": "boolean",
+          "description": "Always `true` in v1.1: the diff is computed against the unsuppressed scanner result so adding a rule to .audrignore cannot fake \"resolved\". Documents the security invariant."
+        }
+      }
+    }
+  }
+}

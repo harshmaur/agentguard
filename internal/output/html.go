@@ -76,6 +76,12 @@ type Report struct {
 	// surface from v0.5.6.
 	Environment *runtimeenv.Info `json:"environment,omitempty"`
 
+	// BaselineDiff is non-nil when `audr scan --baseline=<path>` was
+	// used. Carries the resolved / still-present / newly-introduced
+	// id lists computed against the unsuppressed scanner result so
+	// agents cannot fake "resolved" by adding the rule to .audrignore.
+	BaselineDiff *BaselineDiff `json:"baseline_diff,omitempty"`
+
 	// ScanMounts classifies each scan root as host-bound (bind-
 	// mounted from outside the container) or container-local. The
 	// report renders host-bound paths so an auditor reading the
