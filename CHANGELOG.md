@@ -3,6 +3,33 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.10.1] - 2026-05-16 — Dashboard nav: POLICY link in the topbar
+
+Small UX fix on top of v1.3. The audit dashboard now has a `POLICY` link in
+the top-right of the topbar, so the policy editor at `/policy/edit` is one
+click away instead of a URL you had to memorise.
+
+### Added
+
+- **POLICY link in the topbar.** Renders in the existing IBM Plex Mono
+  monospace voice, muted by default, underlined on hover. Sits at the
+  right edge of the topbar, next to the scan-status strip.
+- **Auth token preserved across in-app navigation.** `annotateNavTokens()`
+  rewrites every `.nav-link`'s href on page load to append the same
+  `?t=<token>` query the dashboard was opened with. No re-auth required
+  when clicking through. Same-origin only — absolute URLs are skipped
+  so a future template author can't accidentally leak the token offsite.
+- **`aria-current="page"`** on the active route gets a colored bottom
+  border, so when you're on the policy editor the POLICY link in its
+  own topbar (already wired in v0.7.0) shows as active.
+
+### Changed
+
+- **Topbar grid** widens from `200px 1fr 1fr` to `200px 1fr 1fr auto` to
+  accommodate the new nav block. The < 1280px responsive breakpoint
+  was extended so the nav block stacks left-aligned with the rest of
+  the topbar contents in narrow viewports.
+
 ## [0.10.0] - 2026-05-15 — v1.3 Loveable Daily Driver: dedup engine + rolled-up dashboard
 
 The founder ran `audr scan ~` on their own machine and got 1700+ findings.

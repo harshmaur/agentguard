@@ -914,7 +914,29 @@
     load();
   });
 
+  // Carry the auth token across in-app navigation. Topbar nav links
+  // are authored with bare paths in the HTML (no ?t=); on boot, we
+  // append the token so clicking POLICY lands on /policy/edit with
+  // the same auth cookie-shaped query the dashboard was opened with.
+  // Same-origin only — prevents leaking the token to an external href
+  // that some future template author might paste in by mistake.
+  function annotateNavTokens() {
+    if (!token) return;
+    document.querySelectorAll('.nav-link').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      if (!href || href.startsWith('http')) return; // skip absolute hrefs
+      const sep = href.includes('?') ? '&' : '?';
+      a.setAttribute('href', href + sep + 't=' + encodeURIComponent(token));
+    });
+    // Mark the current route so the nav can show an active state.
+    const here = window.location.pathname;
+    document.querySelectorAll('.nav-link[data-route]').forEach((a) => {
+      if (a.dataset.route === here) a.setAttribute('aria-current', 'page');
+    });
+  }
+
   wireFilters();
+  annotateNavTokens();
   load();
   connectEvents();
 })();
