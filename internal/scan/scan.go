@@ -20,10 +20,12 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -36,6 +38,35 @@ import (
 	"github.com/harshmaur/audr/internal/rules"
 	"github.com/harshmaur/audr/internal/suppress"
 )
+
+// FileCache is the persistence surface the scan worker uses to skip
+// re-parsing + re-applying rules to files whose (mtime, size) is
+// unchanged since the previous cycle. The state.Store satisfies this;
+// the indirection lets the scan package stay independent of state's
+// import graph.
+//
+// Implementations must be safe for concurrent Get from many goroutines
+// (the worker pool reads in parallel); Put is called serialized per
+// path so concurrent writes to the same path won't collide.
+//
+// Get returns (entry, true, nil) on hit, (zero, false, nil) on miss.
+// Put is best-effort — errors are logged by the caller but do not
+// fail the scan, since a cache miss next cycle is the worst outcome.
+type FileCache interface {
+	Get(ctx context.Context, path string) (FileCacheEntry, bool, error)
+	Put(entry FileCacheEntry) error
+}
+
+// FileCacheEntry mirrors state.FileCacheEntry but uses the scan
+// package's vocabulary. Decoupled struct keeps scan free of state's
+// import graph; the orchestrator translates between the two.
+type FileCacheEntry struct {
+	Path        string
+	MTime       int64
+	Size        int64
+	Findings    []byte // JSON-encoded []finding.Finding; nil → no cached findings
+	AudrVersion string
+}
 
 // Options configures a scan.
 type Options struct {
@@ -71,6 +102,24 @@ type Options struct {
 	// The daemon orchestrator populates this from `~/.audr/policy.yaml`
 	// on every scan cycle; the one-shot CLI scan leaves it nil.
 	Policy rules.PolicyFilter
+
+	// Cache, when non-nil, lets the worker skip parse + rule evaluation
+	// for files whose (mtime, size) matches the cached entry AND whose
+	// audr_version matches AudrVersion below. Daemon scans plug the
+	// state.Store in here; one-shot `audr scan` runs leave it nil so
+	// they always do fresh work (matches user expectation that
+	// "audr scan ." returns current-state truth).
+	//
+	// correlate-relevant files (MCP configs, shell rcs, GHA workflows,
+	// etc.) bypass the cache entirely — they're rare and small, and
+	// the cross-finding correlate pass needs their parsed Document.
+	Cache FileCache
+
+	// AudrVersion is the running binary's version string. The cache
+	// uses it as a generation tag: a binary upgrade invalidates every
+	// existing entry because new rules may now fire on previously-
+	// clean files. Empty when caching is disabled.
+	AudrVersion string
 }
 
 // Result is what a scan produces.
@@ -271,6 +320,82 @@ type workerStat struct {
 	seen, parsed, skipped int
 }
 
+// tryCacheHit returns the cached findings for path iff:
+//
+//   - opts.Cache + opts.AudrVersion are both set (caching enabled),
+//   - the file's format isn't correlate-relevant (those bypass cache),
+//   - the file exists and is a regular file,
+//   - a cache row exists for path,
+//   - the cached (mtime, size, version) matches the file's current stat,
+//   - the row's findings payload is non-nil and decodes successfully.
+//
+// On any failure the function returns ok=false silently — the caller
+// falls back to the normal parse + rules path, which is always correct
+// (just slower). The mtime/size return values are unused today but
+// kept on the signature so a future caller doesn't need to re-stat.
+func tryCacheHit(ctx context.Context, opts Options, path string) (findings []finding.Finding, ok bool, mtime int64, size int64) {
+	if opts.Cache == nil || opts.AudrVersion == "" {
+		return nil, false, 0, 0
+	}
+	if correlateRelevantFormats[parse.DetectFormat(path)] {
+		return nil, false, 0, 0
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false, 0, 0
+	}
+	mtime = info.ModTime().UnixNano()
+	size = info.Size()
+
+	entry, found, err := opts.Cache.Get(ctx, path)
+	if err != nil || !found {
+		return nil, false, mtime, size
+	}
+	if entry.MTime != mtime || entry.Size != size || entry.AudrVersion != opts.AudrVersion {
+		return nil, false, mtime, size
+	}
+	if len(entry.Findings) == 0 {
+		return nil, false, mtime, size
+	}
+	var decoded []finding.Finding
+	if err := json.Unmarshal(entry.Findings, &decoded); err != nil {
+		return nil, false, mtime, size
+	}
+	return decoded, true, mtime, size
+}
+
+// maybeWriteCache persists this file's rule output keyed on its
+// current (mtime, size, version). Skips when caching is off, when the
+// file's format is correlate-relevant (those always parse fresh so the
+// correlate pass keeps working), or when the file can't be stat'd
+// post-rule-evaluation (it was deleted mid-scan — no point caching).
+//
+// Errors from the cache layer are silently dropped: a missed write
+// just means the next cycle is a cache miss, which is always safe.
+func maybeWriteCache(opts Options, path string, format parse.Format, fileFindings []finding.Finding) {
+	if opts.Cache == nil || opts.AudrVersion == "" {
+		return
+	}
+	if correlateRelevantFormats[format] {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return
+	}
+	payload, err := json.Marshal(fileFindings)
+	if err != nil {
+		return
+	}
+	_ = opts.Cache.Put(FileCacheEntry{
+		Path:        path,
+		MTime:       info.ModTime().UnixNano(),
+		Size:        info.Size(),
+		Findings:    payload,
+		AudrVersion: opts.AudrVersion,
+	})
+}
+
 func worker(
 	ctx context.Context,
 	id int,
@@ -289,7 +414,35 @@ func worker(
 			if !ok {
 				return
 			}
+			_ = id // worker ID currently unused, retained for log-context wiring
 			s := workerStat{seen: 1}
+
+			// Cache fast path: when the entry's (mtime, size, version)
+			// matches the file's current stat, replay the prior
+			// findings without touching the parser or rule engine.
+			// Skip the cache for formats the correlate pass needs the
+			// parsed Document for — those files are rare and small, so
+			// re-parsing them every cycle is cheaper than threading
+			// document persistence through the cache schema.
+			if cached, ok, mtime, size := tryCacheHit(ctx, opts, path); ok {
+				for _, f := range cached {
+					select {
+					case out <- f:
+					case <-ctx.Done():
+						return
+					}
+				}
+				s.parsed = 1
+				select {
+				case stat <- s:
+				case <-ctx.Done():
+					return
+				}
+				_ = mtime
+				_ = size
+				continue
+			}
+
 			// File-level timeout: if reading or parsing takes too long, the
 			// timer cancels the per-file context and the worker bails out.
 			// (The current parser is synchronous so the deadline is enforced
@@ -297,7 +450,6 @@ func worker(
 			_, cancel := context.WithTimeout(ctx, opts.FileTimeout)
 			doc, err := parse.ReadAndParse(path, opts.FileSizeLimit)
 			cancel()
-			_ = id // worker ID currently unused, retained for log-context wiring
 			if errors.Is(err, parse.ErrSkippedSize) {
 				logger.Debug("size-cap-skipped", "path", path)
 				out <- finding.New(finding.Args{
@@ -326,13 +478,19 @@ func worker(
 						Path:        path,
 					})
 				} else {
-					for _, f := range rules.ApplyWithPolicy(doc, opts.Policy) {
+					fileFindings := rules.ApplyWithPolicy(doc, opts.Policy)
+					for _, f := range fileFindings {
 						select {
 						case out <- f:
 						case <-ctx.Done():
 							return
 						}
 					}
+					// Persist the cache row AFTER rules have run so a
+					// subsequent cycle with unchanged (mtime, size,
+					// version) can replay the same findings.
+					maybeWriteCache(opts, path, doc.Format, fileFindings)
+
 					// v0.2.0-alpha.5: retain the parsed Document for the
 					// correlate pass after scan completes.
 					select {

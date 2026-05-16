@@ -374,6 +374,7 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					Store:            store,
 					Logger:           orchLogger,
 					Interval:         interval,
+					AudrVersion:      Version,
 					ExternalTriggers: watcher.Triggers(),
 					StateDir:         paths.State,
 					// Gate the periodic ticker behind the watcher's

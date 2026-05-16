@@ -145,6 +145,23 @@ var migrations = []string{
 		scanned_at   INTEGER NOT NULL
 	);
 	`,
+
+	// v5 (2026-05-16): extend file_cache for per-file findings reuse.
+	// The native scan walker now persists each file's rule output
+	// alongside the (mtime, size) it observed. On the next cycle,
+	// files whose stat tuple still matches AND whose audr_version
+	// matches the running binary get their findings replayed from
+	// cache — no parse, no rule eval. audr_version is the kill switch
+	// when rules change: a binary upgrade invalidates every entry.
+	//
+	// findings is JSON-encoded []finding.Finding (Severity's Marshal/
+	// Unmarshal pair, landed in v1.4, round-trips cleanly through this
+	// blob). NULL findings keeps backward compatibility with rows the
+	// watch+poll engine wrote pre-v5 that only carried the stat tuple.
+	`
+	ALTER TABLE file_cache ADD COLUMN findings BLOB;
+	ALTER TABLE file_cache ADD COLUMN audr_version TEXT;
+	`,
 }
 
 // runMigrations applies any migrations newer than the current schema

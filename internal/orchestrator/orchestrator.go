@@ -124,6 +124,14 @@ type Options struct {
 	// fingerprint-mismatch paths without needing a real package DB.
 	OSPkgFingerprint func() (string, error)
 
+	// AudrVersion is the running binary's version. Plumbed into
+	// scan.Options.AudrVersion so the per-file scan cache (v1.4
+	// addition) invalidates every cached row on a binary upgrade —
+	// new rules may now fire on previously-clean files, so reusing
+	// pre-upgrade verdicts would silently miss findings. Empty
+	// disables the per-file cache entirely.
+	AudrVersion string
+
 	// SkipTickerWhen, when non-nil, is consulted before every periodic
 	// (Interval ticker) scan. Returning true suppresses that one scan
 	// — the next tick re-checks. Watcher-driven (ExternalTriggers)
@@ -617,6 +625,15 @@ func (o *Orchestrator) runNative(ctx context.Context, scanID int64, seen map[str
 	if opts.ScanTimeout == 0 {
 		opts.ScanTimeout = 5 * time.Minute
 	}
+	// Wire the file-level cache. Daemon scans get fast cache hits on
+	// unchanged files; one-shot CLI runs leave ScanOpts.Cache nil so
+	// every `audr scan .` is a fresh evaluation. AudrVersion tags
+	// every cached row — when the binary upgrades, the rules may have
+	// changed, so every existing row is silently treated as stale.
+	if opts.Cache == nil && o.opts.AudrVersion != "" {
+		opts.Cache = scanFileCache{store: o.opts.Store}
+		opts.AudrVersion = o.opts.AudrVersion
+	}
 
 	// Plan B3 — re-read policy at the top of every scan cycle so
 	// dashboard saves take effect within one cycle without a daemon
@@ -1071,3 +1088,35 @@ func startsWithUpDir(rel string) bool {
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// scanFileCache adapts state.Store to scan.FileCache. The scan
+// package deliberately can't import state (state imports finding;
+// scan also imports finding — circular avoidance is the only motive,
+// the adapter is otherwise pure passthrough).
+type scanFileCache struct {
+	store *state.Store
+}
+
+func (s scanFileCache) Get(ctx context.Context, path string) (scan.FileCacheEntry, bool, error) {
+	row, ok, err := s.store.GetFileCache(ctx, path)
+	if err != nil || !ok {
+		return scan.FileCacheEntry{}, ok, err
+	}
+	return scan.FileCacheEntry{
+		Path:        row.Path,
+		MTime:       row.MTime,
+		Size:        row.Size,
+		Findings:    row.Findings,
+		AudrVersion: row.AudrVersion,
+	}, true, nil
+}
+
+func (s scanFileCache) Put(entry scan.FileCacheEntry) error {
+	return s.store.PutFileCache(state.FileCacheEntry{
+		Path:        entry.Path,
+		MTime:       entry.MTime,
+		Size:        entry.Size,
+		Findings:    entry.Findings,
+		AudrVersion: entry.AudrVersion,
+	})
+}
