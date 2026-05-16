@@ -26,13 +26,16 @@ import (
 	"time"
 
 	"github.com/harshmaur/audr/internal/correlate"
+	"github.com/harshmaur/audr/internal/daemon"
 	"github.com/harshmaur/audr/internal/depscan"
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/output"
 	_ "github.com/harshmaur/audr/internal/rules/builtin"
 	"github.com/harshmaur/audr/internal/runtimeenv"
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
+	"github.com/harshmaur/audr/internal/state"
 	"github.com/harshmaur/audr/internal/suppress"
 	"github.com/harshmaur/audr/internal/updater"
 	"github.com/spf13/cobra"
@@ -67,6 +70,7 @@ func newRootCmd() *cobra.Command {
 		Version:       Version,
 	}
 	cmd.AddCommand(newScanCmd())
+	cmd.AddCommand(newFindingsCmd())
 	cmd.AddCommand(newVerifyCmd())
 	cmd.AddCommand(newSelfAuditCmd())
 	cmd.AddCommand(newDoctorCmd())
@@ -104,6 +108,9 @@ func newScanCmd() *cobra.Command {
 		flagRequireSecret bool
 		flagDepsBackend   string // "auto" | "osv-scanner"
 		flagRuntimeInfo   bool
+		flagBaseline      string // path to a prior `audr scan -f json` output
+		flagNoCache       bool   // disable the per-file scan cache for this run
+		flagPrintSchema   bool   // print the embedded JSON Schema and exit
 	)
 	cmd := &cobra.Command{
 		Use:   "scan [path...]",
@@ -126,6 +133,10 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
   audr scan -f sarif -o results.sarif    # SARIF for GitHub Code Scanning
   audr scan -f json -o - | jq            # pipe JSON to jq`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if flagPrintSchema {
+				_, err := cmd.OutOrStdout().Write(output.Schema())
+				return err
+			}
 			return runScan(scanFlags{
 				roots:         args,
 				output:        flagOutput,
@@ -152,6 +163,8 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 				requireSecret: flagRequireSecret,
 				depsBackend:   flagDepsBackend,
 				runtimeInfo:   flagRuntimeInfo,
+				baseline:      flagBaseline,
+				noCache:       flagNoCache,
 			})
 		},
 	}
@@ -181,6 +194,28 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().StringVar(&flagDepsBackend, "deps-backend", "auto", "dependency scanner backend: auto | osv-scanner")
 	cmd.Flags().BoolVar(&flagRuntimeInfo, "runtime-info", false,
 		"include runtime detection (container/VM/WSL kind, host-bound mount classification) in the report")
+	cmd.Flags().StringVar(&flagBaseline, "baseline", "",
+		`compare against a prior 'audr scan -f json' file. Emits a baseline_diff
+section listing resolved / still_present / newly_introduced finding ids.
+The diff truth runs with suppressions OFF, so .audrignore additions cannot
+fake "resolved". Use this to close the AI fix loop:
+    audr scan . -f json -o before.json
+    # agent edits source
+    audr scan . -f json --baseline=before.json`)
+	cmd.Flags().BoolVar(&flagNoCache, "no-cache", false,
+		`disable the per-file scan cache for this run. By default 'audr scan'
+reuses ~/.audr/audr.db (the same cache the daemon uses): files whose
+(mtime, size, audr-version) match a cached row skip parse + rule
+evaluation entirely. Use --no-cache to force a full rescan when
+debugging a suspected cache artifact or to validate that a "still
+present" finding is genuine (not a stale cache row).`)
+	cmd.Flags().BoolVar(&flagPrintSchema, "print-schema", false,
+		`print the embedded JSON Schema describing the Report wire shape and
+exit. The same schema is served at https://audr.dev/schema/report.v1.json.
+Use the embedded copy when validating audr output offline or when the
+binary is sandboxed from network access:
+    audr scan --print-schema > report.v1.json
+    jq --schema report.v1.json . my-scan.json`)
 	return cmd
 }
 
@@ -220,6 +255,8 @@ type scanFlags struct {
 	requireSecret bool
 	depsBackend   string
 	runtimeInfo   bool
+	baseline      string // path to a prior `audr scan -f json` file
+	noCache       bool   // disable per-file scan cache for this run
 }
 
 // outPlan captures the resolved output decisions: where the report goes,
@@ -357,8 +394,45 @@ func runScan(f scanFlags) error {
 		logger.Info("loaded suppression file", "path", ignorePath)
 	}
 
+	// Load the baseline early so a malformed baseline fails before we
+	// run a full scan (saves the user 6 seconds when they typo a path).
+	var baselineReport *output.JSONReport
+	if f.baseline != "" {
+		bf, err := os.Open(f.baseline)
+		if err != nil {
+			return fmt.Errorf("open --baseline %q: %w", f.baseline, err)
+		}
+		jr, err := output.LoadJSON(bf)
+		bf.Close()
+		if err != nil {
+			return fmt.Errorf("parse --baseline %q: %w", f.baseline, err)
+		}
+		baselineReport = &jr
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// When --baseline is set, the diff must be computed against the
+	// UNSUPPRESSED scanner result so .audrignore additions cannot fake
+	// "resolved." We pass Suppress: nil to scan.Run, capture the full
+	// findings, then apply suppression in this function before emitting
+	// the user-facing Findings array.
+	scanSuppress := supp
+	if baselineReport != nil {
+		scanSuppress = nil
+	}
+
+	// Open the file cache (~/.audr/audr.db) for read+write unless the
+	// user passed --no-cache. The store is the same file the daemon
+	// uses; modernc.org/sqlite's WAL mode + busy_timeout handle
+	// concurrent daemon access via SQLite file locks. Open failures
+	// are non-fatal — we warn and continue without cache so a
+	// permission glitch or first-run race never blocks a scan.
+	cacheStore, scanCache := openOneShotCache(ctx, f, logger)
+	if cacheStore != nil {
+		defer cacheStore.Close()
+	}
 
 	res := &scan.Result{StartedAt: time.Now(), FinishedAt: time.Now()}
 	if !f.depsOnly && !f.secretsOnly {
@@ -369,8 +443,10 @@ func runScan(f scanFlags) error {
 			FileTimeout:   f.fileTimeout,
 			FileSizeLimit: f.sizeLimit,
 			ScanTimeout:   f.scanTimeout,
-			Suppress:      supp,
+			Suppress:      scanSuppress,
 			Logger:        logger,
+			Cache:         scanCache,
+			AudrVersion:   cacheVersion(scanCache),
 		})
 		if scanErr != nil {
 			// scan.Run returns partial Result on timeout; report it anyway.
@@ -395,6 +471,35 @@ func runScan(f scanFlags) error {
 		res.FinishedAt = time.Now()
 	}
 
+	// When --baseline is set we ran scan with Suppress=nil; compute the
+	// diff against the raw findings, then apply suppression manually so
+	// the user-facing Findings array matches v0.12 behavior. The diff
+	// itself stays computed against the raw set — that's the security
+	// invariant documented as BaselineDiff.SuppressionsOff = true.
+	var baselineDiff *output.BaselineDiff
+	if baselineReport != nil {
+		bd := output.DiffBaseline(
+			baselineReport.Findings,
+			res.Findings,
+			f.baseline,
+			baselineReport.GeneratedAt.Format(time.RFC3339),
+		)
+		baselineDiff = &bd
+		if supp != nil {
+			kept := res.Findings[:0]
+			suppressedCount := 0
+			for _, fnd := range res.Findings {
+				if supp.Suppresses(fnd.RuleID, fnd.Path) {
+					suppressedCount++
+					continue
+				}
+				kept = append(kept, fnd)
+			}
+			res.Findings = kept
+			res.Suppressed = suppressedCount
+		}
+	}
+
 	// v0.2.0-alpha.5: cross-finding correlation pass produces Attack Chain
 	// narratives that render at the top of the report.
 	chains := correlate.Run(res.Findings, res.Documents)
@@ -412,6 +517,7 @@ func runScan(f scanFlags) error {
 		Skipped:      res.Skipped,
 		Version:      Version,
 		SelfAudit:    "skipped",
+		BaselineDiff: baselineDiff,
 	}
 
 	// Optional runtime detection: bare-metal/container/VM/WSL +
@@ -731,6 +837,71 @@ func shellFlag() string {
 		return "/C"
 	}
 	return "-c"
+}
+
+// openOneShotCache opens the shared ~/.audr/audr.db file cache for use
+// during a one-shot 'audr scan' invocation. Returns (store, fileCache)
+// when cache is available, (nil, nil) when the cache is disabled or
+// could not be opened.
+//
+// Rules:
+//   - f.noCache=true: skip entirely (return nil, nil).
+//   - f.depsOnly or f.secretsOnly: the scan.Run path that consumes the
+//     cache is not executed in those modes, so opening is wasted I/O.
+//   - daemon.Resolve fails (HOME unset, exotic OS): skip with warning.
+//   - state.Open fails: skip with warning. The most common cause is a
+//     concurrent daemon mid-migration; the next invocation typically
+//     succeeds.
+//
+// CRITICAL: NoRebuild=true is non-negotiable. Without it, an open
+// failure on a daemon-owned DB would trigger the destructive rebuild
+// path in state.Open and wipe the daemon's authoritative state.
+func openOneShotCache(ctx context.Context, f scanFlags, logger *slog.Logger) (*state.Store, scan.FileCache) {
+	if f.noCache {
+		return nil, nil
+	}
+	if f.depsOnly || f.secretsOnly {
+		return nil, nil
+	}
+	paths, err := daemon.Resolve()
+	if err != nil {
+		logger.Warn("scan cache disabled: could not resolve state dir", "err", err)
+		return nil, nil
+	}
+	if err := paths.Ensure(); err != nil {
+		logger.Warn("scan cache disabled: state dir not writable", "err", err)
+		return nil, nil
+	}
+	dbPath := filepath.Join(paths.State, "audr.db")
+	store, err := state.Open(state.Options{
+		Path:      dbPath,
+		NoRebuild: true, // never delete a daemon-owned DB from under it
+	})
+	if err != nil {
+		logger.Warn("scan cache disabled: state.Open failed", "path", dbPath, "err", err)
+		return nil, nil
+	}
+	// Run the writer goroutine so PutFileCache calls can submit
+	// writes. Without Run(), submitWrite blocks forever.
+	go func() {
+		if err := store.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Warn("scan cache writer exited", "err", err)
+		}
+	}()
+	logger.Info("scan cache enabled", "path", dbPath)
+	return store, orchestrator.NewScanFileCache(store)
+}
+
+// cacheVersion is the AudrVersion to stamp on cache entries. Empty when
+// cache is disabled (so the scan worker's "cache enabled" guard fires
+// correctly). The version IS Version (the binary version) so a binary
+// upgrade invalidates every cache row — exactly what the cache schema
+// expects.
+func cacheVersion(cache scan.FileCache) string {
+	if cache == nil {
+		return ""
+	}
+	return Version
 }
 
 func newDoctorCmd() *cobra.Command {
