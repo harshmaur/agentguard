@@ -128,8 +128,8 @@ func TestRegistryDispatchOSPkgPrefix(t *testing.T) {
 
 func TestRegistrySecretsRotationFlow(t *testing.T) {
 	r := New()
-	f := mkFinding("secret-trufflehog-verified", "file",
-		`{"path":"~/.env","line":3}`, "detector=AWS secret=AKIA****")
+	f := mkFinding("secret-betterleaks-valid", "file",
+		`{"path":"~/.env","line":3}`, "rule=aws-access-token secret=[REDACTED]")
 	human, ai, _ := r.Lookup(f)
 	// Rotation must come BEFORE editing the file.
 	rotateIdx := strings.Index(human, "ROTATE")

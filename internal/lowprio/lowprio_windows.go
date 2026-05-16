@@ -36,7 +36,7 @@ func applyPreStart(cmd *exec.Cmd) {
 //
 // Maps to Linux's ioprio_set(IOPRIO_CLASS_IDLE) — same shape:
 // CPU drop + IO drop. Without this, the CPU drop alone would let a
-// disk-bound TruffleHog scan thrash the user's IDE / browser IO.
+// disk-bound betterleaks scan thrash the user's IDE / browser IO.
 //
 // NT internal API surface (not documented as stable but used widely
 // since Vista — Process Hacker, Process Explorer, IIS Compression

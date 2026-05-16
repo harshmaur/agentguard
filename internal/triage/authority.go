@@ -102,7 +102,7 @@ func Classify(path, home string) (finding.FixAuthority, string) {
 }
 
 // ForSecret post-processes a (authority, maintainer) classification for a
-// secret-family finding (TruffleHog, audr-native secret rules). A leaked
+// secret-family finding (Betterleaks, audr-native secret rules). A leaked
 // key must be rotated by the user no matter where it appeared, so the
 // primary authority is always FixAuthorityYou; if the path lived in a
 // vendor tree, the original classification's maintainer hint is preserved

@@ -54,7 +54,7 @@ reads the same config files Claude / Cursor / Codex / Windsurf actually load
 (`~/.claude/`, `~/.cursor/`, `~/.codex/config.toml`, `.mcp.json`,
 `.claude/skills/**`, `.github/workflows/*.yml`, `~/.zshrc`), scans
 package manifests, optionally runs OSV-Scanner for dependency vulnerabilities,
-optionally runs TruffleHog for secret exposure, runs built-in rules plus
+optionally runs Betterleaks for secret exposure, runs built-in rules plus
 attack-chain correlations, and emits HTML for humans, SARIF for GitHub Code
 Scanning, JSON for everything else.
 
@@ -62,17 +62,17 @@ Audr is not trying to rebuild every specialist scanner. It owns the single
 local/CI command and the unified developer-machine report. For broad dependency
 vulnerability coverage, `audr scan` can call OSV-Scanner (Apache-2.0). For deep
 secret exposure, `audr scan --secrets` or `audr scan --deep` can call
-TruffleHog. If a scanner is missing and Audr is running interactively, it prints
-the exact install command and asks before installing anything. In CI or
+Betterleaks. If a scanner is missing and Audr is running interactively, it
+prints the exact install command and asks before installing anything. In CI or
 machine-output mode, Audr never prompts; use `audr doctor` for setup guidance,
 `audr update-scanners` to refresh scanner binaries, `--require-deps` to fail
-when OSV-Scanner is unavailable, or `--require-secrets` to fail when TruffleHog
+when OSV-Scanner is unavailable, or `--require-secrets` to fail when Betterleaks
 is unavailable.
 
 Audr delegates broad dependency vulnerability coverage to OSV-Scanner instead
 of maintaining its own package CVE database, and delegates deep secret discovery
-to TruffleHog instead of duplicating hundreds of provider-specific detectors.
-Dependency results appear in the Package vulnerabilities section; TruffleHog
+to Betterleaks instead of duplicating hundreds of provider-specific detectors.
+Dependency results appear in the Package vulnerabilities section; Betterleaks
 results appear in the Secrets section with raw values redacted. If OSV-Scanner
 is unavailable or fails, the HTML/JSON/text report now includes a visible
 coverage warning and labels the result as incomplete instead of clean; use
@@ -152,17 +152,17 @@ audr scan -f html  -o scan.html     # forensic-document HTML report
 audr scan -f json  -o -  | jq       # pipe JSON to stdout
 
 # External scanners.
-audr doctor                         # check OSV-Scanner + TruffleHog availability
+audr doctor                         # check OSV-Scanner + Betterleaks availability
 audr update-scanners                # dry-run: print scanner update commands
-audr update-scanners --yes          # update OSV-Scanner + TruffleHog binaries
+audr update-scanners --yes          # update OSV-Scanner + Betterleaks binaries
 audr update-scanners --db-only      # dry-run: no-op for OSV-Scanner; no local DB cache
 audr scan --no-deps .               # Audr-native checks only
 audr scan --deps-only .             # OSV dependency vulnerability scan only
 audr scan --ci --require-deps .     # CI: no prompts; fail if OSV-Scanner is missing
-audr scan --secrets .               # include TruffleHog secret scanning
-audr scan --secrets-only .          # TruffleHog secret scan only
-audr scan --deep .                  # include deeper checks such as TruffleHog
-audr scan --ci --require-secrets .  # CI: fail if TruffleHog is missing/fails
+audr scan --secrets .               # include Betterleaks secret scanning
+audr scan --secrets-only .          # Betterleaks secret scan only
+audr scan --deep .                  # include deeper checks such as Betterleaks
+audr scan --ci --require-secrets .  # CI: fail if Betterleaks is missing/fails
 
 # Suppress findings (per-rule or per-path globs).
 echo 'mcp-unpinned-npx **/old-mcp.json' > .audrignore

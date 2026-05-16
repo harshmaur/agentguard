@@ -62,23 +62,23 @@ func findingToStateFinding(f finding.Finding, scanID int64, category string) (st
 }
 
 // fingerprintRuleID returns the rule-ID variant used for fingerprint
-// hashing. For TruffleHog findings, verified and unverified collapse
-// to the same canonical rule-ID so a secret transitioning between
-// those states (verification API rate-limit, transient network
-// failure, key briefly revoked then restored) doesn't open a new row
-// and resolve the old one. The state.Finding's actual RuleID still
-// reflects the latest verification state — UpsertFinding rewrites
-// rule_id on re-detection so the dashboard, severity, and remediation
-// template lookup all stay accurate.
+// hashing. For Betterleaks findings, valid and unverified collapse to
+// the same canonical rule-ID so a secret transitioning between those
+// states (validation API rate-limit, transient network failure, key
+// briefly revoked then restored) doesn't open a new row and resolve
+// the old one. The state.Finding's actual RuleID still reflects the
+// latest validation state — UpsertFinding rewrites rule_id on
+// re-detection so the dashboard, severity, and remediation template
+// lookup all stay accurate.
 //
 // Without this collapse, the same .env file's OpenAI key would churn
-// between secret-trufflehog-verified and secret-trufflehog-unverified
+// between secret-betterleaks-valid and secret-betterleaks-unverified
 // every few scans, inflating "Resolved Today" with phantom
 // resolutions for a key that never actually went away.
 func fingerprintRuleID(ruleID string) string {
 	switch ruleID {
-	case "secret-trufflehog-verified", "secret-trufflehog-unverified":
-		return "secret-trufflehog"
+	case "secret-betterleaks-valid", "secret-betterleaks-unverified":
+		return "secret-betterleaks"
 	default:
 		return ruleID
 	}
@@ -87,7 +87,7 @@ func fingerprintRuleID(ruleID string) string {
 // categorizeRuleID maps a rule-ID to one of the four dashboard
 // categories. Defaults to "ai-agent" because v0.2's 20 built-in rules
 // are all AI-agent-shaped; secret findings (which we ingest from
-// TruffleHog separately) override this to "secrets" at the orchestrator
+// Betterleaks separately) override this to "secrets" at the orchestrator
 // callsite.
 //
 // The mapping is intentionally explicit: an unknown new rule that gets

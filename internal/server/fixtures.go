@@ -42,7 +42,7 @@ func DemoFindings() ([]state.Finding, error) {
 			firstSeen:     time.Date(2026, 5, 13, 14, 2, 0, 0, time.UTC),
 		},
 		{
-			ruleID: "secret-trufflehog-verified", severity: "critical", category: "secrets", kind: "file",
+			ruleID: "secret-betterleaks-valid", severity: "critical", category: "secrets", kind: "file",
 			locator: `{"path":"~/.claude/projects/audr-saas/sessions/2026-04-22T15-04.jsonl","line":118}`,
 			title:   "Anthropic API key in Claude Code chat transcript",
 			description: "An API key was pasted into a Claude Code chat session and persisted in the transcript JSONL. AI chat transcripts are an under-scanned attack surface — they live plaintext on disk indefinitely.",
@@ -187,7 +187,7 @@ func NewDemoRemediation() (*DemoRemediation, error) {
 			ai: `In ~/.codex/config.toml, find the [workspace] block where trust_level = "trusted" and change it to trust_level = "on_request". Then move any api_key field out of this file into ~/.codex/secrets.toml (create it with mode 0600) or reference an environment variable. Preserve all other settings. Confirm the resulting TOML parses with ` + "`codex doctor`" + `. Do not modify any other file.`,
 		},
 		{
-			ruleID: "secret-trufflehog-verified", kind: "file",
+			ruleID: "secret-betterleaks-valid", kind: "file",
 			locator:       `{"path":"~/.claude/projects/audr-saas/sessions/2026-04-22T15-04.jsonl","line":118}`,
 			matchRedacted: "sk-ant-***...XYZ4",
 			human: `1. Rotate the leaked Anthropic API key at https://console.anthropic.com/settings/keys

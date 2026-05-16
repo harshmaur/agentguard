@@ -3,6 +3,100 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.11.0] - 2026-05-16 — Replace TruffleHog with Betterleaks (the perf swap)
+
+The daemon's "TruffleHog is bad for the computer" problem is solved by
+swapping the engine instead of further tuning the knobs. Benchmark on a
+realistic ~/projects corpus (4.2 GB, 189k files):
+
+| Config | Wall | Peak RSS | Findings |
+|---|---:|---:|---:|
+| Old: TruffleHog daemon mode (verify ON, --concurrency=1, exclude file) | 26.93 s | 594 MB | 1025 (95% noise) |
+| New: Betterleaks defaults (--validation ON) | 2.22 s | 157 MB | 76 |
+
+**12.1x wall-time win. 3.8x peak-RSS win. ~13x cleaner signal.**
+
+Bench harness is committed at `benchmarks/`. See
+`benchmarks/betterleaks-vs-trufflehog-2026-05.md` for the full
+methodology, finding-count breakdown, and coverage analysis.
+
+### BREAKING
+
+- **TruffleHog is no longer a backend.** Install Betterleaks instead:
+  `brew install betterleaks` (macOS / Linux via Homebrew) or
+  `sudo dnf install betterleaks` (Fedora). Windows users download from
+  GitHub Releases until winget support lands upstream.
+- **Rule IDs changed.** `secret-trufflehog-verified` →
+  `secret-betterleaks-valid`. `secret-trufflehog-unverified` →
+  `secret-betterleaks-unverified`. State-store fingerprints invalidate
+  on first daemon cycle after upgrade — expect a one-time burst of
+  "new" findings for every secret that was previously open. They are
+  the same secrets; only the fingerprint shape changed.
+- **`audr update-scanners --backend trufflehog`** is removed; use
+  `--backend betterleaks` (or `--backend auto`, the default).
+- **`--scanner-jobs`** now caps Betterleaks's `--validation-workers`
+  (HTTP concurrency during secret validation) instead of TruffleHog's
+  `--concurrency` (file-walk + detector worker pool). The flag name
+  stayed for muscle memory; the resource it controls is different.
+  Defaults: 5 for the CLI, 2 for the daemon (down from
+  NumCPU/2 and 1 respectively).
+- **Validation status semantics differ.** Betterleaks emits
+  `valid | invalid | revoked | error | unknown | none`. Audr drops
+  `invalid` and `revoked` findings (confirmed-dead secrets are noise,
+  not exposures); `valid` becomes `secret-betterleaks-valid` (high);
+  everything else collapses to `secret-betterleaks-unverified` (medium).
+- **Generic secret detection.** Betterleaks ships an entropy-based
+  `generic-api-key` rule that TruffleHog did not. Net coverage gain:
+  audr now catches `.env`-style high-entropy secrets that TruffleHog
+  systematically missed.
+
+### Added
+
+- **Betterleaks sidecar** wired through every place TruffleHog used to be:
+  `internal/secretscan` (parser + runner + install/update plans),
+  `internal/daemon/sidecars` (version probe, min version 1.2.0),
+  `internal/orchestrator` (daemon-mode validation worker cap),
+  `internal/templates/secrets.go` (remediation templates re-keyed to
+  betterleaks rule IDs for the top ~15 providers — AWS, GitHub PAT,
+  OpenAI, Anthropic, Stripe, Slack, GCP, Discord, Twilio, SendGrid,
+  Telegram, OpenRouter, Cloudflare, plus private-key and JWT). AI chat
+  transcript scanning (`internal/secretscan/aichats.go`) follows.
+- **`benchmarks/` directory** with the comparison report, the harness
+  script (`bench.sh`), and audr's exact exclude-paths file. Drop-in
+  reproducible.
+
+### Changed
+
+- **Exclude mechanism.** TruffleHog took a regex file via
+  `--exclude-paths`; Betterleaks takes a TOML config via `--config`
+  with `[extend] useDefault=true` + `[[allowlists]] paths = [...]`.
+  Same `scanignore.Defaults()` source of truth — only the serialization
+  format changed. `WriteTruffleHogExcludeFile` → `WriteBetterleaksConfig`.
+- **Doctor + update-scanners output.** "TruffleHog" → "Betterleaks"
+  everywhere a user reads.
+- **Min sidecar version** bumped: `BetterleaksMinVersion = "1.2.0"`
+  (replaces `TruffleHogMinVersion = "3.63.0"`).
+
+### Why this is the right swap, not a regression
+
+Bench numbers and migration analysis live in
+`benchmarks/betterleaks-vs-trufflehog-2026-05.md`. Short version:
+
+1. **Verification preserved.** Betterleaks supports per-rule HTTP
+   validation via CEL `http.get()`. The verified/unverified taxonomy
+   audr's whole UX is built around carries over cleanly.
+2. **Daemon-friendly resource profile.** Betterleaks bursts ~5 cores
+   for ~2 seconds vs TruffleHog's 27 seconds of low-CPU but
+   network-blocked wall time. Shorter, sharper, less interruption.
+3. **Cleaner default ruleset.** TruffleHog's three FP-firehose
+   detectors (URI, Webscraping, VirusTotal) drove 95% of dashboard
+   noise on real workloads. Betterleaks's default ruleset doesn't ship
+   those.
+4. **Active maintenance.** Betterleaks 1.2.0 is by the original
+   gitleaks author, MIT, backed by Aikido Security, ~3 months old but
+   sufficient daemon-scale exposure during this bench. Inherits the
+   gitleaks family's mature regex catalog.
+
 ## [0.10.3] - 2026-05-16 — Policy editor affordances: reset buttons + inline examples
 
 Three rough edges in the policy editor that surfaced as soon as a real user

@@ -382,8 +382,8 @@ func sevClassFor(s finding.Severity) string {
 const osvVulnerabilityRuleID = "dependency-osv-vulnerability"
 
 const (
-	truffleHogVerifiedRuleID   = "secret-trufflehog-verified"
-	truffleHogUnverifiedRuleID = "secret-trufflehog-unverified"
+	betterleaksValidRuleID      = "secret-betterleaks-valid"
+	betterleaksUnverifiedRuleID = "secret-betterleaks-unverified"
 )
 
 func packageVulnerabilityFindings(findings []finding.Finding) []finding.Finding {
@@ -406,7 +406,7 @@ func findingKind(f finding.Finding) string {
 	switch f.RuleID {
 	case osvVulnerabilityRuleID:
 		return "package"
-	case truffleHogVerifiedRuleID, truffleHogUnverifiedRuleID:
+	case betterleaksValidRuleID, betterleaksUnverifiedRuleID:
 		return "secret"
 	}
 	return "other"
@@ -425,7 +425,7 @@ func otherCategoryFindings(findings []finding.Finding) []finding.Finding {
 func secretExposureFindings(findings []finding.Finding) []finding.Finding {
 	secretFindings := make([]finding.Finding, 0)
 	for _, f := range findings {
-		if f.RuleID == truffleHogVerifiedRuleID || f.RuleID == truffleHogUnverifiedRuleID {
+		if f.RuleID == betterleaksValidRuleID || f.RuleID == betterleaksUnverifiedRuleID {
 			secretFindings = append(secretFindings, f)
 		}
 	}

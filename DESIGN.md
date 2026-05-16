@@ -139,7 +139,7 @@ four kinds:
 | Kind | Source | Locator shape |
 |---|---|---|
 | `package` | OSV-Scanner via depscan | `{ecosystem, name, version, manifest_path}` |
-| `secret` | TruffleHog | `{path, line}` plus the redacted match |
+| `secret` | Betterleaks | `{path, line}` plus the redacted match |
 | `agent-rule` | audr's own rules under `internal/rules/builtin/` | `{path, line}` (file kind) |
 | `os-package` | OSV-Scanner via ospkg | `{manager, name, version}` |
 

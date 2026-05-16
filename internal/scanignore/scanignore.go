@@ -4,8 +4,8 @@
 // Two consumers today:
 //
 //   - audr's native walker (internal/scan) — passes these as base-name skips.
-//   - TruffleHog shell-outs (internal/secretscan) — materialized to a regex
-//     pattern file passed via `--exclude-paths`.
+//   - Betterleaks shell-outs (internal/secretscan) — materialized to a
+//     `.betterleaks.toml` config passed via `--config` (allowlist paths).
 //
 // Centralizing here avoids drift between the two surfaces. When the daemon
 // (Phase 1+) lands, the watch+poll engine and OS-pkg enumerator also consume
@@ -104,20 +104,19 @@ func Defaults() []string {
 }
 
 // BinaryFileExtensions returns the file-extension allowlist that
-// TruffleHog should NEVER inspect. These are compiled / packaged
-// binary outputs where the URI detector hits random byte sequences
-// that look like URLs and produce non-deterministic findings
-// (different "matches" every scan). The native walker doesn't use
-// this list — it dispatches rules per-rule which already specify
-// the path glob they care about, so binary files are filtered
-// upstream there.
+// the external secret scanner should NEVER inspect. These are
+// compiled / packaged binary outputs where regex detectors hit random
+// byte sequences that look like URLs or tokens and produce
+// non-deterministic findings (different "matches" every scan). The
+// native walker doesn't use this list — it dispatches rules per-rule
+// which already specify the path glob they care about, so binary
+// files are filtered upstream there.
 //
-// Why exclude rather than tune the detector: trufflehog doesn't
-// expose a per-detector path filter; the cheapest fix is to skip
-// the file entirely. Real secrets in source code are still caught;
-// real secrets baked into a compiled binary are an exfiltration
-// concern, not a leak-prevention concern, and belong to a different
-// scanner anyway.
+// Why exclude rather than tune detectors: the cheapest fix is to
+// skip the file entirely. Real secrets in source code are still
+// caught; real secrets baked into a compiled binary are an
+// exfiltration concern, not a leak-prevention concern, and belong
+// to a different scanner anyway.
 func BinaryFileExtensions() []string {
 	return []string{
 		// Mobile build outputs
@@ -154,61 +153,92 @@ func BinaryFileExtensions() []string {
 	}
 }
 
-// WriteTruffleHogExcludeFile materializes Defaults() + binary
-// extensions into a tempfile in the format TruffleHog's
-// `--exclude-paths` expects: one regex pattern per line, matched
-// anywhere in the candidate path. Returns the tempfile path and a
+// WriteBetterleaksConfig materializes Defaults() + binary extensions
+// into a `.betterleaks.toml` tempfile suitable for passing via
+// `betterleaks dir --config`. Returns the tempfile path and a
 // cleanup func the caller MUST call (typically via defer).
+//
+// Shape:
+//
+//	[extend]
+//	useDefault = true            # load betterleaks's shipped rule set
+//
+//	[[allowlists]]
+//	description = "audr exclude segments"
+//	paths = [
+//	  '''(^|/)node_modules(/|$)''',
+//	  ...
+//	  '''\.apk$''',
+//	  ...
+//	]
 //
 // Two pattern families:
 //
 //   - Directory entries (from Defaults()) become
-//     `(?:^|/)<escaped-segment>(?:/|$)` so they match the segment
-//     as a real path component, not as a substring (e.g.,
-//     `node_modules` matches `./node_modules/foo` but not
-//     `node_modules.lock`).
+//     `(^|/)<escaped-segment>(/|$)` so they match the segment as a
+//     real path component, not as a substring (e.g., `node_modules`
+//     matches `./node_modules/foo` but not `node_modules.lock`).
 //   - File-extension entries (from BinaryFileExtensions()) become
 //     `\.<ext>$` so they match the suffix of the candidate path
 //     case-sensitively. Lowercase only; APKs from the wild use
 //     lowercase suffixes universally.
-func WriteTruffleHogExcludeFile() (path string, cleanup func(), err error) {
-	f, err := os.CreateTemp("", "audr-trufflehog-exclude-*.txt")
+//
+// Patterns use TOML literal strings (triple single quotes) so
+// backslashes in `\.apk$` etc. don't need escaping.
+func WriteBetterleaksConfig() (path string, cleanup func(), err error) {
+	f, err := os.CreateTemp("", "audr-betterleaks-*.toml")
 	if err != nil {
-		return "", nil, fmt.Errorf("create trufflehog exclude tempfile: %w", err)
+		return "", nil, fmt.Errorf("create betterleaks config tempfile: %w", err)
 	}
 	cleanup = func() {
 		_ = os.Remove(f.Name())
 	}
 	defer f.Close()
 
-	for _, segment := range Defaults() {
-		pattern := patternForSegment(segment)
-		if _, err := f.WriteString(pattern + "\n"); err != nil {
+	write := func(s string) error {
+		if _, err := f.WriteString(s); err != nil {
 			cleanup()
-			return "", nil, fmt.Errorf("write trufflehog exclude pattern: %w", err)
+			return fmt.Errorf("write betterleaks config: %w", err)
+		}
+		return nil
+	}
+
+	if err := write("# audr-generated betterleaks config. Do not edit by hand.\n"); err != nil {
+		return "", nil, err
+	}
+	if err := write("[extend]\nuseDefault = true\n\n"); err != nil {
+		return "", nil, err
+	}
+	if err := write("[[allowlists]]\ndescription = \"audr exclude segments\"\npaths = [\n"); err != nil {
+		return "", nil, err
+	}
+	for _, segment := range Defaults() {
+		if err := write("  '''" + patternForSegment(segment) + "''',\n"); err != nil {
+			return "", nil, err
 		}
 	}
 	for _, ext := range BinaryFileExtensions() {
-		pattern := patternForExtension(ext)
-		if _, err := f.WriteString(pattern + "\n"); err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("write trufflehog exclude pattern: %w", err)
+		if err := write("  '''" + patternForExtension(ext) + "''',\n"); err != nil {
+			return "", nil, err
 		}
+	}
+	if err := write("]\n"); err != nil {
+		return "", nil, err
 	}
 
 	return f.Name(), cleanup, nil
 }
 
-// patternForExtension converts a file extension into a trufflehog
-// regex pattern that matches the end of a path.
+// patternForExtension converts a file extension into a regex pattern
+// that matches the end of a path.
 func patternForExtension(ext string) string {
 	return `\.` + regexp.QuoteMeta(ext) + `$`
 }
 
-// patternForSegment converts a Defaults() entry into a TruffleHog-compatible
-// regex pattern that matches the segment as a path component.
+// patternForSegment converts a Defaults() entry into a regex pattern
+// that matches the segment as a path component.
 func patternForSegment(segment string) string {
-	return `(?:^|/)` + regexp.QuoteMeta(segment) + `(?:/|$)`
+	return `(^|/)` + regexp.QuoteMeta(segment) + `(/|$)`
 }
 
 // PathExcluded reports whether the given path contains any of the

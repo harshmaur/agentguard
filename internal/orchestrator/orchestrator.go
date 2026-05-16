@@ -34,7 +34,7 @@ import (
 // On startup it kicks an initial scan immediately so the dashboard
 // has content within seconds of `audr daemon start`.
 //
-// Phase 4 wires native rules + TruffleHog (with AI chat transcript
+// Phase 4 wires native rules + Betterleaks (with AI chat transcript
 // roots from secretscan.AIChatTranscriptRoots). OSV-Scanner deps and
 // the OS-package enumerator land in v1.1; for now we record their
 // scanner status as "unavailable" so the dashboard's per-category
@@ -46,7 +46,7 @@ type Orchestrator struct {
 	// autoSecrets / autoDeps / autoOSPkg flag whether each scanner
 	// was at its auto-default (Options.Run* nil) at construction
 	// time. In auto mode the orchestrator re-probes the sidecar
-	// status before every scan cycle, so installing trufflehog /
+	// status before every scan cycle, so installing betterleaks /
 	// osv-scanner externally takes effect within one scan interval
 	// instead of requiring a daemon restart (D15 from eng review).
 	// When the caller pinned a value explicitly (tests, future
@@ -82,8 +82,8 @@ type Options struct {
 	// Logger, and ScanTimeout are overridden by the orchestrator.
 	ScanOpts scan.Options
 
-	// RunSecrets enables TruffleHog secret scanning. Defaults to true
-	// when trufflehog is on PATH; false otherwise. AI chat transcript
+	// RunSecrets enables Betterleaks secret scanning. Defaults to true
+	// when betterleaks is on PATH; false otherwise. AI chat transcript
 	// paths get added to the scan roots when this is enabled.
 	RunSecrets *bool
 
@@ -142,7 +142,7 @@ func New(opts Options) (*Orchestrator, error) {
 	autoOSPkg := opts.RunOSPkg == nil
 
 	if opts.RunSecrets == nil {
-		// Default: true iff trufflehog is on PATH. Avoids surprising
+		// Default: true iff betterleaks is on PATH. Avoids surprising
 		// the user with a scanner-missing banner on a default boot.
 		status := secretscan.BackendStatus()
 		b := status.Installed
@@ -177,7 +177,7 @@ func New(opts Options) (*Orchestrator, error) {
 
 // reprobeSidecars re-checks sidecar availability for any scanner
 // that was at its auto-default at construction time. Called at the
-// top of every runOnce cycle so a freshly-installed trufflehog /
+// top of every runOnce cycle so a freshly-installed betterleaks /
 // osv-scanner takes effect within one scan interval. Logs the
 // transition when a sidecar flips from unavailable→available (or
 // vice versa) so the daemon's log shows the moment audr noticed.
@@ -296,7 +296,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 
 	// Before anything else: if any scanner was at auto-default at
 	// construction, re-probe its sidecar. Catches the
-	// "user installed trufflehog after daemon started" case so the
+	// "user installed betterleaks after daemon started" case so the
 	// dashboard reflects it within one scan interval rather than
 	// requiring a daemon restart (D15).
 	o.reprobeSidecars()
@@ -380,7 +380,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	// --- Native rules + correlate (AI-Agent category) ----------------
 	// Native runs first, alone. It walks the configured roots looking
 	// for AI agent config files — fast (seconds), but it competes for
-	// FS read bandwidth with TruffleHog's $HOME walk, so we serialize
+	// FS read bandwidth with betterleaks's $HOME walk, so we serialize
 	// the two to avoid doubling page-cache pressure on the user's box.
 	nativeStatus := state.ScannerStatus{ScanID: scanID, Category: "ai-agent", Status: "ok"}
 	if !scannerCfg.AIAgent {
@@ -398,13 +398,14 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	}
 
 	// --- Sidecar scanners (secrets / deps / os-pkg) in parallel ------
-	// These three are largely independent: TruffleHog is CPU+disk
-	// (capped at one worker), osv-scanner for deps + os-pkg is
-	// dominated by network IO against api.osv.dev. Running them
-	// sequentially burned ~30s per cycle waiting on osv when
-	// TruffleHog wasn't using the network anyway. State.Store is
-	// single-writer-safe (writerLoop goroutine in internal/state), so
-	// concurrent UpsertFinding calls are fine without a mutex.
+	// These three are largely independent: betterleaks is CPU+disk
+	// (short burst + a few HTTP roundtrips for validation), osv-scanner
+	// for deps + os-pkg is dominated by network IO against api.osv.dev.
+	// Running them sequentially used to burn ~30s per cycle waiting on
+	// osv while the secret scanner wasn't using the network anyway.
+	// State.Store is single-writer-safe (writerLoop goroutine in
+	// internal/state), so concurrent UpsertFinding calls are fine
+	// without a mutex.
 	var (
 		secretsStatus = state.ScannerStatus{ScanID: scanID, Category: "secrets"}
 		depsStatus    = state.ScannerStatus{ScanID: scanID, Category: "deps"}
@@ -421,7 +422,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 		}
 		if !*o.opts.RunSecrets {
 			secretsStatus.Status = "unavailable"
-			secretsStatus.ErrorText = "trufflehog not installed; run `audr update-scanners` to enable secret scanning"
+			secretsStatus.ErrorText = "betterleaks not installed; run `audr update-scanners` to enable secret scanning"
 			return
 		}
 		markRunning("secrets")
@@ -513,7 +514,7 @@ func (o *Orchestrator) runOnce(ctx context.Context) error {
 	// disabled, or wasn't available, the absence from `seen` is a lack
 	// of signal — not a "the issue is gone" signal. Resolving in that
 	// case would mark hundreds of findings green on the dashboard the
-	// moment trufflehog times out, then re-open them on the next scan
+	// moment betterleaks times out, then re-open them on the next scan
 	// (often under different fingerprints, leaving phantom "resolved
 	// today" entries that inflate the metric forever). Per-category
 	// gate fixes that.
@@ -604,7 +605,7 @@ func (o *Orchestrator) runNative(ctx context.Context, scanID int64, seen map[str
 	return o.persistFindings(scanID, res.Findings, seen)
 }
 
-// runSecrets invokes TruffleHog against the scan roots plus AI chat
+// runSecrets invokes Betterleaks against the scan roots plus AI chat
 // transcript paths and persists its findings into the secrets
 // category.
 func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[string]struct{}) error {
@@ -617,8 +618,8 @@ func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[st
 		o.log.Warn("discover AI chat transcript roots", "err", err)
 	} else if len(chatRoots) > 0 {
 		// Dedupe: if a chat root is already inside a configured root
-		// (e.g., $HOME), TruffleHog would walk it twice. The
-		// scanignore-based exclude file doesn't filter the AI chat
+		// (e.g., $HOME), betterleaks would walk it twice. The
+		// scanignore-based config file doesn't filter the AI chat
 		// dirs (we WANT them scanned), but we also don't want
 		// redundant work.
 		for _, cr := range chatRoots {
@@ -631,13 +632,14 @@ func (o *Orchestrator) runSecrets(ctx context.Context, scanID int64, seen map[st
 	findings, err := secretscan.RunBackend(ctx, secretscan.RunOptions{
 		Roots:  roots,
 		Runner: lowprio.Runner{},
-		// Single worker for the daemon's continuous loop. nice 19 (via
-		// the lowprio wrapper) keeps the OS scheduler honest under
-		// contention but doesn't cap raw CPU usage on an idle box, so
-		// --concurrency=4 (the CLI default) still pegs four cores in
-		// the background. DefaultDaemonJobs() returns 1 to keep peak
-		// CPU at ~one core regardless of host size. Daemon scans trade
-		// latency for headroom; CLI scans trade headroom for latency.
+		// Small validation-worker pool for the daemon's continuous
+		// loop. The file walk itself is short (~2s on a realistic
+		// $HOME). The dominant variable cost is validation HTTP
+		// roundtrips, which DefaultDaemonJobs() caps at a conservative
+		// concurrency so the daemon doesn't flood provider APIs in
+		// the background. lowprio handles OS-level scheduling
+		// pressure on top. Daemon scans trade latency for headroom;
+		// CLI scans trade headroom for latency.
 		Jobs: secretscan.DefaultDaemonJobs(),
 	})
 	if err != nil {

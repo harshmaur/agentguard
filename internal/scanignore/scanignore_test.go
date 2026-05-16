@@ -10,7 +10,7 @@ import (
 func TestDefaultsContainsCanonicalSkipNames(t *testing.T) {
 	got := Defaults()
 	// Sanity: list is non-empty and contains the load-bearing entries that
-	// both the native walker and the TruffleHog shell-out need to skip.
+	// both the native walker and the betterleaks shell-out need to skip.
 	want := []string{
 		"node_modules", "vendor", ".git", "dist", "build", "target",
 		"__pycache__", ".next", ".cache",
@@ -97,24 +97,32 @@ func TestPathExcludedHandlesWindowsSeparators(t *testing.T) {
 	}
 }
 
-func TestWriteTruffleHogExcludeFileWritesAllPatterns(t *testing.T) {
-	path, cleanup, err := WriteTruffleHogExcludeFile()
+func TestWriteBetterleaksConfigContainsAllPatterns(t *testing.T) {
+	path, cleanup, err := WriteBetterleaksConfig()
 	if err != nil {
-		t.Fatalf("WriteTruffleHogExcludeFile err: %v", err)
+		t.Fatalf("WriteBetterleaksConfig err: %v", err)
 	}
 	t.Cleanup(cleanup)
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read exclude file: %v", err)
+		t.Fatalf("read config file: %v", err)
 	}
 	body := string(raw)
 
+	// File must opt into betterleaks's default rule set rather than
+	// replace it — otherwise users lose every shipped detector.
+	for _, want := range []string{"[extend]", "useDefault = true", "[[allowlists]]", "paths = ["} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing required section %q; body:\n%s", want, body)
+		}
+	}
+
 	// Every Defaults() entry must appear as a path-component regex.
 	for _, segment := range Defaults() {
-		want := `(?:^|/)` + regexp.QuoteMeta(segment) + `(?:/|$)`
+		want := `(^|/)` + regexp.QuoteMeta(segment) + `(/|$)`
 		if !strings.Contains(body, want) {
-			t.Fatalf("exclude file missing pattern %q for segment %q; body:\n%s", want, segment, body)
+			t.Fatalf("config missing pattern %q for segment %q; body:\n%s", want, segment, body)
 		}
 	}
 
@@ -122,19 +130,7 @@ func TestWriteTruffleHogExcludeFileWritesAllPatterns(t *testing.T) {
 	for _, ext := range BinaryFileExtensions() {
 		want := `\.` + regexp.QuoteMeta(ext) + `$`
 		if !strings.Contains(body, want) {
-			t.Fatalf("exclude file missing pattern %q for extension %q; body:\n%s", want, ext, body)
-		}
-	}
-
-	// Line count: one pattern per Defaults() entry + one per BinaryFileExtensions() entry.
-	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-	wantLines := len(Defaults()) + len(BinaryFileExtensions())
-	if len(lines) != wantLines {
-		t.Fatalf("exclude file has %d lines, want %d (Defaults+BinaryFileExtensions)", len(lines), wantLines)
-	}
-	for i, line := range lines {
-		if line == "" {
-			t.Fatalf("exclude file line %d is empty", i)
+			t.Fatalf("config missing pattern %q for extension %q; body:\n%s", want, ext, body)
 		}
 	}
 }
@@ -181,10 +177,10 @@ func TestPatternForExtensionMatchesAsSuffix(t *testing.T) {
 	}
 }
 
-func TestWriteTruffleHogExcludeFileCleanupRemovesFile(t *testing.T) {
-	path, cleanup, err := WriteTruffleHogExcludeFile()
+func TestWriteBetterleaksConfigCleanupRemovesFile(t *testing.T) {
+	path, cleanup, err := WriteBetterleaksConfig()
 	if err != nil {
-		t.Fatalf("WriteTruffleHogExcludeFile err: %v", err)
+		t.Fatalf("WriteBetterleaksConfig err: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected tempfile %q to exist before cleanup: %v", path, err)

@@ -54,7 +54,7 @@ trust_level = "trusted"
 		Store:   store,
 		Roots:   []string{root},
 		HomeDir: root,
-		// RunSecrets=false: we don't have trufflehog in this test env
+		// RunSecrets=false: we don't have betterleaks in this test env
 		// and we don't need it for this assertion.
 		RunSecrets: ptr(false),
 		RunOSPkg:   ptr(false),
@@ -197,7 +197,7 @@ func TestOrchestratorRecordsScannerStatusForEveryCategory(t *testing.T) {
 			continue
 		}
 		// secrets/deps/os-pkg should be "unavailable" in this config
-		// (trufflehog disabled, dep + ospkg not wired yet). ai-agent
+		// (betterleaks disabled, dep + ospkg not wired yet). ai-agent
 		// should be "ok".
 		switch c {
 		case "ai-agent":
@@ -221,7 +221,7 @@ func TestOrchestratorRecordsScannerStatusForEveryCategory(t *testing.T) {
 // scanner wasn't available this cycle — absence from `seen` only
 // means "resolved" when the scanner actually ran and reported ok.
 //
-// Regression scenario: trufflehog timeout / sidecar uninstall used to
+// Regression scenario: betterleaks timeout / sidecar uninstall used to
 // mass-resolve every previously-found secret. The next scan re-opened
 // them, often under different fingerprints, leaving phantom rows in
 // "resolved today" that inflated the metric without bound.
@@ -235,7 +235,7 @@ func TestOrchestratorDoesNotResolveWhenScannerDidNotRunOK(t *testing.T) {
 	}
 	seed := state.Finding{
 		Fingerprint:   "seedfingerprint000000000000000000000000000000000000000000000000",
-		RuleID:        "secret-trufflehog-unverified",
+		RuleID:        "secret-betterleaks-unverified",
 		Severity:      "medium",
 		Category:      "secrets",
 		Kind:          "file",
@@ -260,7 +260,7 @@ func TestOrchestratorDoesNotResolveWhenScannerDidNotRunOK(t *testing.T) {
 		Store:      store,
 		Roots:      []string{t.TempDir()},
 		HomeDir:    t.TempDir(),
-		RunSecrets: ptr(false), // trufflehog "not installed" → unavailable
+		RunSecrets: ptr(false), // betterleaks "not installed" → unavailable
 		RunOSPkg:   ptr(false),
 		RunDeps:    ptr(false),
 		Interval:   time.Hour,

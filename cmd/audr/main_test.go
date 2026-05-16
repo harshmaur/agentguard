@@ -199,7 +199,7 @@ func TestDoctorCommandPrintsBackendHealth(t *testing.T) {
 		t.Fatalf("doctor err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Audr doctor", "OSV-Scanner", "TruffleHog", "OSV-Scanner for dependency vulnerabilities", "TruffleHog for secret scanning", "update:"} {
+	for _, want := range []string{"Audr doctor", "OSV-Scanner", "Betterleaks", "OSV-Scanner for dependency vulnerabilities", "Betterleaks for secret scanning", "update:"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, got)
 		}
@@ -213,7 +213,7 @@ func TestUpdateScannersCommandDryRunPrintsCommands(t *testing.T) {
 	cmd.SetErr(&out)
 	// --force bypasses the new latest-vs-installed check so the dry
 	// run actually prints the would-run commands. Without it, this
-	// test fails on any machine that has osv-scanner / trufflehog
+	// test fails on any machine that has osv-scanner / betterleaks
 	// already at the latest GitHub-release version (skip path
 	// short-circuits before the dry-run print).
 	cmd.SetArgs([]string{"--ci", "--force"})
@@ -221,34 +221,34 @@ func TestUpdateScannersCommandDryRunPrintsCommands(t *testing.T) {
 		t.Fatalf("update-scanners dry run err: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"OSV-Scanner", "TruffleHog", "update:", "rerun with --yes"} {
+	for _, want := range []string{"OSV-Scanner", "Betterleaks", "update:", "rerun with --yes"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("update-scanners output missing %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestUpdateScannersCommandSupportsTruffleHogBackend(t *testing.T) {
+func TestUpdateScannersCommandSupportsBetterleaksBackend(t *testing.T) {
 	cmd := newUpdateScannersCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--backend", "trufflehog", "--ci", "--force"})
+	cmd.SetArgs([]string{"--backend", "betterleaks", "--ci", "--force"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("update-scanners trufflehog dry run err: %v", err)
+		t.Fatalf("update-scanners betterleaks dry run err: %v", err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "TruffleHog") {
-		t.Fatalf("update-scanners output missing TruffleHog:\n%s", got)
+	if !strings.Contains(got, "Betterleaks") {
+		t.Fatalf("update-scanners output missing Betterleaks:\n%s", got)
 	}
 	if strings.Contains(got, "OSV-Scanner") {
-		t.Fatalf("--backend trufflehog should not update OSV-Scanner:\n%s", got)
+		t.Fatalf("--backend betterleaks should not update OSV-Scanner:\n%s", got)
 	}
 }
 
 // TestUpdateScannersSkipsWhenAlreadyAtLatest exercises the new
 // installed-vs-latest check directly. Stubs the network probe via
-// the actual binary version probe — when osv-scanner / trufflehog
+// the actual binary version probe — when osv-scanner / betterleaks
 // happen to be at GitHub's latest, the dry-run print is REPLACED
 // by an "already up to date" message and the flow short-circuits.
 // Failures on this test should report the actual installed + latest
@@ -259,13 +259,13 @@ func TestUpdateScannersSkipsWhenAlreadyAtLatest(t *testing.T) {
 	// installed locally at GitHub's latest. Skip in the common case
 	// where they aren't — leaves the assertion focused.
 	osvLatest, _ := updaterLatestForTest("google", "osv-scanner")
-	truffleLatest, _ := updaterLatestForTest("trufflesecurity", "trufflehog")
-	if osvLatest == "" || truffleLatest == "" {
+	betterleaksLatest, _ := updaterLatestForTest("betterleaks", "betterleaks")
+	if osvLatest == "" || betterleaksLatest == "" {
 		t.Skip("GitHub API unreachable; skipping installed-vs-latest test")
 	}
 	osvInstalled := probeBinaryVersion(context.Background(), "osv-scanner")
-	truffleInstalled := probeBinaryVersion(context.Background(), "trufflehog")
-	if osvInstalled == "" || truffleInstalled == "" {
+	betterleaksInstalled := probeBinaryVersion(context.Background(), "betterleaks")
+	if osvInstalled == "" || betterleaksInstalled == "" {
 		t.Skip("scanner binaries not installed; skipping installed-vs-latest test")
 	}
 

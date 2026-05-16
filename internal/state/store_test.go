@@ -377,7 +377,7 @@ func TestRecordAndSnapshotScannerStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.RecordScannerStatus(ScannerStatus{
-		ScanID: scanID, Category: "secrets", Status: "error", ErrorText: "trufflehog hung",
+		ScanID: scanID, Category: "secrets", Status: "error", ErrorText: "betterleaks hung",
 	}); err != nil {
 		t.Fatal(err)
 	}

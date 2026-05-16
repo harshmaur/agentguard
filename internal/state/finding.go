@@ -83,8 +83,8 @@ func (s *Store) UpsertFinding(f Finding) (opened bool, err error) {
 		//
 		// rule_id is updated alongside severity/title/description.
 		// Fingerprint identity (the PK) can be stable across rule_id
-		// variants — TruffleHog's verified/unverified pair both
-		// fingerprint as "secret-trufflehog" so a verification flap
+		// variants — Betterleaks's valid/unverified pair both
+		// fingerprint as "secret-betterleaks" so a validation flap
 		// doesn't churn, but the row's rule_id should still reflect
 		// the latest detection state so remediation templates and
 		// severity stay correct.
@@ -118,7 +118,7 @@ func (s *Store) UpsertFinding(f Finding) (opened bool, err error) {
 		// Existing + open: re-detection. Bump last_seen + updated_at;
 		// allow rule_id / severity / title / description / triage fields
 		// to change (rule body might have been improved between scans,
-		// or trufflehog finding flipped verified→unverified, or the
+		// or a betterleaks finding flipped valid→unverified, or the
 		// triage classifier updated).
 		_, err := tx.Exec(`
 			UPDATE findings
