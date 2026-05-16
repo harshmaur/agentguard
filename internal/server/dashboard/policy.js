@@ -256,6 +256,52 @@
         return this.draftSafe.rules[ruleID];
       },
 
+      // hasOverride is true when the user has set any policy entry for
+      // this rule (severity, enabled flag, scope, allowlist link, or
+      // notes). Used to decide whether to surface a reset link next
+      // to the rule row.
+      hasOverride(ruleID) {
+        const ov = this.draftSafe.rules && this.draftSafe.rules[ruleID];
+        if (!ov) return false;
+        return (
+          ov.severity ||
+          ov.enabled === false ||
+          (ov.scope && (
+            (ov.scope.include && ov.scope.include.length) ||
+            (ov.scope.exclude && ov.scope.exclude.length)
+          )) ||
+          (ov.allowlists && ov.allowlists.length) ||
+          ov.notes
+        );
+      },
+
+      // resetRule removes ALL policy overrides for one rule (severity,
+      // enabled, scope, allowlist links, notes). The rule reverts to
+      // its built-in default — same severity it ships with, enabled
+      // unless globally disabled elsewhere.
+      resetRule(ruleID) {
+        if (!this.draftSafe.rules) return;
+        if (this.draftSafe.rules[ruleID]) {
+          delete this.draftSafe.rules[ruleID];
+        }
+      },
+
+      // resetAllRules clears every rule-level override. Allowlists and
+      // suppressions are NOT touched — those are user-authored entries
+      // that were never defaulted to anything, so "reset" doesn't apply.
+      // To clear those, the user deletes them individually via the × buttons.
+      resetAllRules() {
+        this.draftSafe.rules = {};
+      },
+
+      // overrideCount reports how many rules currently have any
+      // override applied. Powers the global reset button's enabled
+      // state and label.
+      overrideCount() {
+        const rs = this.draftSafe.rules || {};
+        return Object.keys(rs).filter((id) => this.hasOverride(id)).length;
+      },
+
       cleanOverride(ruleID) {
         const ov = this.draftSafe.rules && this.draftSafe.rules[ruleID];
         if (!ov) return;
