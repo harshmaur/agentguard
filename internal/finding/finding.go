@@ -51,6 +51,27 @@ const (
 	TaxAdvisory   Taxonomy = "advisory"
 )
 
+// FixAuthority answers "who can actually fix this?" — the v1.3 partition
+// that lets the dashboard surface the user's own actions ahead of "wait for
+// upstream." See parallels-main-design-loveable-audr-20260515-171437.md.
+type FixAuthority string
+
+const (
+	// FixAuthorityYou — the user can pin the dep, rotate the key, or edit
+	// the config from their own seat. Default for any path that isn't
+	// explicitly classified as vendor-shipped.
+	FixAuthorityYou FixAuthority = "you"
+	// FixAuthorityMaintainer — finding lives in a vendored plugin / extension
+	// cache. The plugin maintainer must publish a fix; the user can uninstall
+	// the plugin or file an upstream issue. SecondaryNotify carries the
+	// maintainer hint (e.g. "vercel", "cursor").
+	FixAuthorityMaintainer FixAuthority = "maintainer"
+	// FixAuthorityUpstream — finding lives in a third-party package bundled
+	// inside a marketplace / external-plugins tree. Only the original
+	// maintainer can fix; the user can only track upstream.
+	FixAuthorityUpstream FixAuthority = "upstream"
+)
+
 // Finding is the unit emitted by every rule + parse-error path. After
 // construction via New, no string field contains a raw secret.
 type Finding struct {
@@ -65,6 +86,26 @@ type Finding struct {
 	Context      string   `json:"context,omitempty"` // already redacted
 	SuggestedFix string   `json:"suggested_fix,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
+
+	// DedupGroupKey groups findings that represent the same underlying
+	// vulnerability across multiple paths. Rules SHOULD set this when they
+	// can identify the same threat across files (e.g. OSV emits
+	// "osv:<pkg>:<fixed>:<cve>"). If empty, internal/triage will compute
+	// a stable default from (rule_id, normalized signature).
+	DedupGroupKey string `json:"dedup_group_key,omitempty"`
+
+	// FixAuthority partitions a rolled-up finding by who can actually act
+	// on it. If empty, internal/triage classifies from Path against the
+	// path-class table. Rules normally leave this unset; secret-family
+	// rules force FixAuthorityYou regardless of path.
+	FixAuthority FixAuthority `json:"fix_authority,omitempty"`
+
+	// SecondaryNotify carries a maintainer hint (e.g. "vercel") when the
+	// finding's path lives in a vendor tree. Used to render a
+	// "report to <vendor>" link alongside the primary action.
+	// Always populated for FixAuthorityMaintainer; optionally populated
+	// for FixAuthorityYou when a secret leaked into a vendor dir.
+	SecondaryNotify string `json:"secondary_notify,omitempty"`
 }
 
 // Args describes the not-yet-redacted inputs to New. Fields that may contain
@@ -81,6 +122,12 @@ type Args struct {
 	Context      string // raw — will be redacted
 	SuggestedFix string
 	Tags         []string
+
+	// Optional v1.3 fields — empty zero-values are safe, internal/triage
+	// fills them in if the rule leaves them blank.
+	DedupGroupKey   string
+	FixAuthority    FixAuthority
+	SecondaryNotify string
 }
 
 // New constructs a Finding, applying redaction to Match and Context fields
@@ -93,17 +140,20 @@ func New(a Args) Finding {
 		a.Taxonomy = TaxDetectable
 	}
 	return Finding{
-		RuleID:       a.RuleID,
-		Severity:     a.Severity,
-		Taxonomy:     a.Taxonomy,
-		Title:        a.Title,
-		Description:  a.Description,
-		Path:         a.Path,
-		Line:         a.Line,
-		Match:        redact.String(a.Match),
-		Context:      redact.Lines(a.Context),
-		SuggestedFix: a.SuggestedFix,
-		Tags:         append([]string(nil), a.Tags...),
+		RuleID:          a.RuleID,
+		Severity:        a.Severity,
+		Taxonomy:        a.Taxonomy,
+		Title:           a.Title,
+		Description:     a.Description,
+		Path:            a.Path,
+		Line:            a.Line,
+		Match:           redact.String(a.Match),
+		Context:         redact.Lines(a.Context),
+		SuggestedFix:    a.SuggestedFix,
+		Tags:            append([]string(nil), a.Tags...),
+		DedupGroupKey:   a.DedupGroupKey,
+		FixAuthority:    a.FixAuthority,
+		SecondaryNotify: a.SecondaryNotify,
 	}
 }
 
