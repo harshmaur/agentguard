@@ -130,7 +130,34 @@
         <div class="rule-pane-header">
           <h2 class="rule-pane-title" x-text="paneTitle()"></h2>
           <div class="rule-pane-meta" x-text="paneMeta()"></div>
+          <button
+            class="reset-all-btn"
+            :disabled="overrideCount() === 0"
+            @click="resetAllRules()"
+            :aria-label="'Reset all ' + overrideCount() + ' rule overrides'"
+            :title="overrideCount() === 0
+              ? 'Nothing to reset — no rule overrides set'
+              : 'Reset all ' + overrideCount() + ' rule override' + (overrideCount() === 1 ? '' : 's') + ' back to built-in defaults'">
+            <span x-show="overrideCount() === 0">↺ Reset all</span>
+            <span x-show="overrideCount() > 0">↺ Reset all (<span x-text="overrideCount()"></span>)</span>
+          </button>
         </div>
+        <details class="help-block">
+          <summary>How rule overrides work</summary>
+          <p>
+            policy.yaml is an <strong>overlay</strong> on top of the built-in rules.
+            Every audr rule has a default severity and is enabled out of the box.
+            What you change here only encodes the <em>difference</em>. If you don't
+            touch a rule, it keeps its shipping behaviour — that's why an empty
+            policy.yaml is normal.
+          </p>
+          <ul>
+            <li><strong>Toggle</strong> — disables the rule globally; no findings emitted.</li>
+            <li><strong>Severity</strong> — re-rank a rule's default (e.g. demote a noisy MEDIUM to LOW). The dashboard's severity sections re-bucket on the next scan.</li>
+            <li><strong>↺ reset</strong> — appears next to any rule with an override; clears it back to the built-in default.</li>
+            <li><strong>↺ Reset all</strong> — top-right; clears every rule override at once. Allowlists and Suppressions are untouched (delete those individually).</li>
+          </ul>
+        </details>
         <div class="rule-list" aria-live="polite">
           <template x-if="filteredRules().length === 0">
             <div class="empty" x-text="filterText
@@ -138,7 +165,7 @@
               : 'No rules in this category.'"></div>
           </template>
           <template x-for="r in filteredRules()" :key="r.id">
-            <article class="rule-row" :class="{ disabled: !isEnabled(r.id) }">
+            <article class="rule-row" :class="{ disabled: !isEnabled(r.id), 'has-override': hasOverride(r.id) }">
               <button
                 class="rule-toggle"
                 :class="{ on: isEnabled(r.id) }"
@@ -164,6 +191,13 @@
                   <option :value="s" :selected="effectiveSeverity(r) === s" x-text="s.toUpperCase()"></option>
                 </template>
               </select>
+
+              <button
+                class="rule-reset-btn"
+                x-show="hasOverride(r.id)"
+                @click="resetRule(r.id)"
+                :title="'Reset ' + r.id + ' back to the built-in default'"
+                :aria-label="'Reset ' + r.id + ' to default'">↺</button>
             </article>
           </template>
         </div>
@@ -177,11 +211,50 @@
           <h2 class="rule-pane-title">Allowlists</h2>
           <button class="add-btn" @click="addAllowlist()">+ Add allowlist</button>
         </div>
-        <div class="rule-pane-meta" style="margin-bottom: 16px;">
+        <div class="rule-pane-meta" style="margin-bottom: 12px;">
           Named string-sets rules consult via <code>ctx.AllowlistContains(name, item)</code>.
           A rule decides what to do with a match — adding entries here doesn't silence findings
           on its own.
         </div>
+        <details class="help-block">
+          <summary>Examples — what to put in an allowlist</summary>
+          <p>
+            An allowlist is a named bag of strings a rule can look up. The <em>rule</em>
+            decides how to use it (e.g. "skip findings for any MCP server whose name is in
+            <code>trusted-mcp-servers</code>"). The dashboard only manages the bags.
+          </p>
+          <table class="example-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Typical entries</th>
+                <th>Used by</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>trusted-mcp-servers</code></td>
+                <td><code>@modelcontextprotocol/server-fs</code><br><code>@anthropic/mcp-server-github</code></td>
+                <td>MCP rules that skip findings for vendors you've audited</td>
+              </tr>
+              <tr>
+                <td><code>vendor-plugin-paths</code></td>
+                <td><code>~/.claude/plugins/cache/vercel/**</code><br><code>~/.cursor/extensions/**</code></td>
+                <td>AI-agent rules that demote findings in vendor-shipped caches</td>
+              </tr>
+              <tr>
+                <td><code>known-test-fixtures</code></td>
+                <td><code>**/testdata/**/*.env</code></td>
+                <td>Secret rules that skip files you've confirmed are fixtures</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            Allowlists are referenced from <code>rules[].allowlists</code> in the YAML —
+            no rule references an allowlist automatically. Check the rule's source if
+            you're unsure whether it consults a specific allowlist.
+          </p>
+        </details>
         <template x-if="Object.keys(draftSafe.allowlists || {}).length === 0">
           <div class="empty">No allowlists yet. Click "+ Add allowlist" to create one.</div>
         </template>
@@ -234,11 +307,62 @@
           <h2 class="rule-pane-title">Suppressions</h2>
           <button class="add-btn" @click="addSuppression()">+ Add suppression</button>
         </div>
-        <div class="rule-pane-meta" style="margin-bottom: 16px;">
+        <div class="rule-pane-meta" style="margin-bottom: 12px;">
           Silence specific (rule, path) pairs post-scan. Every entry requires a reason —
           stale exclusions accumulate without it. Use <code>expires</code> when the
           suppression should auto-clear.
         </div>
+        <details class="help-block">
+          <summary>Examples — what to suppress and how</summary>
+          <p>
+            A suppression hides one rule's findings for paths matching a glob.
+            The rule still fires elsewhere. Path globs use the same syntax as
+            <code>.audrignore</code> — <code>**</code> matches any number of segments,
+            <code>*</code> matches one segment.
+          </p>
+          <table class="example-table">
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Path glob</th>
+                <th>Reason (required)</th>
+                <th>Expires</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>mcp-unpinned-npx</code></td>
+                <td><code>~/.cursor/**</code></td>
+                <td>Cursor pins its own MCP servers via the IDE; we trust their bundled config.</td>
+                <td><em>none</em></td>
+              </tr>
+              <tr>
+                <td><code>dependency-osv-vulnerability</code></td>
+                <td><code>**/testdata/**/package-lock.json</code></td>
+                <td>Test fixtures pin vulnerable versions on purpose for regression testing.</td>
+                <td><em>none</em></td>
+              </tr>
+              <tr>
+                <td><code>secret-trufflehog-verified</code></td>
+                <td><code>~/projects/legacy-app/.env.example</code></td>
+                <td>Tracked sample env file with placeholder keys; not a real secret leak.</td>
+                <td><code>2026-12-31T00:00:00Z</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            <strong>When to use a suppression vs. an allowlist:</strong> use a
+            suppression when you want a specific finding to disappear from the
+            dashboard. Use an allowlist when you want a rule to <em>behave
+            differently</em> for entries in the list (e.g. not flag as critical,
+            but still report). Suppressions are a hammer; allowlists are a chisel.
+          </p>
+          <p>
+            <strong>Don't forget <code>expires</code>:</strong> open-ended
+            suppressions accumulate. Setting an expiry date forces a re-decision
+            when the deadline passes — finding will reappear on the next scan.
+          </p>
+        </details>
         <template x-if="(draftSafe.suppressions || []).length === 0">
           <div class="empty">No suppressions yet. Click "+ Add suppression" to add one.</div>
         </template>
@@ -308,6 +432,64 @@
     </div>
     <div class="rule-pane-meta" x-text="yamlStatus" :class="yamlStatusClass"></div>
   </div>
+  <details class="help-block">
+    <summary>YAML examples — copy, paste, edit</summary>
+    <p>
+      policy.yaml is an <strong>overlay</strong> on the built-in rules.
+      With nothing set, the file is just <code>version: 1</code> — that's
+      correct, not a bug. Every section below is optional. Paste only what
+      you need.
+    </p>
+    <p><strong>Rule overrides</strong> (severity bump, disable a rule, narrow scope):</p>
+    <pre class="yaml-example-pre">version: 1
+rules:
+  # Disable a rule globally
+  mcp-unpinned-npx:
+    enabled: false
+    notes: "Our team pins MCP servers via a different mechanism."
+
+  # Re-rank a rule's default severity
+  claude-third-party-plugin-enabled:
+    severity: low
+    notes: "Every plugin in our marketplace was security-reviewed."
+
+  # Narrow a rule's scope to specific paths
+  claude-hook-shell-rce:
+    scope:
+      include: ["~/.claude/**", "~/work/**"]
+      exclude: ["~/work/sandbox/**"]</pre>
+    <p><strong>Named allowlists</strong> (string-sets rules can consult):</p>
+    <pre class="yaml-example-pre">allowlists:
+  trusted-mcp-servers:
+    entries:
+      - "@modelcontextprotocol/server-fs"
+      - "@anthropic/mcp-server-github"
+    notes: "Vendors we've audited and trust."
+
+  vendor-plugin-paths:
+    entries:
+      - "~/.claude/plugins/cache/vercel/**"
+      - "~/.cursor/extensions/**"
+    notes: "Vendor caches — demote, don't suppress."</pre>
+    <p><strong>Suppressions</strong> (silence specific (rule, path) pairs):</p>
+    <pre class="yaml-example-pre">suppressions:
+  - rule: mcp-unpinned-npx
+    path: "~/.cursor/**"
+    reason: "Cursor manages its own MCP servers; their bundled config is trusted."
+
+  - rule: dependency-osv-vulnerability
+    path: "**/testdata/**/package-lock.json"
+    reason: "Test fixtures pin vulnerable versions on purpose."
+
+  - rule: secret-trufflehog-verified
+    path: "~/projects/legacy-app/.env.example"
+    reason: "Tracked sample env file with placeholder keys."
+    expires: "2026-12-31T00:00:00Z"</pre>
+    <p>
+      Save runs through the same validate path the Form view uses. Errors
+      surface inline; nothing lands on disk until validation passes.
+    </p>
+  </details>
   <!--
     The textarea is the source-of-truth input; the <pre class="yaml-overlay">
     behind it is the syntax-highlighted view. CSS keeps them aligned and the

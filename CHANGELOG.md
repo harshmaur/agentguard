@@ -3,6 +3,48 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.10.3] - 2026-05-16 — Policy editor affordances: reset buttons + inline examples
+
+Three rough edges in the policy editor that surfaced as soon as a real user
+clicked through it post-v0.10.2. All UI-only (no Go code changed).
+
+### Added
+
+- **Per-rule `↺ reset` button** appears next to the severity dropdown on
+  any rule with an override. One click clears that rule's override
+  (severity, enabled flag, scope, allowlist links, notes) and reverts
+  to the built-in default.
+- **`↺ Reset all (N)` button** in the rules pane header. Clears every
+  rule-level override in one click. Counter shows how many overrides
+  you have; disabled state when there's nothing to reset. Allowlists
+  and suppressions are intentionally untouched — those are user-
+  authored entries, not defaults.
+- **Visual "override" rail.** Any rule row with an override gets a thin
+  green left border, so you can scan the rules pane and see at a glance
+  which rules you've changed.
+- **"How rule overrides work"** collapsible help block at the top of
+  the rules pane. Explains overlay semantics, what toggle/severity/reset
+  each do, and that an empty policy.yaml is correct (not broken).
+- **Allowlists examples table** in the Allowlists pane. Three real-world
+  patterns (trusted MCP servers, vendor plugin paths, test fixtures)
+  with columns for name, typical entries, and which rules use them.
+  Clarifies that rules opt in to allowlists — populating one doesn't
+  auto-silence anything.
+- **Suppressions examples table** in the Suppressions pane. Three concrete
+  rule + path-glob + reason + expires examples. Includes a "suppression
+  vs. allowlist" decision paragraph and an `expires` reminder so
+  open-ended suppressions don't accumulate.
+- **YAML examples block** in the YAML view. Three copy-paste-ready
+  snippets (rule overrides, named allowlists, suppressions). Opens with
+  a one-liner explaining the empty `version: 1` YAML is correct — it's
+  an overlay on top of built-in defaults, only encodes deltas.
+
+### Changed
+
+- `policy.js` adds `hasOverride(ruleID)`, `resetRule(ruleID)`,
+  `resetAllRules()`, and `overrideCount()` to the `policyEditor()`
+  Alpine state. No persistence-shape change; same `/api/policy` round-trip.
+
 ## [0.10.2] - 2026-05-16 — Fix: policy editor renders unstyled
 
 Pre-existing v1.2 bug, exposed by v0.10.1's new POLICY nav link.
