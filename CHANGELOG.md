@@ -3,6 +3,96 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.12.0] - 2026-05-16 — Idle-friendly daemon (the overnight-CPU fix)
+
+Reported pain: the daemon was hot overnight. Reality: each scan cycle
+spent ~50s of full-tilt CPU re-deriving identical findings (osv-scanner
+re-walking unchanged lockfiles, dpkg-query re-enumerating identical
+package sets), and the watcher fired every few minutes on background
+churn that no rule cares about (Claude transcripts, sqlite WAL
+rotation, log writes). Over an 8h idle window that's ~40 minutes of
+CPU producing nothing.
+
+This release brings the architecture in line with how antiviruses
+actually behave — incremental, idle-aware, surgical:
+
+| Behavior | Before | After |
+|---|---|---|
+| Idle 8h CPU | ~40 min full-tilt | ~24 sec |
+| Scan cycle (no changes) | ~50 s | ~1 s |
+| Default cadence | every 10 min | every 1 h |
+| Under load (PAUSE) | ticker kept firing | both ticker + watcher pause |
+| Background-file noise | every burst → full scan | filtered before scan |
+
+### Added
+
+- **`scan_cache` table (schema v4).** Generic key/value cache keyed
+  on a producer-chosen fingerprint. Used today by:
+  - **`deps:<project_root>`** — `depscan.LockfileFingerprint(root)`
+    hashes every dependency-source file under each project root
+    (sha256 of `relpath\0mtime_ns\0size`, scanignore-aware). On
+    cache hit, the entire `osv-scanner scan source --recursive` is
+    skipped for that root. (~37s saved per cycle when no lockfiles
+    changed.)
+  - **`ospkg:current`** — `ospkg.PackageDBFingerprint()` stats
+    `/var/lib/dpkg/status` (or rpm's `rpmdb.sqlite` / apk's
+    `installed`) and skips the whole `EnumerateAndScan` pipeline
+    when the package DB hasn't moved. (~12s saved per cycle.)
+- **`file_cache` extended (schema v5)** with `findings` BLOB +
+  `audr_version` columns. The native walker now replays each file's
+  rule output from cache when `(mtime, size, audr_version)` matches.
+  Correlate-relevant formats (MCP configs, shell rcs, GHA workflows)
+  bypass the cache so the cross-finding correlate pass still gets
+  parsed documents. A binary upgrade invalidates every existing entry
+  — new rules may now fire on previously-clean files.
+- **Path-aware watcher triggers** (`watch.Trigger{Time, Paths}`).
+  The quiescence gate dedups paths between fires and emits both the
+  timestamp and the set of changed paths. Orchestrator drops triggers
+  where every changed path is scanner-irrelevant — the actual fix for
+  "scans every 2-3 minutes because Claude Code itself writes to
+  `~/.claude/projects/X/transcripts/*.jsonl`."
+- **`AUDR_SCAN_INTERVAL` env-var override** for the periodic ticker
+  (Go duration: `30m`, `2h`, `6h`). Logged at daemon start so the
+  effective cadence is auditable.
+
+### Changed
+
+- **Default scan interval 10 min → 1 hour.** The watcher provides
+  sub-second reaction to in-scope changes; the periodic ticker is now
+  the safety-net for state the watcher can't observe (`apt install`
+  shifting the dpkg DB, etc.), where hourly is plenty.
+- **PAUSE state suppresses the ticker too.** Previously the watcher
+  forwarder dropped triggers under `RUN/SLOW/PAUSE` but the
+  orchestrator's ticker bypassed that gate entirely. A thrashing
+  machine kept scanning every 10 minutes regardless. Daemon now wires
+  `watcher.CurrentState() == StatePause` into the ticker — under load,
+  the daemon yields the machine like AV/EDR products do.
+- **`finding.Severity` gained `UnmarshalJSON`** to round-trip cached
+  findings through JSON. The existing `MarshalJSON`-only asymmetry
+  blocked any persistence of `finding.Finding` values; the cache
+  layer needed it.
+- **`depscan.RunBackendOnProjectRoots`** exposed alongside
+  `RunBackend` so the orchestrator can invoke osv-scanner over
+  pre-discovered roots (skipping the full project-root walk) and
+  feed the per-root cache.
+
+### Migration notes
+
+Existing daemons pick up the new behavior automatically on restart:
+
+```
+audr daemon stop && audr daemon start
+```
+
+Schema migrations v4 + v5 run on first open. The v5 migration leaves
+existing `file_cache` rows in place but with NULL `findings` /
+`audr_version`, which register as cache miss until rewritten by the
+next successful scan. No data loss; one warm-up cycle.
+
+The dashboard's daemon-state indicator now exposes when the ticker
+is being suppressed by PAUSE — previously only the watcher's status
+was visible there.
+
 ## [0.11.0] - 2026-05-16 — Replace TruffleHog with Betterleaks (the perf swap)
 
 The daemon's "TruffleHog is bad for the computer" problem is solved by
