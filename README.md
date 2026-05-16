@@ -388,10 +388,28 @@ Inline `# audr:disable=rule-id` is on the v0.3 list.
 - **v1.2.x (deferred from v1.2):** CodeMirror 6 YAML editor with linting,
   htmx-based main-dashboard refactor, fsnotify watcher for live-reload,
   diff-preview modal with destructive-action confirm gate.
-- **v1.3+:** custom rule definitions (Semgrep-style YAML), BYOD privacy
-  mode, GitHub Action template, more harness detectors (Cline / Continue /
-  Roo / Aider / OpenClaw / Hermes / Goose), tool-description prompt-injection
-  rules, inline `# audr:disable=` suppression syntax.
+- **v1.3 (this release) — Loveable Daily Driver:** dedup engine. One row
+  per unique vulnerability instead of one row per affected path. Each
+  rolled-up row partitions affected paths into three fix-authority
+  buckets: ① YOU CAN FIX (your projects — copy a paste-ready override
+  snippet for npm / yarn / pnpm / bun / go / cargo), ② PLUGIN MAINTAINER
+  FIXES (vendor-shipped plugin caches — click "File issue with <vendor>"
+  for a pre-filled GitHub issue), ③ MARKETPLACE / UPSTREAM (track only).
+  Same dashboard, same chrome, smarter rows.
+- **v1.4 (planned):** AV-feel dashboard layer over v1.3 — default-green
+  state, "Protected for N days" streak, health-score 0-100, single
+  threat-banner card when a critical chain fires. Gated on v1.3 dogfood
+  signal.
+- **v1.5 (planned):** active quarantine. When a critical attack chain
+  fires, daemon (opt-in) renames the offending config to
+  `~/.audr/quarantined/<chain>/<timestamp>/` with one-click undo and
+  a JSONL audit log. Lets audr truthfully say "audr blocked N attacks
+  this week."
+- **v1.3+ (other deferrals):** custom rule definitions (Semgrep-style
+  YAML), BYOD privacy mode, GitHub Action template, more harness
+  detectors (Cline / Continue / Roo / Aider / OpenClaw / Hermes /
+  Goose), tool-description prompt-injection rules, inline
+  `# audr:disable=` suppression syntax.
 
 ---
 
