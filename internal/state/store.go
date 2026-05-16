@@ -110,6 +110,16 @@ type Options struct {
 	// slow client doesn't immediately overflow; small enough that we
 	// don't pin a megabyte per dead tab.
 	SubscriberBuffer int
+
+	// NoRebuild disables Open's self-healing "delete the DB and start
+	// over" fallback. The daemon, as the owner of audr.db, opts in to
+	// that fallback so a corrupt SQLite file does not wedge the
+	// service. One-shot clients (e.g., `audr scan`'s cache wiring) MUST
+	// set this to true — otherwise an error opening a daemon-owned DB
+	// would silently delete the daemon's findings + state from under it.
+	// When true, any error from openOnce surfaces immediately and the
+	// caller decides whether to retry or proceed without the DB.
+	NoRebuild bool
 }
 
 // Open initializes the store: opens SQLite in WAL mode, applies
@@ -129,6 +139,13 @@ func Open(opts Options) (*Store, error) {
 	s, err := openOnce(opts)
 	if err == nil {
 		return s, nil
+	}
+	// Non-owner clients (one-shot CLI, tools that just want to read the
+	// cache) MUST opt out of the destructive rebuild. Otherwise an open
+	// failure under a concurrently-running daemon would delete the
+	// daemon's authoritative state from under it.
+	if opts.NoRebuild {
+		return nil, err
 	}
 	// First attempt failed. Treat any migration/open error as a
 	// corrupted-DB signal and try once more with a fresh file.
@@ -217,9 +234,20 @@ func openOnce(opts Options) (*Store, error) {
 	// Crash-recovery (Lifecycle Concerns): any scan still in_progress
 	// at startup means the previous daemon died mid-scan. Mark them
 	// crashed; subsequent scans resume with a fresh ID.
-	if err := s.reconcileCrashedScans(ctx); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("state: reconcile crashed scans: %w", err)
+	//
+	// Skip when NoRebuild is set. NoRebuild marks a non-owner client
+	// (one-shot CLI, tools) that is opening a possibly-daemon-owned DB.
+	// Such clients MUST NOT mutate scan-cycle state: a scan flagged
+	// `in_progress` belongs to a running daemon, not to a previous
+	// crashed instance. Flipping it to `crashed` here would race the
+	// daemon's writer and emit a phantom finding-crashed SSE event.
+	// The owner-only reconcile keeps the recovery path correct for the
+	// daemon while letting one-shot clients reuse the file_cache table.
+	if !opts.NoRebuild {
+		if err := s.reconcileCrashedScans(ctx); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("state: reconcile crashed scans: %w", err)
+		}
 	}
 
 	// Start the writer goroutine immediately so the store is fully

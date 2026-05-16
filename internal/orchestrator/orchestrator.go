@@ -1135,6 +1135,18 @@ func (o *Orchestrator) triggerIsRelevant(t watch.Trigger) bool {
 	return false
 }
 
+// NewScanFileCache returns an adapter that lets scan.Options.Cache read
+// and write the file_cache table on a state.Store. Exported so the
+// one-shot CLI scan path (cmd/audr) can wire the same cache the daemon
+// uses — both reuse `~/.audr/audr.db` and benefit from each other's
+// cached entries.
+//
+// The store is expected to be already opened via state.Open. The
+// adapter does not own the store and does not close it.
+func NewScanFileCache(store *state.Store) scan.FileCache {
+	return scanFileCache{store: store}
+}
+
 // scanFileCache adapts state.Store to scan.FileCache. The scan
 // package deliberately can't import state (state imports finding;
 // scan also imports finding — circular avoidance is the only motive,
