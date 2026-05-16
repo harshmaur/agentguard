@@ -121,3 +121,68 @@ type RemediationResponse struct {
 	HumanSteps  string `json:"human_steps"`
 	AIPrompt    string `json:"ai_prompt"`
 }
+
+// RolledUpView is the dashboard's wire-shape for the v1.3 rolled-up
+// findings list returned by GET /api/findings/rollup. Mirrors
+// state.RolledUpRow with two differences: severity / authority are
+// kept as strings (the dashboard JS doesn't need typed enums), and
+// FirstSeen is rendered as RFC3339 for consistent display.
+type RolledUpView struct {
+	DedupGroupKey string             `json:"dedup_group_key"`
+	WorstSeverity string             `json:"worst_severity"`
+	Category      string             `json:"category"`
+	RuleID        string             `json:"rule_id"`
+	Title         string             `json:"title"`
+	Description   string             `json:"description"`
+	PathCount     int                `json:"path_count"`
+	Groups        []RolledUpGroupVw  `json:"groups"`
+	FirstSeen     string             `json:"first_seen"` // RFC3339, earliest in group
+}
+
+// RolledUpGroupVw is one fix-authority bucket inside a RolledUpView row.
+type RolledUpGroupVw struct {
+	FixAuthority    string             `json:"fix_authority"` // "you" | "maintainer" | "upstream"
+	SecondaryNotify string             `json:"secondary_notify,omitempty"`
+	PathCount       int                `json:"path_count"`
+	Paths           []RolledUpPathVw   `json:"paths"`
+}
+
+// RolledUpPathVw is one path row underneath a sub-group.
+type RolledUpPathVw struct {
+	Fingerprint string `json:"fingerprint"`
+	Path        string `json:"path"`
+}
+
+// RolledUpResponse is the body of GET /api/findings/rollup.
+type RolledUpResponse struct {
+	Rows    []RolledUpView  `json:"rows"`
+	Metrics SnapshotMetrics `json:"metrics"`
+	Daemon  DaemonInfo      `json:"daemon"`
+}
+
+// RemediateSnippetResponse is the body of GET /api/remediate/snippet/:fp.
+// Snippet is the rendered override snippet (empty when no upstream fix
+// is available or the lockfile format is unrecognised — the dashboard
+// shows "Track upstream" in that case). Disclaimer is the F3-mitigation
+// blurb the UI MUST render adjacent to the snippet body.
+type RemediateSnippetResponse struct {
+	Fingerprint string `json:"fingerprint"`
+	Snippet     string `json:"snippet,omitempty"`
+	Disclaimer  string `json:"disclaimer,omitempty"`
+	LockfileFmt string `json:"lockfile_format,omitempty"`
+	// LockfilePath echoes the path the snippet was rendered for; useful
+	// for confirming the user's expectations match audr's detection.
+	LockfilePath string `json:"lockfile_path,omitempty"`
+}
+
+// RemediateMaintainerResponse is the body of GET /api/remediate/maintainer/:fp.
+// Used by the dashboard's "File issue with <vendor>" button. When
+// IssueURL is empty (unknown maintainer), the UI shows BodyMarkdown
+// as a clipboard-copy fallback so the user can paste it into the
+// maintainer's issue tracker manually.
+type RemediateMaintainerResponse struct {
+	Fingerprint  string `json:"fingerprint"`
+	IssueURL     string `json:"issue_url,omitempty"`
+	BodyMarkdown string `json:"body_markdown"`
+	LabelHint    string `json:"label_hint"` // "Vercel" | "Cursor" | "plugin author" | <vendor-hint>
+}

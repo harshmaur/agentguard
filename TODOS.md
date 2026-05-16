@@ -108,3 +108,51 @@ Re-open this TODO if a paying customer demands Authenticode and underwrites the 
 
 **Depends on / blocked by:** v1.2 ships and design partners use it for ≥1 month. Target: v1.3.
 
+---
+
+## TODO 8 — v1.4 Approach B: AV-feel daily-driver dashboard
+
+**What:** Default-green `/dashboard` route, "Protected for N days" streak primitive, health score 0-100 driven by open chains + criticals, single-banner threat card when a chain fires. The dashboard's default state is comfort (green checkmark, last-verified timestamp). One bold banner only when a chain actually fires.
+
+**Why:** v1.3 ships dedup + roll-up + override snippets (Approach A from the loveable-audr design doc). That earns the founder's attention back. Approach B is what turns "I opened it today" into "I open this every morning." The streak primitive + health score is the first emotional hook audr has had.
+
+**Pros:** Real differentiation vs Snyk/Wiz/SonarQube (none of them feel like AV — they all feel like Jenkins). Forensic mode survives intact at `/audit` for future CISO conversations.
+
+**Cons:** More UX surface area to dogfood. If the "feel" is off by 10% it lands worse than v1.3 alone. A health score is a number people argue with.
+
+**Context:** Approach B in `parallels-main-design-loveable-audr-20260515-171437.md`. Reuses the v1.2 htmx+Alpine stack and the v1.1 toaster. New: `internal/health/`, `internal/streak/`, dashboard templates for the AV view.
+
+**Depends on / blocked by:** v1.3 ships AND ≥2 weeks of dogfood data confirm the dedup pass earns daily attention (the founder voluntarily opens the dashboard 5 days in a row). Target: v1.4.
+
+---
+
+## TODO 9 — v1.5 Approach C: Active quarantine + undo
+
+**What:** When a critical attack chain fires, daemon (opt-in, first-run consent) quarantines the offending config file into `~/.audr/quarantined/<chain-id>/<timestamp>/`. JSONL audit log of every quarantine event. One-click undo from the dashboard. Toast: "audr blocked an exfil chain. View / Undo."
+
+**Why:** The "audr blocked N attacks this week" line is the genuine category-defining wedge — the line no developer-security tool currently ships. Earns the antivirus framing on substance, not just on UI. Closes the loop audr keeps almost-closing: detect → block → undo → green.
+
+**Pros:** Genuinely novel. Earns inbound CISO conversations without a single demo. Active blocking is the unowned wedge from the v1 office-hours, finally made concrete.
+
+**Cons:** Trust bar is much higher than v1.3 — audr is now editing config files, not just reading them. One bad quarantine that breaks a user's IDE = catastrophic trust loss. Defender has 30 years of brand; audr has 6 weeks since v1.0. Some chains (e.g. `claude-third-party-plugin-enabled`) have no single file to quarantine.
+
+**Context:** Approach C in `parallels-main-design-loveable-audr-20260515-171437.md`. Deserves its own office-hours session before scoping — the trust model + first-run consent UX + per-rule consent semantics are all design-partner-shaped decisions.
+
+**Depends on / blocked by:** v1.4 Approach B validated. Own office-hours + plan-eng-review session before any code. Target: v1.5.
+
+---
+
+## TODO 10 — policy.yaml: user-extensible path-class table
+
+**What:** Allow users to extend `internal/triage/authority.go`'s hardcoded path-class table via `~/.audr/policy.yaml`. Map custom path globs to authority labels (YOU / MAINTAINER / UPSTREAM).
+
+**Why:** v1.3 hardcodes ~20 path-class entries based on common dev-machine layouts (Claude Code plugin cache paths, Cursor extension paths, common project roots). Power users with non-standard setups (corporate monorepos, custom vendor cache paths, sandboxed environments) will want to extend this. CISOs onboarded under the v1.4 BYOD work (TODO 4) will almost certainly need it.
+
+**Pros:** Forward-compatible with the v1.2 policy lake. Closes a real gap for the v2 enterprise audience. Modest implementation cost once v1.3 ships.
+
+**Cons:** Premature without enterprise design partners — risk of locking in a YAML schema that doesn't match what design partners need. Three-axis policy (rule overrides + suppressions + path-classes) starts to feel enterprise-shaped if shipped before there's an enterprise asking for it.
+
+**Context:** Surfaced during /plan-eng-review 2026-05-15 (Code Quality section, path-class table decision). v1.3 ships hardcoded for speed; this TODO captures the natural next axis.
+
+**Depends on / blocked by:** TODO 4 (BYOD privacy mode design-partner cycle) OR a v1.3 user explicitly asking for it. Target: v1.4 if a design partner asks, else v2.
+

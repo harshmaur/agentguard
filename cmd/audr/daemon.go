@@ -304,6 +304,18 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					return fmt.Errorf("open state store: %w", err)
 				}
 
+				// v1.3: print the dedup-engine baseline-reset notice once
+				// after the v3 migration runs (wipes pre-existing findings).
+				// The migration trades first_seen_at continuity for the
+				// simplest correct dedup-key backfill path; saying so out
+				// loud is honest. AppliedMigrationsOnOpen is empty on
+				// already-current DBs, so this is a one-shot per upgrade.
+				for _, v := range store.AppliedMigrationsOnOpen() {
+					if v == 3 {
+						fmt.Fprintln(os.Stderr, "audr v1.3 dedup engine: finding history reset; this scan is the baseline.")
+					}
+				}
+
 				// Phase 4: the orchestrator subsystem replaces the
 				// Phase 2 demo seeder. It runs an initial scan
 				// immediately and then on a 10-minute cadence,

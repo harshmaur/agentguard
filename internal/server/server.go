@@ -271,8 +271,11 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("GET /", s.handleIndex(staticHandler))
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/findings", s.requireToken(s.handleFindings))
+	mux.HandleFunc("GET /api/findings/rollup", s.requireToken(s.handleFindingsRollup))
 	mux.HandleFunc("GET /api/events", s.requireToken(s.handleEvents))
 	mux.HandleFunc("GET /api/remediation/{fp}", s.requireToken(s.handleRemediation))
+	mux.HandleFunc("GET /api/remediate/snippet/{fp}", s.requireToken(s.handleRemediateSnippet))
+	mux.HandleFunc("GET /api/remediate/maintainer/{fp}", s.requireToken(s.handleRemediateMaintainer))
 	mux.HandleFunc("POST /api/scanners", s.requireToken(s.handleScannersToggle))
 
 	// Policy editor (v1.2 — user-editable rule overlay).
@@ -302,6 +305,7 @@ func (s *Server) handleIndex(static http.Handler) http.HandlerFunc {
 		static.ServeHTTP(w, r)
 	}
 }
+
 
 // serveEmbedded writes a single embedded asset to the response with
 // the requested Content-Type. Used for "/" so FileServer's redirect

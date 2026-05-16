@@ -353,6 +353,150 @@ a:visited { color: var(--text-muted); }
   .finding.resolved-collapsing { transition: none; }
 }
 
+/* --- v1.3 rolled-up vulnerability rows --------------------------
+ *
+ * Reuses the .finding / .finding-bar / .finding-body / .expanded-detail
+ * vocabulary. Only adds:
+ *  - .path-count   small badge after the title showing "12 paths"
+ *  - .auth-group   sub-card inside .expanded-detail per fix-authority
+ *  - .auth-heading H4 with the ①/②/③ glyph
+ *  - .snippet-pre  / .snippet-meta / .snippet-disclaimer styling
+ *    distinguishable from the AI-prompt preview without changing tone.
+ */
+
+.path-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  margin-left: auto;
+}
+
+.expanded-detail.rollup-detail {
+  display: block;
+}
+
+.expanded-detail .detail-wide {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-group {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 16px;
+}
+
+.auth-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 12px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+
+.auth-glyph {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.auth-heading.auth-you      .auth-glyph { color: var(--ok); }
+.auth-heading.auth-maintainer .auth-glyph { color: var(--medium); }
+.auth-heading.auth-upstream .auth-glyph { color: var(--low); }
+
+.auth-count {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.auth-action {
+  margin-bottom: 12px;
+}
+
+.snippet-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.snippet-pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0 0 8px 0;
+}
+
+.snippet-disclaimer {
+  margin: 10px 0 0 0;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: rgba(196, 155, 44, 0.08);
+  border-left: 2px solid var(--medium);
+}
+
+.auth-paths {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 0 0;
+  border-top: 1px solid var(--border);
+  max-height: 240px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.auth-paths li {
+  padding: 3px 0;
+  word-break: break-all;
+}
+
+.auth-paths li code {
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.auth-paths-more {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 11px;
+  padding-top: 6px;
+}
+
+/* The "File issue with X" action looks like the existing copy-btn so
+ * the row's actions feel like one family. <a> tag gets the same
+ * affordance as the <button>. */
+a.copy-btn {
+  text-decoration: none;
+  border-bottom: none;
+  color: var(--text);
+}
+
 /* --- Responsive degradation ------------------------------------- */
 @media (max-width: 1280px) {
   .topbar { grid-template-columns: 1fr; gap: 12px; }

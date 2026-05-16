@@ -3,6 +3,129 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.10.0] - 2026-05-15 — v1.3 Loveable Daily Driver: dedup engine + rolled-up dashboard
+
+The founder ran `audr scan ~` on their own machine and got 1700+ findings.
+Could see the right observations. Could see the suggested fixes. Could not
+bring themselves to start. v1.3 is the response: dedup by vulnerability,
+group affected paths by who can fix them, render override snippets the
+user can paste into their own package manifest, render pre-filled GitHub
+issue URLs the user can fire at plugin maintainers. One row per CVE, three
+fix-authority buckets per row, no wall of text.
+
+The "AV-feel default-green dashboard with streaks and a threat-banner card"
+(Approach B in the design doc) ships in v1.4 once the dedup pass earns
+five voluntary dashboard opens in a row. Active quarantine (Approach C)
+follows in v1.5.
+
+### Added
+
+- **Roll-up by dedup_group_key.** New `internal/triage/` package owns
+  classification: every finding now carries a `DedupGroupKey` (collapsing
+  the same vulnerability across paths) and a `FixAuthority` enum
+  (`you` / `maintainer` / `upstream`). Path-class table in
+  `triage/authority.go` resolves authority from the affected path — user
+  projects fall through to `you`, plugin cache paths resolve to
+  `maintainer` with a vendor hint, marketplace external_plugins resolve
+  to `upstream`. Secret findings always force `you` (rotation is your
+  job no matter where the leak appeared) but keep the maintainer hint
+  in `SecondaryNotify` so the dashboard can render "also notify <vendor>".
+
+- **Per-package OSV dedup.** OSV findings used to dedup per (package, CVE)
+  → a package with 8 CVEs showed as 8 rows. Now they dedup per package
+  with `max(fixed_version)` carried in the dedup key. The override snippet
+  pins to the max fixed version, which resolves all known CVEs for that
+  package in one upgrade.
+
+- **Override-snippet rendering.** New `internal/remediate/lockfile.go`
+  renders package-manager-specific override blocks for npm
+  (`overrides`), yarn (`resolutions`), pnpm (`pnpm.overrides`),
+  bun (`overrides`), go (`replace`), and cargo (`[patch.crates-io]`).
+  Driven by `internal/remediate/osv.go` which parses the OSV dedup key
+  back into `(ecosystem, package, fixed_version)` and cross-checks the
+  ecosystem against the detected lockfile format (F6 guard — refuses to
+  emit a go-replace snippet against a yarn.lock).
+
+- **Pre-filled GitHub issue URLs.** New `internal/remediate/maintainers.go`
+  maps known plugin vendors (Vercel claude-plugins-official, Anthropic
+  marketplace, Cursor) to canonical `/issues/new` endpoints with
+  title/body pre-filled from the finding. Unknown vendors fall back to
+  a clipboard-copy of the Markdown body so the user can paste into
+  whichever tracker the maintainer publishes. URLs are capped at 8KB to
+  stay within GitHub's pre-fill limit.
+
+- **Override-snippet F3 disclaimer.** Every snippet ships with a one-line
+  banner adjacent to the code: *"This override pins the transitive dep.
+  Verify your build + tests pass before committing — semver compatibility
+  isn't guaranteed when bypassing a maintainer's resolution."* Honest
+  about the tradeoff so audr doesn't get blamed when an override breaks
+  a build.
+
+- **Three new server endpoints.** `GET /api/findings/rollup` returns
+  rolled-up rows + path-authority sub-groups. `GET /api/remediate/snippet/{fp}`
+  renders the override snippet for a specific finding.
+  `GET /api/remediate/maintainer/{fp}` returns the issue URL + body for
+  the "File issue with <vendor>" button.
+
+- **Schema v3 migration.** Three nullable columns added to the `findings`
+  table (`dedup_group_key`, `fix_authority`, `secondary_notify`) plus
+  two indexes (`findings_dedup_group`, `findings_fix_authority`).
+  Existing findings are wiped on migrate; next scan repopulates with
+  triage metadata. The daemon prints a one-shot
+  *"audr v1.3 dedup engine: finding history reset; this scan is the
+  baseline."* notice on the first post-v3 startup.
+
+### Changed
+
+- **Dashboard renders rolled-up rows by default.** No new route; the
+  existing `/` dashboard's `renderFindingRow` now displays one
+  vulnerability per row with a `<n> paths` badge. Expanded detail shows
+  three fix-authority sub-cards inside the existing `.expanded-detail`
+  panel — same visual language as v1.2 (severity bar, sev-label,
+  cat-tag, dark theme, IBM Plex Mono/Sans). Filters, severity sections,
+  banner stack, metric strip, scan progress strip: unchanged.
+
+- **SSE-driven refresh.** Incremental finding-* upsert handlers
+  replaced with a debounced re-fetch of `/api/findings/rollup` — fewer
+  moving parts, server-aggregated truth, no in-JS aggregation race
+  conditions. Resolution animations were removed for v1.3; metric
+  counts stay live via the same SSE channel.
+
+### Manual QA (the parts that don't fit a Go integration test)
+
+After upgrading, walk through these flows on your own machine:
+
+1. **Copy-snippet → fix → rescan clears.** Pick a YOU-bucket dep finding.
+   Copy the override snippet. Paste into your project's `package.json`
+   (or equivalent). Run `npm install` (or `pnpm install`, `yarn`, etc.).
+   Wait for the next daemon scan (or trigger one). The finding should
+   resolve. The row should disappear from the rolled-up view.
+
+2. **File-issue button opens a pre-filled GitHub issue.** Pick a
+   MAINTAINER-bucket finding (one whose path lives in
+   `~/.claude/plugins/cache/<vendor>/...`). Click the "File issue with
+   <vendor>" button. A new browser tab opens to
+   `github.com/<vendor>/.../issues/new` with the title and body
+   (CVE id, affected versions, paths) pre-filled.
+
+3. **Track-upstream is a hint, not a button (v1.3).** UPSTREAM-bucket
+   findings show a static "only the original maintainer can fix this"
+   note. The 30-day snooze action ships in v1.4 alongside the streak
+   and health-score primitives.
+
+### Notes for v1.4 / v1.5
+
+- v1.4 (TODO 8 in `TODOS.md`) adds the default-green dashboard, streak
+  primitive, health score, and threat-banner card — the actual "AV-feel"
+  overlay. Gated on the v1.3 dogfood signal: 5 voluntary dashboard
+  opens in a row earns the next investment.
+- v1.5 (TODO 9 in `TODOS.md`) adds active quarantine for critical chains
+  with one-click undo. Trust bar is much higher than v1.3; gets its
+  own office-hours session before scoping.
+- v1.3's hardcoded path-class table (~20 entries in
+  `internal/triage/authority.go`) is forward-compatible with TODO 10
+  (user-extensible entries via policy.yaml).
+
 ## [0.9.0] - 2026-05-16 — Resolved-counter accuracy, parallel sidecars, 1-core daemon trufflehog
 
 Multiple fixes to the daemon scan loop. The dashboard's "Resolved Today"

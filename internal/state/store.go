@@ -73,6 +73,26 @@ type Store struct {
 	// contract).
 	closeOnce sync.Once
 	closed    chan struct{}
+
+	// appliedMigrations records the schema versions runMigrations
+	// applied during this Open() call. Empty when the DB was already
+	// at HEAD. Used by callers to surface one-shot post-migration
+	// notices (e.g. v1.3's "dedup engine: history reset" prompt on
+	// the first scan after upgrading from v0.x/v1.2).
+	appliedMigrations []int
+}
+
+// AppliedMigrationsOnOpen returns the schema versions that
+// runMigrations APPLIED during this Open(). Empty slice when the DB
+// was already at HEAD before Open ran.
+//
+// Callers should treat the result as one-shot: the value reflects what
+// happened during this process's Open, not a persistent history. Use
+// this to emit a single post-upgrade notice line, then forget.
+func (s *Store) AppliedMigrationsOnOpen() []int {
+	out := make([]int, len(s.appliedMigrations))
+	copy(out, s.appliedMigrations)
+	return out
 }
 
 // Options configures a Store.
@@ -178,18 +198,20 @@ func openOnce(opts Options) (*Store, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := runMigrations(ctx, db); err != nil {
+	applied, err := runMigrations(ctx, db)
+	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("state: migrations: %w", err)
 	}
 
 	s := &Store{
-		opts:       opts,
-		db:         db,
-		writeQueue: make(chan writeRequest, opts.WriteBuffer),
-		subs:       make(map[*subscriber]struct{}),
-		writerDone: make(chan struct{}),
-		closed:     make(chan struct{}),
+		opts:                opts,
+		db:                  db,
+		writeQueue:          make(chan writeRequest, opts.WriteBuffer),
+		subs:                make(map[*subscriber]struct{}),
+		writerDone:          make(chan struct{}),
+		closed:              make(chan struct{}),
+		appliedMigrations:   applied,
 	}
 
 	// Crash-recovery (Lifecycle Concerns): any scan still in_progress

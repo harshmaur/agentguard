@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/harshmaur/audr/internal/finding"
+	"github.com/harshmaur/audr/internal/remediate"
 	"github.com/harshmaur/audr/internal/scanignore"
 )
 
@@ -399,35 +401,144 @@ func ParseOSVScannerJSON(raw []byte) ([]finding.Finding, error) {
 	if err := json.Unmarshal(raw, &report); err != nil {
 		return nil, fmt.Errorf("parse osv-scanner json: %w", err)
 	}
+
+	// v1.3: a package can have multiple CVEs, each with its own
+	// `fixed` version. From the user's POV they're ONE problem
+	// (upgrade the package), so we dedup by (ecosystem, package) and
+	// pin the snippet to the MAXIMUM fixed version across CVEs —
+	// upgrading to max(fixed) resolves all known CVEs for that
+	// package. First pass collects max-fixed per (eco, pkg); second
+	// pass emits findings sharing that package-level dedup key.
+	type pkgKey struct{ ecosystem, name string }
+	maxFixed := map[pkgKey]string{}
+	for _, res := range report.Results {
+		for _, pkg := range res.Packages {
+			k := pkgKey{pkg.Package.Ecosystem, pkg.Package.Name}
+			for _, vuln := range pkg.Vulnerabilities {
+				f := osvFixedVersion(vuln)
+				if f == "" {
+					continue
+				}
+				cur := maxFixed[k]
+				if cur == "" || compareSemver(f, cur) > 0 {
+					maxFixed[k] = f
+				}
+			}
+		}
+	}
+
 	var out []finding.Finding
 	for _, res := range report.Results {
 		for _, pkg := range res.Packages {
 			version := firstNonEmpty(pkg.Version, pkg.Package.Version)
+			pkgMaxFixed := maxFixed[pkgKey{pkg.Package.Ecosystem, pkg.Package.Name}]
 			for _, vuln := range pkg.Vulnerabilities {
 				id := advisoryID(vuln.ID, vuln.Aliases)
 				fixed := osvFixedVersion(vuln)
 				desc := firstNonEmpty(vuln.Summary, vuln.Details, "OSV reported a vulnerable dependency.")
 				fix := "Upgrade the package to a non-vulnerable version and regenerate the lockfile."
-				if fixed != "" {
+				if pkgMaxFixed != "" {
+					fix = fmt.Sprintf("Upgrade %s to %s or later and regenerate the lockfile.", pkg.Package.Name, pkgMaxFixed)
+				} else if fixed != "" {
 					fix = fmt.Sprintf("Upgrade %s to %s or later and regenerate the lockfile.", pkg.Package.Name, fixed)
 				}
+				// v1.3 dedup key: collapses ALL CVEs for the same
+				// (ecosystem, package) into one row. The "fixed" segment
+				// of the key carries max(fixed) across this package's
+				// CVEs so the snippet renderer can pin to it directly.
+				// The advisory-id segment is left blank — per-finding CVE
+				// info still lives in Description / MatchRedacted.
+				dedupKey := remediate.BuildOSVDedupKey(
+					pkg.Package.Ecosystem,
+					pkg.Package.Name,
+					pkgMaxFixed,
+					"",
+				)
 				out = append(out, finding.New(finding.Args{
-					RuleID:       RuleOSVVulnerability,
-					Severity:     severityFromString(vuln.DatabaseSpecific.Severity),
-					Taxonomy:     finding.TaxAdvisory,
-					Title:        fmt.Sprintf("Vulnerable dependency: %s", pkg.Package.Name),
-					Description:  fmt.Sprintf("%s: %s", id, desc),
-					Path:         res.Source.Path,
-					Match:        fmt.Sprintf("%s %s@%s", pkg.Package.Ecosystem, pkg.Package.Name, version),
-					Context:      fmt.Sprintf("advisory=%s fixed=%s", id, fixed),
-					SuggestedFix: fix,
-					Tags:         []string{"dependency", "vulnerability", "osv", strings.ToLower(pkg.Package.Ecosystem)},
+					RuleID:        RuleOSVVulnerability,
+					Severity:      severityFromString(vuln.DatabaseSpecific.Severity),
+					Taxonomy:      finding.TaxAdvisory,
+					Title:         fmt.Sprintf("Vulnerable dependency: %s", pkg.Package.Name),
+					Description:   fmt.Sprintf("%s: %s", id, desc),
+					Path:          res.Source.Path,
+					Match:         fmt.Sprintf("%s %s@%s", pkg.Package.Ecosystem, pkg.Package.Name, version),
+					Context:       fmt.Sprintf("advisory=%s fixed=%s", id, fixed),
+					SuggestedFix:  fix,
+					Tags:          []string{"dependency", "vulnerability", "osv", strings.ToLower(pkg.Package.Ecosystem)},
+					DedupGroupKey: dedupKey,
+					// FixAuthority + SecondaryNotify are intentionally left blank
+					// here. The path-class classifier in internal/triage owns
+					// authority resolution; the OSV rule shouldn't second-guess
+					// it because the same CVE on the same package can land in
+					// YOU / MAINTAINER / UPSTREAM depending on which lockfile
+					// detected it.
 				}))
 			}
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return finding.Less(out[i], out[j]) })
 	return out, nil
+}
+
+// compareSemver returns -1, 0, +1 like strings.Compare, with semver-
+// aware numeric segment comparison. Strips a leading "v" on either
+// side. Falls back to lexicographic compare for non-numeric segments
+// or malformed input — good enough for the v1.3 use-case of picking
+// the max fixed-version across CVEs for a single package, where all
+// candidates almost always share a canonical version vocabulary.
+func compareSemver(a, b string) int {
+	a = strings.TrimPrefix(strings.TrimSpace(a), "v")
+	b = strings.TrimPrefix(strings.TrimSpace(b), "v")
+	if a == b {
+		return 0
+	}
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	n := len(as)
+	if len(bs) < n {
+		n = len(bs)
+	}
+	for i := 0; i < n; i++ {
+		ai, errA := strconv.Atoi(stripNonDigits(as[i]))
+		bi, errB := strconv.Atoi(stripNonDigits(bs[i]))
+		if errA == nil && errB == nil {
+			if ai != bi {
+				if ai < bi {
+					return -1
+				}
+				return 1
+			}
+			continue
+		}
+		// Lexicographic fallback for non-numeric segments.
+		if as[i] != bs[i] {
+			if as[i] < bs[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	if len(as) != len(bs) {
+		if len(as) < len(bs) {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
+func stripNonDigits(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= '0' && c <= '9' {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 0 {
+		return "0"
+	}
+	return string(out)
 }
 
 func osvFixedVersion(v osvVulnerability) string {

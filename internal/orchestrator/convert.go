@@ -44,17 +44,20 @@ func findingToStateFinding(f finding.Finding, scanID int64, category string) (st
 	}
 
 	return state.Finding{
-		Fingerprint:   fp,
-		RuleID:        f.RuleID,
-		Severity:      f.Severity.String(), // typed Severity → "critical"/"high"/...
-		Category:      category,
-		Kind:          "file",
-		Locator:       locatorBytes,
-		Title:         f.Title,
-		Description:   f.Description,
-		MatchRedacted: f.Match,
-		FirstSeenScan: scanID,
-		LastSeenScan:  scanID,
+		Fingerprint:     fp,
+		RuleID:          f.RuleID,
+		Severity:        f.Severity.String(), // typed Severity → "critical"/"high"/...
+		Category:        category,
+		Kind:            "file",
+		Locator:         locatorBytes,
+		Title:           f.Title,
+		Description:     f.Description,
+		MatchRedacted:   f.Match,
+		DedupGroupKey:   f.DedupGroupKey,
+		FixAuthority:    string(f.FixAuthority),
+		SecondaryNotify: f.SecondaryNotify,
+		FirstSeenScan:   scanID,
+		LastSeenScan:    scanID,
 	}, nil
 }
 
@@ -144,17 +147,20 @@ func depscanFindingToState(f finding.Finding, scanID int64) (state.Finding, erro
 	}
 
 	return state.Finding{
-		Fingerprint:   fp,
-		RuleID:        ruleIDForDepEcosystem(ecosystem),
-		Severity:      f.Severity.String(),
-		Category:      "deps",
-		Kind:          "dep-package",
-		Locator:       locatorBytes,
-		Title:         f.Title,
-		Description:   f.Description,
-		MatchRedacted: advisoryID,
-		FirstSeenScan: scanID,
-		LastSeenScan:  scanID,
+		Fingerprint:     fp,
+		RuleID:          ruleIDForDepEcosystem(ecosystem),
+		Severity:        f.Severity.String(),
+		Category:        "deps",
+		Kind:            "dep-package",
+		Locator:         locatorBytes,
+		Title:           f.Title,
+		Description:     f.Description,
+		MatchRedacted:   advisoryID,
+		DedupGroupKey:   f.DedupGroupKey,
+		FixAuthority:    string(f.FixAuthority),
+		SecondaryNotify: f.SecondaryNotify,
+		FirstSeenScan:   scanID,
+		LastSeenScan:    scanID,
 	}, nil
 }
 
