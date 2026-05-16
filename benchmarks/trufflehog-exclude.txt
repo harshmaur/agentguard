@@ -1,0 +1,94 @@
+(?:^|/)node_modules(?:/|$)
+(?:^|/)vendor(?:/|$)
+(?:^|/)\.git(?:/|$)
+(?:^|/)dist(?:/|$)
+(?:^|/)build(?:/|$)
+(?:^|/)target(?:/|$)
+(?:^|/)__pycache__(?:/|$)
+(?:^|/)\.next(?:/|$)
+(?:^|/)\.cache(?:/|$)
+(?:^|/)\.venv(?:/|$)
+(?:^|/)venv(?:/|$)
+(?:^|/)\.bun(?:/|$)
+(?:^|/)\.pnpm-store(?:/|$)
+(?:^|/)\.yarn(?:/|$)
+(?:^|/)\.deno(?:/|$)
+(?:^|/)\.gem(?:/|$)
+(?:^|/)\.m2(?:/|$)
+(?:^|/)\.gradle(?:/|$)
+(?:^|/)\.cargo(?:/|$)
+(?:^|/)go/pkg(?:/|$)
+(?:^|/)\.npm/_cacache(?:/|$)
+(?:^|/)\.gradle/caches(?:/|$)
+(?:^|/)Library/Caches(?:/|$)
+(?:^|/)AppData/Local/Temp(?:/|$)
+(?:^|/)AppData/Local/Microsoft/Windows/INetCache(?:/|$)
+(?:^|/)\.config/BraveSoftware(?:/|$)
+(?:^|/)\.config/google-chrome(?:/|$)
+(?:^|/)\.config/chromium(?:/|$)
+(?:^|/)\.config/microsoft-edge(?:/|$)
+(?:^|/)\.mozilla/firefox(?:/|$)
+(?:^|/)Library/Application Support/BraveSoftware(?:/|$)
+(?:^|/)Library/Application Support/Google/Chrome(?:/|$)
+(?:^|/)Library/Application Support/Chromium(?:/|$)
+(?:^|/)Library/Application Support/Microsoft Edge(?:/|$)
+(?:^|/)Library/Application Support/Firefox(?:/|$)
+(?:^|/)AppData/Local/BraveSoftware/Brave-Browser/User Data(?:/|$)
+(?:^|/)AppData/Local/Google/Chrome/User Data(?:/|$)
+(?:^|/)AppData/Local/Chromium/User Data(?:/|$)
+(?:^|/)AppData/Local/Microsoft/Edge/User Data(?:/|$)
+(?:^|/)AppData/Roaming/Mozilla/Firefox(?:/|$)
+\.apk$
+\.aab$
+\.ipa$
+\.dex$
+\.so$
+\.dll$
+\.dylib$
+\.o$
+\.a$
+\.lib$
+\.class$
+\.jar$
+\.war$
+\.ear$
+\.exe$
+\.bin$
+\.img$
+\.iso$
+\.zip$
+\.tar$
+\.gz$
+\.tgz$
+\.bz2$
+\.xz$
+\.7z$
+\.rar$
+\.pyc$
+\.pyo$
+\.whl$
+\.png$
+\.jpg$
+\.jpeg$
+\.gif$
+\.webp$
+\.ico$
+\.bmp$
+\.tiff$
+\.mp3$
+\.mp4$
+\.mov$
+\.avi$
+\.wav$
+\.flac$
+\.ogg$
+\.webm$
+\.pdf$
+\.psd$
+\.ai$
+\.eps$
+\.woff$
+\.woff2$
+\.ttf$
+\.otf$
+\.eot$
