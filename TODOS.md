@@ -176,4 +176,48 @@ Re-open this TODO if a paying customer demands Authenticode and underwrites the 
 
 **Depends on / blocked by:** Nothing. Pure maintenance. Target: v0.11.x or whenever the policy watcher gets touched next.
 
+---
+
+## TODO 12 — Dashboard "Copy AI prompt" → `internal/output.Prompt()`
+
+**What:** Migrate the daemon dashboard's "Copy AI prompt" affordance (currently driven by the templates package at `internal/templates/`) to call the shared `internal/output.Prompt()` renderer. The CLI's `audr findings show --format prompt` and the dashboard button should emit byte-equal output.
+
+**Why:** v0.13 introduced `internal/output/prompt.go` as the single source of truth for AI-prompt rendering — UNTRUSTED-CONTEXT envelope, ANSI / zero-width / Tag-block stripping, alt-delimiter fallback, triple-backtick escape. The dashboard currently runs a different code path (template-driven prose, no envelope). Without migration, the two surfaces drift: a user copying the prompt from the dashboard gets a different injection-defense posture than an agent reading the CLI output.
+
+**Pros:**
+- One renderer, two surfaces — matches DESIGN.md's surface-drift rule
+- Tightens the security posture on the dashboard (envelope + sanitization apply to "Copy AI prompt" too)
+- Reduces template surface area in `internal/templates/`
+
+**Cons:**
+- Requires a `state.Finding → finding.Finding` inverse converter for each kind (file, dep-package, os-package). The existing daemon path is one-way; reversing it preserves locator metadata but not the original Match string for dep findings (they encode "ecosystem name@version" in Match; the daemon stores parsed fields, not the original).
+- Existing template-driven prompts have rule-specific prose (OSV templates name the manifest format, etc.) — the envelope renderer would need to keep that prose accessible via `Finding.SuggestedFix` or a similar field.
+
+**Context:** Surfaced 2026-05-16 during the v0.13 plan-eng-review. Marked CHANGED rather than DONE in the plan completion audit because the work is real but the inverse-converter design needs its own pass. Target: v0.14.
+
+**Depends on / blocked by:** Nothing. Independent of any v0.13 follow-on work.
+
+---
+
+## TODO 13 — HMAC-signed `--baseline` files
+
+**What:** Stamp every `audr scan -f json` output with an HMAC over (generated_at, version, sorted finding ids) using a key in `~/.audr/baseline.key` (auto-created on first scan, mode 0600). On `audr scan --baseline=<path>` load, verify the HMAC and refuse with a clear error if missing or mismatched.
+
+**Why:** v0.13 ships the "agent cannot fake `resolved` via `.audrignore`" invariant — the diff truth runs with suppressions OFF. But the baseline file itself is unsigned plaintext JSON. An agent with write access to the baseline file can fabricate fake finding ids that the diff will mark resolved without the underlying code being fixed. Signing closes the gap.
+
+**Pros:**
+- Closes the last threat-model gap in the AI fix loop
+- Cheap implementation: one HMAC, one key file, ~50 LOC
+- Per-machine key (no user setup) keeps the UX zero-friction
+- Surfaced as a known limitation in v0.13's CHANGELOG; signing makes the security story complete
+
+**Cons:**
+- Adds a new state file (`~/.audr/baseline.key`) — small but persistent
+- Cross-machine workflows (CI baselines shipped between machines) break unless the key is also shipped, which defeats the protection. Could be opt-out via `--unsigned-baseline` flag for those workflows.
+- The threat model is bounded: a malicious agent with write access to before.json typically also has write access to the source it's "fixing", so the agent has bigger attack vectors than spoofing baseline diffs.
+
+**Context:** Surfaced 2026-05-16 during the v0.13 adversarial review (Finding 3). Documented as a known limitation in v0.13's CHANGELOG. Target: v0.14 alongside TODO 12.
+
+**Depends on / blocked by:** Nothing. Independent.
+
 

@@ -3,6 +3,107 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.13.0] - 2026-05-16 — AI fix loop (let your coding agent close the loop)
+
+Audr finds vulnerabilities. Until this release, your coding agent had to
+read the raw scan output, guess at structure, and re-run a full scan to
+confirm a fix. v0.13 turns audr into an agent-native tool: stable finding
+ids, an injection-safe prompt envelope, structured baseline diffing, and
+a JSON Schema the binary can print offline.
+
+The canonical loop:
+
+```
+audr scan . -f json -o before.json
+audr findings ls --from before.json --severity ge:high --fix-authority you
+audr findings show <id> --from before.json --format prompt   # agent reads this
+# agent edits source
+audr scan . -f json --baseline=before.json
+# read baseline_diff.resolved — the finding's id should appear there
+```
+
+### Added
+
+- **`audr findings ls`** — filter findings from a prior `audr scan -f json`
+  output. `--severity ge:high`, `--fix-authority you|maintainer|upstream`,
+  `--rule-id 'secret-*'`, `--format json|md|text`. Reads from `--from
+  <path>` or piped stdin. Emits the same Report shape as `audr scan`, with
+  filters applied and stats recomputed.
+- **`audr findings show <id>`** — render one finding as an injection-safe
+  AI prompt (`--format prompt` default), the raw Finding JSON, or human
+  text. The `<id>` is a 12-character stable fingerprint that matches the
+  dashboard's "Copy AI prompt" affordance. Short prefixes (4+ chars) work;
+  ambiguous prefixes error with all candidates listed.
+- **`audr scan --baseline=<prior.json>`** — diff the current scan against
+  a prior one. Emits a `baseline_diff` object with `resolved`,
+  `still_present`, and `newly_introduced` id lists. **The diff truth runs
+  with suppressions OFF** so an agent cannot fake "resolved" by adding a
+  rule to `.audrignore`.
+- **`audr scan --print-schema`** — print the embedded JSON Schema (Draft
+  2020-12) for the Report wire shape. The same document is served at
+  https://audr.dev/schema/report.v1.json so agents can validate audr
+  output offline or over the network.
+- **Injection-safe prompt envelope** — every AI prompt audr renders wraps
+  untrusted file content in a `<<<UNTRUSTED-CONTEXT` delimited block, with
+  ANSI escape sequences, zero-width/bidi Unicode (including the Tag
+  Characters block used in ASCII-smuggling attacks), Variation Selectors,
+  control bytes, and triple-backtick markdown fences stripped or escaped.
+  Tested against a 19-pattern adversarial corpus plus a Go fuzz target.
+- **Stable finding ids agree across surfaces** — `audr findings show
+  <id>`, the daemon dashboard's "Copy AI prompt" button, and the daemon
+  database all key on the same 12-char prefix of
+  `state.Fingerprint(rule_id, kind, locator, normalized_match)`. The
+  daemon-agreement invariant is pinned by a test that mirrors the
+  orchestrator's fingerprint dispatch byte-for-byte.
+
+### Changed
+
+- **One-shot `audr scan` reuses `~/.audr/audr.db` as a cache by default.**
+  Files whose `(mtime, size, audr_version)` match a cached row skip parse
+  + rule evaluation entirely. Daemon and CLI share the same SQLite file
+  via WAL-mode concurrent reads + serialized writes. First scan: same
+  cost as before. Second scan with no edits: typically ~100ms-500ms (down
+  from ~6s for an agent-rules + OSV scan).
+- **`audr scan -f json` output now advertises a real schema URL.** The
+  v0.12 binary advertised `https://audr.dev/schema/report.v1.json` in
+  every Report's `schema` field but the URL 404'd. v0.13 ships the JSON
+  Schema both embedded in the binary (`--print-schema`) and at the
+  hosted URL (via the audr-web repo).
+
+### Added (flags)
+
+- **`audr scan --no-cache`** — force a full rescan, bypassing the file
+  cache. Use when debugging a suspected cache artifact or to validate a
+  "still-present" finding is genuine.
+- **`audr scan --baseline=<path>`** — see Added.
+- **`audr scan --print-schema`** — see Added.
+
+### Security
+
+- The `--baseline` diff is computed against the **unsuppressed** scanner
+  result. Adding a rule to `.audrignore` between the baseline and the
+  rescan does NOT cause the matching finding to appear in
+  `baseline_diff.resolved`. Tested end-to-end via
+  `TestScanBaseline_SuppressionsOffInvariant`.
+- The one-shot scan cache opens `~/.audr/audr.db` with a new `NoRebuild`
+  state option that suppresses both the destructive self-healing DB
+  rebuild AND the `reconcileCrashedScans` mutation. A one-shot `audr
+  scan` running concurrently with the daemon will never wipe daemon
+  state or mark its in-flight scan as crashed.
+- Known limitation: the `--baseline` JSON file is not cryptographically
+  signed. An adversarial agent with write access to `before.json` can
+  fabricate fake finding ids that the diff will mark resolved. The
+  threat model: the agent operates within the user's trust boundary; a
+  malicious agent has bigger problems than spoofing baseline diffs.
+  HMAC-signed baselines tracked for a follow-up minor.
+
+### Deferred (v0.14)
+
+- Dashboard "Copy AI prompt" button migrating to the shared
+  `internal/output.Prompt()` renderer. Needs a `state.Finding →
+  finding.Finding` inverse converter; the existing template-driven
+  dashboard prompts continue to work unchanged in v0.13.
+
 ## [0.12.0] - 2026-05-16 — Idle-friendly daemon (the overnight-CPU fix)
 
 Reported pain: the daemon was hot overnight. Reality: each scan cycle
