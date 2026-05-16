@@ -3,6 +3,8 @@ package depscan
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,10 +196,6 @@ func runFallbackCommands(ctx context.Context, runner CommandRunner, commands []s
 }
 
 func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error) {
-	runner := opts.Runner
-	if runner == nil {
-		runner = execRunner{}
-	}
 	roots := opts.Roots
 	if len(roots) == 0 {
 		roots = []string{"."}
@@ -205,6 +203,21 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 	projectRoots, err := DiscoverProjectRoots(roots)
 	if err != nil {
 		return nil, err
+	}
+	return RunBackendOnProjectRoots(ctx, opts, projectRoots)
+}
+
+// RunBackendOnProjectRoots invokes the configured backend over a
+// caller-supplied list of project root directories, skipping the
+// DiscoverProjectRoots walk. The orchestrator's depscan cache uses this:
+// it discovers project roots once, fingerprints each, and only invokes
+// the sidecar for roots whose lockfiles changed.
+//
+// Empty projectRoots is a no-op (returns nil, nil).
+func RunBackendOnProjectRoots(ctx context.Context, opts RunOptions, projectRoots []string) ([]finding.Finding, error) {
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
 	}
 	if len(projectRoots) == 0 {
 		return nil, nil
@@ -224,6 +237,71 @@ func RunBackend(ctx context.Context, opts RunOptions) ([]finding.Finding, error)
 	default:
 		return nil, fmt.Errorf("unknown dependency scanner backend %q", opts.Backend)
 	}
+}
+
+// LockfileFingerprint returns a stable SHA256 over every dependency-
+// source file under projectRoot (recursive, skipping scanignore
+// directories). The fingerprint is sensitive to (relative path, mtime
+// in nanos, size), so any add/remove/edit of a lockfile changes it.
+//
+// Used by the orchestrator's depscan cache: matching fingerprint means
+// osv-scanner would produce the same output as the cached payload, and
+// the sidecar invocation can be skipped.
+//
+// Returns "" iff no dependency-source files exist under projectRoot.
+// Errors are propagated only for unrecoverable problems (e.g. permission
+// denied on the root itself); per-file stat errors are silently skipped
+// because a transient stat failure shouldn't poison the whole cache.
+func LockfileFingerprint(projectRoot string) (string, error) {
+	type entry struct {
+		rel   string
+		mtime int64
+		size  int64
+	}
+	var entries []entry
+	walkErr := filepath.WalkDir(projectRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path == projectRoot {
+				return nil
+			}
+			if shouldSkipDir(d.Name()) || shouldSkipPath(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isDependencySourceFile(d.Name()) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(projectRoot, path)
+		if err != nil {
+			return nil
+		}
+		entries = append(entries, entry{
+			rel:   filepath.ToSlash(rel),
+			mtime: info.ModTime().UnixNano(),
+			size:  info.Size(),
+		})
+		return nil
+	})
+	if walkErr != nil {
+		return "", walkErr
+	}
+	if len(entries) == 0 {
+		return "", nil
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].rel < entries[j].rel })
+	h := sha256.New()
+	for _, e := range entries {
+		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", e.rel, e.mtime, e.size)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func DiscoverProjectRoots(roots []string) ([]string, error) {

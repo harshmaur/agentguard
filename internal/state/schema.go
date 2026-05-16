@@ -125,6 +125,26 @@ var migrations = []string{
 	CREATE INDEX IF NOT EXISTS findings_dedup_group   ON findings(dedup_group_key);
 	CREATE INDEX IF NOT EXISTS findings_fix_authority ON findings(fix_authority);
 	`,
+
+	// v4 (2026-05-16): scan_cache enables incremental scanning. The
+	// orchestrator wraps expensive sidecar invocations (osv-scanner over
+	// lockfiles, ospkg enumerator over the package DB) in a fingerprint
+	// check — when nothing relevant has changed since the last scan, the
+	// prior payload is reused and the sidecar is skipped entirely.
+	//
+	// scope is the cache key (e.g. "deps:/home/u/projects/foo",
+	// "ospkg:dpkg"). fingerprint is opaque to the schema — the producer
+	// chooses what inputs to mix in (lockfile mtimes for deps, package-db
+	// mtime for ospkg). payload holds the JSON-encoded findings slice the
+	// sidecar produced for those inputs.
+	`
+	CREATE TABLE IF NOT EXISTS scan_cache (
+		scope        TEXT    PRIMARY KEY,
+		fingerprint  TEXT    NOT NULL,
+		payload      BLOB    NOT NULL,
+		scanned_at   INTEGER NOT NULL
+	);
+	`,
 }
 
 // runMigrations applies any migrations newer than the current schema

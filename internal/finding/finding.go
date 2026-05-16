@@ -41,6 +41,31 @@ func (s Severity) String() string {
 // MarshalJSON renders Severity as its string form.
 func (s Severity) MarshalJSON() ([]byte, error) { return json.Marshal(s.String()) }
 
+// UnmarshalJSON parses the string form back into a Severity. Required
+// for any persistence layer that round-trips Finding JSON — without it,
+// json.Unmarshal sees a string token where the underlying int type is
+// expected and fails. Unknown / unset strings collapse to Medium so a
+// corrupt cache row degrades gracefully instead of dropping the row.
+func (s *Severity) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	switch raw {
+	case "critical":
+		*s = SeverityCritical
+	case "high":
+		*s = SeverityHigh
+	case "medium", "":
+		*s = SeverityMedium
+	case "low":
+		*s = SeverityLow
+	default:
+		*s = SeverityMedium
+	}
+	return nil
+}
+
 // Taxonomy is the enforced/detectable/advisory classification from the design
 // doc. Every finding carries one — buyers depend on this label being honest.
 type Taxonomy string

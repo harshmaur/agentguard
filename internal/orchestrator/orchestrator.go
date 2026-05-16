@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -96,6 +97,25 @@ type Options struct {
 	// (npm / pip / cargo / maven / etc.). Defaults to true iff
 	// osv-scanner is on PATH; tests pin to false.
 	RunDeps *bool
+
+	// DepsRunner overrides the command runner the deps scanner uses to
+	// invoke osv-scanner. nil → lowprio.Runner{} (production default).
+	// Tests inject a stub so they can assert on invocation counts (to
+	// verify the depscan cache is short-circuiting osv-scanner calls).
+	DepsRunner depscan.CommandRunner
+
+	// OSPkgScanner overrides the function the orchestrator uses to
+	// enumerate + scan OS packages. nil → ospkg.EnumerateAndScan
+	// (production). Tests inject a stub that returns canned vulns and
+	// records call counts to verify the ospkg cache is short-circuiting
+	// the dpkg-query / rpm / apk pipeline.
+	OSPkgScanner func(ctx context.Context) ([]ospkg.Vulnerability, error)
+
+	// OSPkgFingerprint overrides the package-DB fingerprinter. nil →
+	// ospkg.PackageDBFingerprint (production). Tests return a value
+	// they control so they can exercise both cache-hit and
+	// fingerprint-mismatch paths without needing a real package DB.
+	OSPkgFingerprint func() (string, error)
 
 	// HomeDir is used to discover AI chat transcript paths. Empty
 	// defaults to os.UserHomeDir().
@@ -662,11 +682,64 @@ func (o *Orchestrator) runOSPkg(ctx context.Context, scanID int64, seen map[stri
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	vulns, err := ospkg.EnumerateAndScan(ctx)
-	if err != nil {
-		return err
+	fingerprinter := o.opts.OSPkgFingerprint
+	if fingerprinter == nil {
+		fingerprinter = ospkg.PackageDBFingerprint
 	}
-	o.log.Info("os-pkg scan", "vulnerabilities", len(vulns))
+	scanner := o.opts.OSPkgScanner
+	if scanner == nil {
+		scanner = ospkg.EnumerateAndScan
+	}
+	const cacheScope = "ospkg:current"
+
+	// Fingerprint first. If it matches the prior cache row, the
+	// dpkg-query / rpm / apk → SBOM → osv-scanner pipeline can be
+	// skipped entirely — on most dev machines the OS package set sits
+	// unchanged for days, and re-running the pipeline every 10 minutes
+	// only re-derives the same vulns list at full sidecar cost.
+	fp, fpErr := fingerprinter()
+	if fpErr != nil {
+		o.log.Warn("os-pkg: fingerprint failed; running fresh", "err", fpErr)
+	}
+
+	var vulns []ospkg.Vulnerability
+	cacheHit := false
+	if fp != "" {
+		entry, ok, gErr := o.opts.Store.GetScanCache(ctx, cacheScope)
+		if gErr != nil {
+			o.log.Warn("os-pkg: cache lookup failed; running fresh", "err", gErr)
+		} else if ok && entry.Fingerprint == fp {
+			var cached []ospkg.Vulnerability
+			if uErr := json.Unmarshal(entry.Payload, &cached); uErr != nil {
+				o.log.Warn("os-pkg: cache payload corrupt; running fresh", "err", uErr)
+			} else {
+				vulns = cached
+				cacheHit = true
+			}
+		}
+	}
+
+	if !cacheHit {
+		fresh, err := scanner(ctx)
+		if err != nil {
+			return err
+		}
+		vulns = fresh
+		if fp != "" {
+			payload, mErr := json.Marshal(vulns)
+			if mErr != nil {
+				o.log.Warn("os-pkg: marshal cache payload", "err", mErr)
+			} else if pErr := o.opts.Store.PutScanCache(state.ScanCacheEntry{
+				Scope:       cacheScope,
+				Fingerprint: fp,
+				Payload:     payload,
+			}); pErr != nil {
+				o.log.Warn("os-pkg: persist cache row", "err", pErr)
+			}
+		}
+	}
+
+	o.log.Info("os-pkg scan", "vulnerabilities", len(vulns), "cached", cacheHit)
 
 	for _, v := range vulns {
 		locator, err := json.Marshal(map[string]any{
@@ -729,17 +802,97 @@ func (o *Orchestrator) runDeps(ctx context.Context, scanID int64, seen map[strin
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	findings, err := depscan.RunBackend(ctx, depscan.RunOptions{
-		Backend: depscan.BackendOSVScanner,
-		Roots:   o.opts.Roots,
-		Runner:  lowprio.Runner{},
-	})
+	projectRoots, err := depscan.DiscoverProjectRoots(o.opts.Roots)
 	if err != nil {
-		return err
+		return fmt.Errorf("discover project roots: %w", err)
 	}
-	o.log.Info("deps scan", "vulnerabilities", len(findings))
+	if len(projectRoots) == 0 {
+		o.log.Info("deps scan", "vulnerabilities", 0, "cached_roots", 0, "scanned_roots", 0)
+		return nil
+	}
 
-	for _, f := range findings {
+	// Partition project roots into cache-hits (reuse payload, skip
+	// osv-scanner) and cache-misses (fingerprint changed or no prior
+	// entry — must rescan). Without this, osv-scanner re-walks every
+	// lockfile in $HOME each cycle even when nothing changed.
+	var cachedFindings []finding.Finding
+	fingerprints := make(map[string]string, len(projectRoots))
+	var staleRoots []string
+	for _, root := range projectRoots {
+		fp, fpErr := depscan.LockfileFingerprint(root)
+		if fpErr != nil {
+			o.log.Warn("deps: fingerprint failed; treating root as stale", "root", root, "err", fpErr)
+			staleRoots = append(staleRoots, root)
+			continue
+		}
+		fingerprints[root] = fp
+		entry, ok, gErr := o.opts.Store.GetScanCache(ctx, depsCacheScope(root))
+		if gErr != nil {
+			o.log.Warn("deps: cache lookup failed; treating root as stale", "root", root, "err", gErr)
+			staleRoots = append(staleRoots, root)
+			continue
+		}
+		if !ok || entry.Fingerprint != fp || fp == "" {
+			staleRoots = append(staleRoots, root)
+			continue
+		}
+		var rfindings []finding.Finding
+		if uErr := json.Unmarshal(entry.Payload, &rfindings); uErr != nil {
+			o.log.Warn("deps: cache payload corrupt; treating root as stale", "root", root, "err", uErr)
+			staleRoots = append(staleRoots, root)
+			continue
+		}
+		cachedFindings = append(cachedFindings, rfindings...)
+	}
+
+	var freshFindings []finding.Finding
+	if len(staleRoots) > 0 {
+		runner := o.opts.DepsRunner
+		if runner == nil {
+			runner = lowprio.Runner{}
+		}
+		freshFindings, err = depscan.RunBackendOnProjectRoots(ctx, depscan.RunOptions{
+			Backend: depscan.BackendOSVScanner,
+			Runner:  runner,
+		}, staleRoots)
+		if err != nil {
+			return err
+		}
+		// Bin fresh findings by owning project root and upsert a cache
+		// row per stale root — including roots that returned zero
+		// findings (their fingerprint match is what skips next cycle).
+		byRoot := groupDepFindingsByRoot(freshFindings, staleRoots)
+		for _, root := range staleRoots {
+			fp := fingerprints[root]
+			if fp == "" {
+				// Fingerprint was missing for this root; nothing useful
+				// to cache because we can't detect "unchanged" later.
+				continue
+			}
+			payload, mErr := json.Marshal(byRoot[root])
+			if mErr != nil {
+				o.log.Warn("deps: marshal cache payload", "root", root, "err", mErr)
+				continue
+			}
+			if pErr := o.opts.Store.PutScanCache(state.ScanCacheEntry{
+				Scope:       depsCacheScope(root),
+				Fingerprint: fp,
+				Payload:     payload,
+			}); pErr != nil {
+				o.log.Warn("deps: persist cache row", "root", root, "err", pErr)
+			}
+		}
+	}
+
+	total := len(cachedFindings) + len(freshFindings)
+	o.log.Info("deps scan",
+		"vulnerabilities", total,
+		"cached_roots", len(projectRoots)-len(staleRoots),
+		"scanned_roots", len(staleRoots),
+	)
+
+	all := append(cachedFindings, freshFindings...)
+	for _, f := range all {
 		// v1.3: fill triage fields (DedupGroupKey + FixAuthority +
 		// SecondaryNotify) BEFORE conversion so the state row carries
 		// the rolled-up partition. depscan's OSV emitter pre-populates
@@ -756,6 +909,55 @@ func (o *Orchestrator) runDeps(ctx context.Context, scanID int64, seen map[strin
 		}
 	}
 	return nil
+}
+
+func depsCacheScope(projectRoot string) string {
+	return "deps:" + projectRoot
+}
+
+// groupDepFindingsByRoot bins findings by which project root's tree
+// they live under. Each finding has Path = the manifest file
+// osv-scanner inspected; the owning root is the longest projectRoots
+// prefix. A finding whose Path doesn't match any root (osv-scanner
+// emitted a relative path, or the path got rewritten somewhere) falls
+// back to the first root — better than dropping it, since the next
+// cycle's mtime check will reproduce it.
+func groupDepFindingsByRoot(findings []finding.Finding, projectRoots []string) map[string][]finding.Finding {
+	sorted := append([]string(nil), projectRoots...)
+	sort.Slice(sorted, func(i, j int) bool { return len(sorted[i]) > len(sorted[j]) })
+	out := make(map[string][]finding.Finding, len(projectRoots))
+	for _, root := range projectRoots {
+		out[root] = nil
+	}
+	for _, f := range findings {
+		matched := false
+		for _, root := range sorted {
+			if pathHasPathPrefix(f.Path, root) {
+				out[root] = append(out[root], f)
+				matched = true
+				break
+			}
+		}
+		if !matched && len(projectRoots) > 0 {
+			out[projectRoots[0]] = append(out[projectRoots[0]], f)
+		}
+	}
+	return out
+}
+
+// pathHasPathPrefix reports whether path lives under prefix as a
+// directory-aligned subpath — true iff path == prefix or path starts
+// with prefix + separator. Avoids false matches like "/foo-bar" being
+// classified under "/foo".
+func pathHasPathPrefix(path, prefix string) bool {
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := path[len(prefix):]
+	if rest == "" {
+		return true
+	}
+	return rest[0] == '/' || rest[0] == filepath.Separator
 }
 
 // persistFindings converts each finding.Finding into a state.Finding
