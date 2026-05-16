@@ -156,3 +156,24 @@ Re-open this TODO if a paying customer demands Authenticode and underwrites the 
 
 **Depends on / blocked by:** TODO 4 (BYOD privacy mode design-partner cycle) OR a v1.3 user explicitly asking for it. Target: v1.4 if a design partner asks, else v2.
 
+---
+
+## TODO 11 — macOS watcher tests flake on CI (`internal/policy`)
+
+**What:** `TestWatcher_DebouncesBursts` and `TestWatcher_ParallelFiresStayBounded` in `internal/policy/watcher_test.go` intermittently fail on macOS CI runners (most recently on PR #13's `test-macos` job; passed clean locally). Failure is `watcher never fired` — the kqueue-backed fsnotify watcher misses callbacks under macOS's burstier event coalescing.
+
+**Why:** Flaky CI erodes trust in the test suite. A real macOS-only regression would currently hide in the noise. The fix is the v1.2 fsnotify policy-watcher work (commit `5bfd998 fix(policy): watch policy.yaml file directly on macOS (kqueue)`) — same family of issues, same root cause.
+
+**Pros:**
+- Restores the macOS CI signal to "fail means regression."
+- Same fsnotify code path that the daemon depends on in production for `~/.audr/policy.yaml` hot-reload. If it flakes in tests, the hot-reload may also miss edits under bursty conditions.
+
+**Cons:**
+- kqueue/FSEvents timing is system-load-dependent; "fix the flake" can become "make the assertion looser," which masks real bugs.
+- Possible upstream `fsnotify/fsnotify` issue rather than ours.
+
+**Context:** Surfaced 2026-05-16 during /land-and-deploy of v0.10.1 (PR #13). v0.10.0 CI was clean — flake is intermittent, not deterministic. Likely fixes: longer debounce window in tests, retry-on-timeout, or watch via polling fallback under macOS CI runners.
+
+**Depends on / blocked by:** Nothing. Pure maintenance. Target: v0.11.x or whenever the policy watcher gets touched next.
+
+
