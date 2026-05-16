@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/harshmaur/audr/internal/scan"
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/state"
+	"github.com/harshmaur/audr/internal/triage"
 )
 
 // Orchestrator drives audr's scanning cadence: runs the existing
@@ -736,6 +738,11 @@ func (o *Orchestrator) runDeps(ctx context.Context, scanID int64, seen map[strin
 	o.log.Info("deps scan", "vulnerabilities", len(findings))
 
 	for _, f := range findings {
+		// v1.3: fill triage fields (DedupGroupKey + FixAuthority +
+		// SecondaryNotify) BEFORE conversion so the state row carries
+		// the rolled-up partition. depscan's OSV emitter pre-populates
+		// DedupGroupKey; FixAuthority is path-derived here.
+		f = triage.FillTriageFields(f, o.opts.HomeDir)
 		sf, err := depscanFindingToState(f, scanID)
 		if err != nil {
 			o.log.Warn("deps: convert finding", "rule_id", f.RuleID, "err", err)
@@ -754,6 +761,16 @@ func (o *Orchestrator) runDeps(ctx context.Context, scanID int64, seen map[strin
 // Records each fingerprint in seen for resolution detection.
 func (o *Orchestrator) persistFindings(scanID int64, findings []finding.Finding, seen map[string]struct{}) error {
 	for _, f := range findings {
+		// v1.3 triage: classify path → fix authority + maintainer hint
+		// and fill DedupGroupKey for any rule that didn't pre-populate.
+		// Secret-family rules require the YOU-forced authority — they
+		// always rotate, even when the leaked path lives in a vendor dir.
+		f = triage.FillTriageFields(f, o.opts.HomeDir)
+		if isSecretRule(f.RuleID) {
+			auth, secondary := triage.ForSecret(f.FixAuthority, f.SecondaryNotify)
+			f.FixAuthority = auth
+			f.SecondaryNotify = secondary
+		}
 		category := categorizeRuleID(f.RuleID)
 		stateFinding, err := findingToStateFinding(f, scanID, category)
 		if err != nil {
@@ -766,6 +783,14 @@ func (o *Orchestrator) persistFindings(scanID int64, findings []finding.Finding,
 		}
 	}
 	return nil
+}
+
+// isSecretRule reports whether a rule emits secret-family findings.
+// Secret rules need the FixAuthority=YOU clamp because a leaked key must
+// be rotated regardless of which file it appeared in — the path-class
+// table only tells us where to ALSO notify (SecondaryNotify).
+func isSecretRule(ruleID string) bool {
+	return strings.HasPrefix(ruleID, "secret-")
 }
 
 // scannerStatusFor returns the terminal status of the scanner that

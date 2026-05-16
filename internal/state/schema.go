@@ -96,15 +96,49 @@ var migrations = []string{
 
 	PRAGMA foreign_keys = ON;
 	`,
+
+	// v3 (2026-05-15): v1.3 "loveable daily driver" dedup engine.
+	//
+	// Adds three columns to findings — dedup_group_key (groups rows
+	// that represent the same vulnerability across paths),
+	// fix_authority (who can actually act: "you" | "maintainer" |
+	// "upstream"), secondary_notify (maintainer hint when applicable).
+	//
+	// The migration WIPES all existing finding rows on purpose:
+	// pre-v3 rows have no triage metadata, the dedup engine cannot
+	// retroactively classify them without re-deriving from rule
+	// output, and the daemon's next scan repopulates everything
+	// within ~1 cycle (typically 60s). Trading first_seen_at
+	// continuity for the simplest correct migration path. See
+	// design doc fork 3 + the v3 baseline-reset notice cmd/audr
+	// prints on the first post-v3 scan.
+	//
+	// Two new indexes cover the rolled-up dashboard query
+	// (GROUP BY dedup_group_key, fix_authority).
+	`
+	DELETE FROM findings;
+
+	ALTER TABLE findings ADD COLUMN dedup_group_key TEXT;
+	ALTER TABLE findings ADD COLUMN fix_authority TEXT;
+	ALTER TABLE findings ADD COLUMN secondary_notify TEXT;
+
+	CREATE INDEX IF NOT EXISTS findings_dedup_group   ON findings(dedup_group_key);
+	CREATE INDEX IF NOT EXISTS findings_fix_authority ON findings(fix_authority);
+	`,
 }
 
 // runMigrations applies any migrations newer than the current schema
 // version. Idempotent: re-running after a clean run is a no-op.
 // On a fresh DB the schema_version table itself is created first.
-func runMigrations(ctx context.Context, db *sql.DB) error {
+//
+// Returns the slice of migration versions that were APPLIED THIS RUN
+// (empty when nothing changed). Callers use this to surface one-shot
+// post-migration notices — e.g. v3 baseline-reset for the v1.3 dedup
+// engine.
+func runMigrations(ctx context.Context, db *sql.DB) (appliedThisRun []int, err error) {
 	// schema_version is a one-row table — always (version=N).
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
-		return fmt.Errorf("create schema_version: %w", err)
+		return nil, fmt.Errorf("create schema_version: %w", err)
 	}
 
 	var current int
@@ -112,7 +146,7 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 	if err := row.Scan(&current); err != nil {
 		// No row yet. Insert version=0 to seed.
 		if _, err := db.ExecContext(ctx, `INSERT INTO schema_version (version) VALUES (0)`); err != nil {
-			return fmt.Errorf("seed schema_version: %w", err)
+			return nil, fmt.Errorf("seed schema_version: %w", err)
 		}
 		current = 0
 	}
@@ -123,11 +157,12 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 			continue
 		}
 		if err := applyOneMigration(ctx, db, v, sqlText); err != nil {
-			return fmt.Errorf("apply migration v%d: %w", v, err)
+			return appliedThisRun, fmt.Errorf("apply migration v%d: %w", v, err)
 		}
+		appliedThisRun = append(appliedThisRun, v)
 		current = v
 	}
-	return nil
+	return appliedThisRun, nil
 }
 
 func applyOneMigration(ctx context.Context, db *sql.DB, version int, body string) error {
