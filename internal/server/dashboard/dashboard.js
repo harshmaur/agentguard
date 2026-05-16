@@ -50,6 +50,12 @@
   }
 
   // ----- State ----------------------------------------------------
+  // v1.3: state.findings holds ROLLED-UP rows (one per unique vulnerability,
+  // partitioned by FixAuthority). Each row has shape:
+  //   { dedup_group_key, worst_severity, category, rule_id, title,
+  //     description, path_count, groups: [ { fix_authority, secondary_notify,
+  //     path_count, paths: [{ fingerprint, path }] } ], first_seen }
+  // The expanded state is keyed by dedup_group_key.
   const state = {
     findings: [],
     metrics: null,
@@ -64,10 +70,6 @@
     // event. Powers the "WATCHING — last scan X min ago" sub-label.
     lastScanCompletedAt: 0,
     dismissedBanners: new Set(),
-    // Fingerprints currently animating their resolved → removed
-    // transition. Excluded from render() so the JS doesn't blow them
-    // away mid-animation; the timer that animates them owns deletion.
-    resolving: new Set(),
   };
 
   const SCAN_CATEGORIES = ['ai-agent', 'secrets', 'deps', 'os-pkg'];
@@ -134,11 +136,19 @@
   }
 
   // ----- Findings list --------------------------------------------
+  //
+  // state.findings holds rolled-up vulnerability rows from
+  // /api/findings/rollup (see comment on `state` above). Each row's
+  // identity is dedup_group_key; severity is `worst_severity` across
+  // member findings. Filtering / grouping match the v1.2 surface so
+  // the filter chips and severity sections behave identically — the
+  // only behaviour change is "one row per CVE, expand to see paths"
+  // instead of "one row per path."
   function filteredFindings() {
     const { category, severity } = state.filters;
-    return state.findings.filter((f) => {
-      if (category !== 'all' && f.category !== category) return false;
-      if (severity !== 'all' && f.severity !== severity) return false;
+    return state.findings.filter((row) => {
+      if (category !== 'all' && row.category !== category) return false;
+      if (severity !== 'all' && row.worst_severity !== severity) return false;
       return true;
     });
   }
@@ -147,124 +157,209 @@
   const SEV_CLASS = { critical: 'crit', high: 'high', medium: 'medium', low: 'low' };
   const SEV_LABEL = { critical: 'CRITICAL', high: 'HIGH', medium: 'MEDIUM', low: 'LOW' };
 
-  function locatorMeta(f) {
-    const loc = f.locator || {};
-    if (f.kind === 'os-package') {
-      return el('code', { text: `${loc.manager || '?'}:${loc.name || '?'} ${loc.version || ''}` });
-    }
-    if (f.kind === 'dep-package') {
-      return el('code', { text: `${loc.ecosystem || '?'}:${loc.name || '?'}@${loc.version || ''}` });
-    }
-    const line = loc.line ? `:${loc.line}` : '';
-    return el('code', { text: (loc.path || '?') + line });
-  }
+  const AUTH_LABEL = {
+    you: 'YOU CAN FIX',
+    maintainer: 'PLUGIN MAINTAINER FIXES',
+    upstream: 'MARKETPLACE / UPSTREAM',
+  };
+  // Numerical glyphs that read at a glance in expanded detail headers.
+  // Kept text-only (no emoji) so they fit the monospace voice and
+  // copy-paste cleanly into bug reports / screenshots.
+  const AUTH_GLYPH = { you: '①', maintainer: '②', upstream: '③' };
 
-  function renderFindingRow(f) {
-    const isOpen = state.expanded.has(f.fingerprint);
-    const resolving = state.resolving.has(f.fingerprint);
-    const row = el(
+  function renderFindingRow(row) {
+    const key = row.dedup_group_key;
+    const isOpen = state.expanded.has(key);
+    const pathLabel = row.path_count === 1 ? '1 path' : `${row.path_count} paths`;
+    return el(
       'article',
       {
-        class: 'finding' + (resolving ? ' resolving' : ''),
-        dataset: { fingerprint: f.fingerprint, severity: f.severity, category: f.category },
+        class: 'finding',
+        dataset: { key, severity: row.worst_severity, category: row.category },
         'aria-expanded': isOpen ? 'true' : 'false',
         onclick: (e) => {
-          if (e.target.closest('.copy-btn')) return; // copy button has its own handler
-          if (isOpen) state.expanded.delete(f.fingerprint);
-          else state.expanded.add(f.fingerprint);
+          // Buttons inside the expanded detail manage their own state;
+          // ignore their bubbles so the row doesn't collapse on click.
+          if (e.target.closest('.copy-btn, .file-issue-btn, .auth-paths, .snippet-pre')) return;
+          if (isOpen) state.expanded.delete(key);
+          else state.expanded.add(key);
           render();
         },
       },
-      el('div', { class: 'finding-bar ' + SEV_CLASS[f.severity] }),
+      el('div', { class: 'finding-bar ' + SEV_CLASS[row.worst_severity] }),
       el(
         'div',
         { class: 'finding-body' },
         el(
           'div',
           { class: 'finding-line1' },
-          el('span', { class: 'sev-label ' + SEV_CLASS[f.severity], text: SEV_LABEL[f.severity] }),
-          el('span', { class: 'cat-tag', text: f.category.toUpperCase() }),
-          el('span', { class: 'finding-title', text: f.title }),
+          el('span', { class: 'sev-label ' + SEV_CLASS[row.worst_severity], text: SEV_LABEL[row.worst_severity] }),
+          el('span', { class: 'cat-tag', text: (row.category || '').toUpperCase() }),
+          el('span', { class: 'finding-title', text: row.title || row.rule_id }),
+          el('span', { class: 'path-count', text: pathLabel }),
         ),
         el(
           'div',
           { class: 'finding-meta' },
-          locatorMeta(f),
-          el('span', { text: 'first seen ' + formatRelative(f.first_seen) }),
-          el('span', { text: 'rule ' + f.rule_id }),
+          el('span', { text: 'first seen ' + formatRelative(row.first_seen) }),
+          el('span', { text: 'rule ' + row.rule_id }),
         ),
-        isOpen ? expandedDetail(f) : null,
+        isOpen ? expandedDetail(row) : null,
       ),
     );
-    return row;
   }
 
-  function expandedDetail(f) {
-    const human = el('pre', { class: 'manual-steps', text: 'loading…' });
-    const ai = el('div', { class: 'prompt-preview', text: 'loading…' });
-    const btn = el(
-      'button',
-      {
-        class: 'copy-btn',
-        type: 'button',
-        onclick: async (e) => {
-          e.stopPropagation();
-          await onCopy(btn, f.fingerprint);
-        },
-      },
-      'COPY AI PROMPT',
-    );
-
-    // Lazy-fetch remediation only when the row opens.
-    apiGet('/api/remediation/' + encodeURIComponent(f.fingerprint))
-      .then((r) => {
-        human.textContent = r.human_steps;
-        ai.textContent = r.ai_prompt;
-        btn.dataset.prompt = r.ai_prompt;
-      })
-      .catch((err) => {
-        human.textContent = 'failed to load remediation: ' + err.message;
-        ai.textContent = '';
-      });
-
+  // expandedDetail renders the three fix-authority sub-groups inside
+  // an opened vulnerability row. Each sub-group reuses the existing
+  // .detail-section / .copy-btn visual language; the only new chrome
+  // is the AUTH_GLYPH heading prefix and the override-snippet F3
+  // disclaimer line.
+  function expandedDetail(row) {
+    const desc = row.description
+      ? el('p', { class: 'detail-desc', text: row.description })
+      : null;
+    const groupSections = (row.groups || []).map((g) => renderAuthGroup(row, g));
     return el(
       'div',
-      { class: 'expanded-detail' },
+      { class: 'expanded-detail rollup-detail' },
       el(
         'div',
-        { class: 'detail-section' },
-        el('h4', { text: f.match_redacted ? 'What an attacker gets' : 'Description' }),
-        el('p', { class: 'detail-desc', text: f.description }),
-        f.match_redacted ? el('p', { class: 'detail-desc', text: 'Matched: ' + f.match_redacted }) : null,
-        el('h4', { style: 'margin-top: 20px;', text: 'Manual fix' }),
-        human,
-      ),
-      el(
-        'div',
-        { class: 'detail-section' },
-        el('h4', { text: 'Or ask your coding agent' }),
-        btn,
-        ai,
+        { class: 'detail-section detail-wide' },
+        desc,
+        ...groupSections,
       ),
     );
   }
 
-  async function onCopy(btn, fingerprint) {
-    let text = btn.dataset.prompt;
-    if (!text) {
-      try {
-        const r = await apiGet('/api/remediation/' + encodeURIComponent(fingerprint));
-        text = r.ai_prompt;
-        btn.dataset.prompt = text;
-      } catch (e) {
-        btn.textContent = 'COPY FAILED';
-        return;
-      }
+  function renderAuthGroup(row, group) {
+    const auth = group.fix_authority || 'you';
+    const pathLabel = group.path_count === 1 ? '1 path' : `${group.path_count} paths`;
+    const heading = el(
+      'h4',
+      { class: 'auth-heading auth-' + auth },
+      el('span', { class: 'auth-glyph', text: AUTH_GLYPH[auth] || '·' }),
+      el('span', { text: ' ' + (AUTH_LABEL[auth] || auth.toUpperCase()) }),
+      el('span', { class: 'auth-count', text: pathLabel }),
+    );
+    return el(
+      'div',
+      { class: 'auth-group', dataset: { authority: auth } },
+      heading,
+      authActionFor(row, group),
+      renderAuthPaths(group),
+    );
+  }
+
+  // authActionFor renders the action area for one fix-authority bucket.
+  // ① YOU CAN FIX: lazy-load the override snippet + copy button + F3 disclaimer.
+  // ② PLUGIN MAINTAINER FIXES: lazy-load the GH issue URL + "File issue" button
+  //    (falls back to "Copy report to clipboard" for unknown maintainers).
+  // ③ MARKETPLACE / UPSTREAM: static note — only the upstream maintainer can fix.
+  function authActionFor(row, group) {
+    const firstPath = (group.paths || [])[0];
+    if (!firstPath) return null;
+    const fp = firstPath.fingerprint;
+    const auth = group.fix_authority;
+    if (auth === 'you') return renderYouAction(fp);
+    if (auth === 'maintainer') return renderMaintainerAction(fp, group.secondary_notify);
+    if (auth === 'upstream') {
+      return el(
+        'p',
+        { class: 'detail-desc' },
+        'Only the original maintainer can fix this. Re-scan after a patched release is published.',
+      );
     }
+    return null;
+  }
+
+  function renderYouAction(fingerprint) {
+    const container = el('div', { class: 'auth-action' },
+      el('div', { class: 'manual-steps', text: 'loading override snippet…' }),
+    );
+    apiGet('/api/remediate/snippet/' + encodeURIComponent(fingerprint))
+      .then((data) => {
+        container.replaceChildren();
+        if (!data.snippet) {
+          container.append(el('p', { class: 'detail-desc',
+            text: 'No upstream fix available yet — track the advisory and rescan after a release.' }));
+          return;
+        }
+        if (data.lockfile_format || data.lockfile_path) {
+          container.append(el('div', { class: 'snippet-meta' },
+            (data.lockfile_format ? `${data.lockfile_format} · ` : '') +
+            'paste into ' + (data.lockfile_path || 'your manifest')));
+        }
+        container.append(el('pre', { class: 'manual-steps snippet-pre', text: data.snippet }));
+        const btn = el('button', { class: 'copy-btn', type: 'button',
+          onclick: (e) => { e.stopPropagation(); onCopyText(btn, data.snippet); } },
+          'COPY SNIPPET');
+        container.append(btn);
+        if (data.disclaimer) {
+          container.append(el('p', { class: 'snippet-disclaimer', text: data.disclaimer }));
+        }
+      })
+      .catch((err) => {
+        container.replaceChildren(
+          el('p', { class: 'detail-desc', text: 'failed to load snippet: ' + err.message }),
+        );
+      });
+    return container;
+  }
+
+  function renderMaintainerAction(fingerprint, vendorHint) {
+    const container = el('div', { class: 'auth-action' },
+      el('div', { class: 'detail-desc', text: 'loading maintainer link…' }),
+    );
+    apiGet('/api/remediate/maintainer/' + encodeURIComponent(fingerprint))
+      .then((data) => {
+        container.replaceChildren();
+        const label = data.label_hint || vendorHint || 'plugin author';
+        if (data.issue_url) {
+          const btn = el('a', {
+            class: 'copy-btn file-issue-btn',
+            href: data.issue_url,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            onclick: (e) => { e.stopPropagation(); },
+          }, 'FILE ISSUE WITH ' + label.toUpperCase());
+          container.append(btn);
+        } else {
+          // Unknown maintainer — clipboard-copy fallback so the user
+          // can paste into whichever tracker the maintainer uses.
+          const btn = el('button', { class: 'copy-btn', type: 'button',
+            onclick: (e) => { e.stopPropagation(); onCopyText(btn, data.body_markdown); } },
+            'COPY REPORT FOR ' + label.toUpperCase());
+          container.append(btn);
+          container.append(el('p', { class: 'detail-desc',
+            text: 'No canonical issue tracker for this vendor — paste the copied report into whichever tracker they publish.' }));
+        }
+      })
+      .catch((err) => {
+        container.replaceChildren(
+          el('p', { class: 'detail-desc', text: 'failed to load maintainer link: ' + err.message }),
+        );
+      });
+    return container;
+  }
+
+  function renderAuthPaths(group) {
+    const paths = group.paths || [];
+    if (paths.length === 0) return null;
+    const list = el('ol', { class: 'auth-paths' },
+      ...paths.map((p) => el('li', {}, el('code', { text: p.path || '(no path)' }))),
+    );
+    if (group.path_count > paths.length) {
+      list.append(el('li', { class: 'auth-paths-more',
+        text: `… ${group.path_count - paths.length} more (server-capped; widen via ?cap=0)` }));
+    }
+    return list;
+  }
+
+  async function onCopyText(btn, text) {
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      // Fallback for browsers blocking clipboard on http://
       const ta = document.createElement('textarea');
       ta.value = text;
       ta.style.position = 'fixed';
@@ -274,7 +369,7 @@
       try { document.execCommand('copy'); } catch (_) {}
       ta.remove();
     }
-    const original = 'COPY AI PROMPT';
+    const original = btn.textContent;
     btn.textContent = 'COPIED ✓';
     btn.classList.add('copied');
     setTimeout(() => {
@@ -293,9 +388,10 @@
       return;
     }
 
-    // Group by severity.
+    // Group rolled-up rows by worst severity, identical chrome to the
+    // pre-v1.3 flat view (collapsed-by-default MEDIUM + LOW sections).
     const grouped = { critical: [], high: [], medium: [], low: [] };
-    for (const f of filtered) (grouped[f.severity] || []).push(f);
+    for (const row of filtered) (grouped[row.worst_severity] || []).push(row);
 
     for (const sev of SEV_ORDER) {
       const group = grouped[sev];
@@ -649,30 +745,21 @@
     src.addEventListener('hello', () => { /* connected */ });
     src.addEventListener('heartbeat', () => { /* keep-alive */ });
 
-    src.addEventListener('finding-opened', (e) => {
-      const f = parseEvent(e);
-      if (!f) return;
-      upsertFinding(f);
-      recomputeMetrics();
-      scheduleRender();
-    });
-
-    src.addEventListener('finding-updated', (e) => {
-      const f = parseEvent(e);
-      if (!f) return;
-      upsertFinding(f);
-      recomputeMetrics();
-      scheduleRender();
-    });
-
-    src.addEventListener('finding-resolved', (e) => {
-      const f = parseEvent(e);
-      if (!f) return;
-      animateResolution(f.fingerprint);
+    // v1.3: finding-level SSE events trigger a debounced re-fetch of
+    // the rolled-up view. Incremental upsert doesn't map cleanly onto
+    // rolled-up rows (one path event can move two rows: the affected
+    // group's count, and possibly the worst-severity if a higher-sev
+    // finding lands in the same dedup group). refreshRolledUp() is
+    // cheap (single SQL group-by + aggregation) and gives the right
+    // shape without re-implementing the aggregation in JS.
+    src.addEventListener('finding-opened', () => refreshRolledUp());
+    src.addEventListener('finding-updated', () => refreshRolledUp());
+    src.addEventListener('finding-resolved', () => {
       if (state.metrics) {
         state.metrics.resolved_today = (state.metrics.resolved_today || 0) + 1;
         renderMetrics();
       }
+      refreshRolledUp();
     });
 
     src.addEventListener('scanner-status', (e) => {
@@ -712,75 +799,30 @@
     };
   }
 
-  // upsertFinding inserts or replaces by fingerprint. Safe to call
-  // when an SSE event arrives for a finding that's already in the
-  // snapshot — we just replace with the freshest payload.
-  function upsertFinding(f) {
-    const idx = state.findings.findIndex((x) => x.fingerprint === f.fingerprint);
-    if (idx >= 0) state.findings[idx] = f;
-    else state.findings.push(f);
-  }
-
-  // animateResolution drives the 5-second "fix it and watch it go
-  // green" feedback loop:
-  //   t=0      strikethrough + fade   (700ms transition via .resolving)
-  //   t=800ms  start collapse         (500ms transition via .resolved-collapsing)
-  //   t=5000ms remove from state + DOM
-  // We keep the finding in state.findings during the animation so
-  // re-renders (e.g., filter changes) don't drop it mid-animation;
-  // state.resolving guards inclusion when those re-renders happen.
-  function animateResolution(fingerprint) {
-    if (state.resolving.has(fingerprint)) return;
-    state.resolving.add(fingerprint);
-    const row = document.querySelector(
-      `.finding[data-fingerprint="${cssEscape(fingerprint)}"]`,
-    );
-    if (!row) {
-      // Filtered out or scrolled off — drop it without animating.
-      finalizeResolution(fingerprint);
-      return;
-    }
-    row.classList.add('resolving');
-    setTimeout(() => {
-      const stillThere = document.querySelector(
-        `.finding[data-fingerprint="${cssEscape(fingerprint)}"]`,
-      );
-      if (stillThere) stillThere.classList.add('resolved-collapsing');
-    }, 800);
-    setTimeout(() => finalizeResolution(fingerprint), 5000);
-  }
-
-  function finalizeResolution(fingerprint) {
-    state.findings = state.findings.filter((x) => x.fingerprint !== fingerprint);
-    state.expanded.delete(fingerprint);
-    state.resolving.delete(fingerprint);
-    recomputeMetrics();
-    scheduleRender();
-  }
-
-  // cssEscape escapes a fingerprint for use in a querySelector
-  // attribute value. Fingerprints are sha256 hex, but CSS.escape is
-  // the durable choice for any future ID scheme.
-  function cssEscape(s) {
-    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
-    return String(s).replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
-  }
-
-  // recomputeMetrics rebuilds the metric strip totals from state.findings.
-  // The initial snapshot's metrics.resolved_today is preserved since
-  // SSE deltas don't include that count; finding-resolved handlers
-  // bump it directly.
-  function recomputeMetrics() {
-    const m = {
-      open_total: 0, open_critical: 0, open_high: 0, open_medium: 0, open_low: 0,
-      resolved_today: (state.metrics && state.metrics.resolved_today) || 0,
-    };
-    for (const f of state.findings) {
-      m.open_total++;
-      const k = 'open_' + f.severity;
-      if (k in m) m[k]++;
-    }
-    state.metrics = m;
+  // refreshRolledUp re-fetches /api/findings/rollup and updates
+  // state.findings + state.metrics in place. Called from SSE event
+  // handlers (finding-opened / finding-updated / finding-resolved)
+  // and from the "reload" link in the footer. Debounced via the same
+  // rAF guard render uses, so a burst of N SSE events triggers at
+  // most one network round-trip per frame.
+  let rolledUpRefreshQueued = false;
+  function refreshRolledUp() {
+    if (rolledUpRefreshQueued) return;
+    rolledUpRefreshQueued = true;
+    requestAnimationFrame(async () => {
+      rolledUpRefreshQueued = false;
+      try {
+        const snap = await apiGet('/api/findings/rollup');
+        state.findings = snap.rows || [];
+        if (snap.metrics) state.metrics = snap.metrics;
+        scheduleRender();
+      } catch (_) {
+        // Swallow the error — the next SSE event or manual reload
+        // will retry. The metric strip stays on its last known
+        // values; that's safer than blanking the UI on a transient
+        // network blip.
+      }
+    });
   }
 
   function parseEvent(e) {
@@ -822,11 +864,20 @@
   // ----- Boot -----------------------------------------------------
   async function load() {
     try {
-      const snap = await apiGet('/api/findings');
-      state.findings = snap.findings || [];
-      state.metrics = snap.metrics;
-      state.daemon = snap.daemon;
-      state.scanners = snap.scanners || [];
+      // v1.3: load the rolled-up shape from /api/findings/rollup,
+      // then layer the daemon-info + scanners-status from the flat
+      // /api/findings endpoint. The rollup endpoint intentionally
+      // omits scanners[] to keep its payload focused on the dashboard
+      // hot path — the once-per-load flat snapshot still owns the
+      // banner-stack-relevant scanner status.
+      const [rollup, flat] = await Promise.all([
+        apiGet('/api/findings/rollup'),
+        apiGet('/api/findings'),
+      ]);
+      state.findings = rollup.rows || [];
+      state.metrics = rollup.metrics || flat.metrics;
+      state.daemon = flat.daemon;
+      state.scanners = flat.scanners || [];
       // A scanner row in the snapshot means at least one scan cycle
       // has completed (or the daemon recorded sidecar statuses
       // pre-cycle). Either way, treat first-run as past so the
