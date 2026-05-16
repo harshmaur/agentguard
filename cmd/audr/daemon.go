@@ -14,6 +14,7 @@ import (
 	"github.com/harshmaur/audr/internal/lowprio"
 	"github.com/harshmaur/audr/internal/orchestrator"
 	"github.com/harshmaur/audr/internal/ospkg"
+	"github.com/harshmaur/audr/internal/parse"
 	"github.com/harshmaur/audr/internal/policy"
 	"github.com/harshmaur/audr/internal/server"
 	"github.com/harshmaur/audr/internal/state"
@@ -387,6 +388,16 @@ func newDaemonRunInternalCmd() *cobra.Command {
 					SkipTickerWhen: func() bool {
 						return watcher.CurrentState() == watch.StatePause
 					},
+					// Drop watcher triggers where every changed path is
+					// scanner-irrelevant (Claude Code's own transcript
+					// churn under ~/.claude/projects/X/transcripts/*.jsonl,
+					// log rotation, sqlite WAL/SHM ticks, etc). Without
+					// this filter the watcher fires every 2-3 minutes on
+					// an "idle" dev machine just because background tools
+					// keep writing to disk — none of those writes change
+					// anything any rule cares about. The hourly ticker
+					// catches edge cases the filter rejects.
+					RelevantPath: isScannerRelevantPath,
 				})
 				if err != nil {
 					_ = watcher.Close()
@@ -494,6 +505,43 @@ func newDaemonRunInternalCmd() *cobra.Command {
 // templates registry always claims, so in practice the demo layer
 // only matters for the few demo fingerprints whose canned text we
 // want to preserve.
+// isScannerRelevantPath reports whether a path the watcher saw change
+// is something any scanner cares about. Used by the orchestrator to
+// drop trigger pulses where every changed path is just background
+// churn that no rule will ever match on.
+//
+// Three classes of "relevant":
+//
+//   - Files parse.DetectFormat recognizes (.mcp.json, settings.json,
+//     shell rcs, .env, GHA workflows, AGENTS.md, etc).
+//   - Dependency manifests / lockfiles by basename (package.json,
+//     go.mod, Cargo.lock, etc).
+//   - Files matching shellrc / mcp / claude / codex / cursor scope
+//     by directory prefix (catches new file creation events where
+//     the basename isn't yet parseable).
+//
+// Everything else is ignored: jsonl transcripts, sqlite WAL/SHM
+// rotation, .log files, OS-level cache writes. The watcher already
+// excludes scanignore-listed directories before paths reach this
+// classifier — the work here is finer-grained per-file.
+func isScannerRelevantPath(path string) bool {
+	if parse.DetectFormat(path) != parse.FormatUnknown {
+		return true
+	}
+	switch filepath.Base(path) {
+	case "package.json", "package-lock.json", "pnpm-lock.yaml",
+		"yarn.lock", "bun.lock", "bun.lockb",
+		"requirements.txt", "pyproject.toml", "poetry.lock",
+		"uv.lock", "Pipfile.lock",
+		"go.mod", "go.sum",
+		"Cargo.lock", "Cargo.toml",
+		"Gemfile.lock", "Gemfile",
+		"composer.lock", "composer.json":
+		return true
+	}
+	return false
+}
+
 // resolveScanInterval reads AUDR_SCAN_INTERVAL and returns the parsed
 // duration. Returns 0 on unset / parse failure / non-positive so the
 // orchestrator's own default kicks in. The env-var path is the only

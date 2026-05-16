@@ -22,6 +22,7 @@ import (
 	"github.com/harshmaur/audr/internal/secretscan"
 	"github.com/harshmaur/audr/internal/state"
 	"github.com/harshmaur/audr/internal/triage"
+	"github.com/harshmaur/audr/internal/watch"
 )
 
 // Orchestrator drives audr's scanning cadence: runs the existing
@@ -82,9 +83,25 @@ type Options struct {
 	// ExternalTriggers, when non-nil, is an additional channel the
 	// orchestrator selects on alongside its internal ticker. Each
 	// receive runs one scan cycle (subject to the same runMu lock
-	// the periodic ticker uses). Phase 3 wires the watcher's
-	// Triggers() channel here.
-	ExternalTriggers <-chan time.Time
+	// the periodic ticker uses). The watcher's Triggers() channel
+	// feeds this; each trigger carries the deduplicated set of paths
+	// that fired during the quiescence burst so RelevantPath can drop
+	// cycles where nothing of interest changed.
+	ExternalTriggers <-chan watch.Trigger
+
+	// RelevantPath, when non-nil, is consulted on every external
+	// trigger before running a scan. The trigger fires a scan only if
+	// AT LEAST ONE path in trigger.Paths returns true. A trigger with
+	// no paths at all (the watcher couldn't attribute the burst to
+	// specific files) ALWAYS scans — better to over-run than miss a
+	// real change.
+	//
+	// Daemon production: wires a filter that drops Claude transcript
+	// churn, sqlite WAL rotation, log writes, etc — i.e. paths that
+	// no rule cares about but that the watcher sees constantly. This
+	// is the fix for "scans firing every 2 minutes because Claude
+	// Code itself writes to ~/.claude/projects/X/transcripts/".
+	RelevantPath func(path string) bool
 
 	// ScanOpts is the scan.Options template applied per cycle. Roots,
 	// Logger, and ScanTimeout are overridden by the orchestrator.
@@ -310,7 +327,17 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				o.opts.ExternalTriggers = nil
 				continue
 			}
-			o.log.Info("scan triggered by watcher", "quiescence_ts", t)
+			if !o.triggerIsRelevant(t) {
+				// No path in the burst matched the relevance filter.
+				// Skip — the next watcher pulse re-evaluates fresh,
+				// and the ticker is the safety net for anything we
+				// genuinely missed.
+				o.log.Debug("scan trigger dropped (no relevant paths)",
+					"quiescence_ts", t.Time, "paths", len(t.Paths))
+				continue
+			}
+			o.log.Info("scan triggered by watcher",
+				"quiescence_ts", t.Time, "paths", len(t.Paths))
 			if err := o.runOnce(ctx); err != nil {
 				o.log.Error("scan cycle failed", "err", err)
 			}
@@ -1088,6 +1115,25 @@ func startsWithUpDir(rel string) bool {
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// triggerIsRelevant returns true when at least one path in t passes
+// the RelevantPath filter, or when no filter is set, or when t.Paths
+// is empty (the watcher couldn't attribute the burst — fail safe by
+// running the scan). Pure function so the Run loop stays readable.
+func (o *Orchestrator) triggerIsRelevant(t watch.Trigger) bool {
+	if o.opts.RelevantPath == nil {
+		return true
+	}
+	if len(t.Paths) == 0 {
+		return true
+	}
+	for _, p := range t.Paths {
+		if o.opts.RelevantPath(p) {
+			return true
+		}
+	}
+	return false
+}
 
 // scanFileCache adapts state.Store to scan.FileCache. The scan
 // package deliberately can't import state (state imports finding;

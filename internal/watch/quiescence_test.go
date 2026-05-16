@@ -10,7 +10,7 @@ func TestQuiescenceGateFiresOnceAfterBurst(t *testing.T) {
 
 	// Burst of bumps. The gate must NOT fire while bumps continue.
 	for i := 0; i < 20; i++ {
-		gate.Bump()
+		gate.Bump("")
 		time.Sleep(20 * time.Millisecond) // shorter than stability window
 	}
 
@@ -54,7 +54,7 @@ func TestQuiescenceGateDefaultsStability(t *testing.T) {
 
 func TestQuiescenceGateCloseStopsFiring(t *testing.T) {
 	gate := NewQuiescenceGate(100 * time.Millisecond)
-	gate.Bump()
+	gate.Bump("")
 	_ = gate.Close()
 
 	// Even after stability elapses, no trigger.
@@ -66,7 +66,7 @@ func TestQuiescenceGateCloseStopsFiring(t *testing.T) {
 	}
 
 	// Bumping a closed gate is a no-op (no panic).
-	gate.Bump()
+	gate.Bump("")
 	// Double-close is also safe.
 	if err := gate.Close(); err != nil {
 		t.Errorf("double-close err = %v, want nil", err)
@@ -80,7 +80,7 @@ func TestQuiescenceGateConcurrentBumpsCoalesce(t *testing.T) {
 	done := make(chan struct{})
 	for i := 0; i < 100; i++ {
 		go func() {
-			gate.Bump()
+			gate.Bump("")
 			done <- struct{}{}
 		}()
 	}

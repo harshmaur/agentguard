@@ -6,6 +6,23 @@ import (
 	"time"
 )
 
+// Trigger is what the watcher pipeline emits downstream when the
+// filesystem has been quiet for a stability window. Time is the
+// timestamp of the LAST event in the burst (when filesystem settled);
+// Paths is the deduplicated set of paths that fired events during the
+// burst. Orchestrator consumers use Paths to skip the cycle entirely
+// when none of the changed paths warrant a scan (e.g. Claude Code's
+// own transcript churn under ~/.claude/projects/*/transcripts).
+//
+// Paths may be empty when the watcher can't attribute events to
+// specific files (rare; defensive). An empty Paths is treated by the
+// orchestrator as "I don't know, scan everything," matching the
+// pre-v1.4 behavior of running a full scope cycle on each pulse.
+type Trigger struct {
+	Time  time.Time
+	Paths []string
+}
+
 // QuiescenceGate debounces a stream of filesystem events into discrete
 // "scan now" triggers. Every Bump() restarts an internal timer; when
 // the timer fires without any new Bump for the configured stability
@@ -15,18 +32,21 @@ import (
 // generates ~60k inotify events in <10 seconds. If we ran a scan on
 // every event we'd thrash. The gate collapses those 60k events into
 // one trigger fired ~5s after the install finishes — when the
-// filesystem actually settles down.
+// filesystem actually settles down. The trigger carries the
+// deduplicated path set so downstream consumers can decide whether
+// the burst actually warrants any scanner work.
 //
 // The gate is concurrency-safe. Bump() may be called from any
 // goroutine; the timer runs in its own goroutine spawned by Run().
 type QuiescenceGate struct {
 	stability time.Duration
-	trigger   chan time.Time
+	trigger   chan Trigger
 
-	mu        sync.Mutex
-	timer     *time.Timer
-	lastEvent time.Time
-	closed    bool
+	mu           sync.Mutex
+	timer        *time.Timer
+	lastEvent    time.Time
+	pendingPaths map[string]struct{}
+	closed       bool
 }
 
 // NewQuiescenceGate returns a gate that fires `stability` after the
@@ -36,8 +56,9 @@ func NewQuiescenceGate(stability time.Duration) *QuiescenceGate {
 		stability = 5 * time.Second
 	}
 	return &QuiescenceGate{
-		stability: stability,
-		trigger:   make(chan time.Time, 8),
+		stability:    stability,
+		trigger:      make(chan Trigger, 8),
+		pendingPaths: map[string]struct{}{},
 	}
 }
 
@@ -46,17 +67,22 @@ func NewQuiescenceGate(stability time.Duration) *QuiescenceGate {
 // consumer doesn't drop events; if the consumer falls multiple
 // triggers behind it just sees them coalesced (the orchestrator runs
 // one scan per trigger anyway, so a backlog of two doesn't help).
-func (q *QuiescenceGate) Triggers() <-chan time.Time { return q.trigger }
+func (q *QuiescenceGate) Triggers() <-chan Trigger { return q.trigger }
 
-// Bump records a filesystem event. The gate's internal timer resets;
-// quiescence is measured from THIS call.
-func (q *QuiescenceGate) Bump() {
+// Bump records a filesystem event for path. Empty path is allowed —
+// the gate still resets its timer but the trigger's Paths set won't
+// gain a new entry. The internal timer resets; quiescence is
+// measured from THIS call.
+func (q *QuiescenceGate) Bump(path string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.closed {
 		return
 	}
 	q.lastEvent = time.Now()
+	if path != "" {
+		q.pendingPaths[path] = struct{}{}
+	}
 	if q.timer == nil {
 		q.timer = time.AfterFunc(q.stability, q.fire)
 		return
@@ -82,12 +108,21 @@ func (q *QuiescenceGate) fire() {
 	q.mu.Lock()
 	closed := q.closed
 	last := q.lastEvent
+	paths := make([]string, 0, len(q.pendingPaths))
+	for p := range q.pendingPaths {
+		paths = append(paths, p)
+	}
+	// Reset the pending set for the next burst. Reusing the map
+	// preserves the underlying allocation across coalesced bursts.
+	for p := range q.pendingPaths {
+		delete(q.pendingPaths, p)
+	}
 	q.mu.Unlock()
 	if closed {
 		return
 	}
 	select {
-	case q.trigger <- last:
+	case q.trigger <- Trigger{Time: last, Paths: paths}:
 	default:
 		// Buffer full — drop. Orchestrator already has pending work.
 	}

@@ -41,7 +41,11 @@ type Watcher struct {
 
 	// trigger emits scan-now pulses. Consumers (the orchestrator)
 	// read this; buffer of 8 absorbs short bursts without dropping.
-	trigger chan time.Time
+	// Each Trigger carries the deduplicated set of paths that fired
+	// during the burst so the orchestrator can filter no-op events
+	// (Claude transcript churn, log file rotation, etc.) before
+	// running a full scan cycle.
+	trigger chan Trigger
 
 	// lastForward is the timestamp of the most recent trigger emitted
 	// downstream. Used by the SLOW state to throttle: minimum 5
@@ -145,7 +149,7 @@ func NewWatcher(opts Options) (*Watcher, error) {
 		quiesce: NewQuiescenceGate(opts.QuiescenceWindow),
 		backoff: NewBackoff(opts.SignalReader, opts.BackoffSampleInterval),
 		logger:  logger,
-		trigger: make(chan time.Time, 8),
+		trigger: make(chan Trigger, 8),
 	}
 
 	// Construct the fsnotify watcher even before scope filtering — a
@@ -233,7 +237,7 @@ func (w *Watcher) Name() string { return "watch" }
 // Triggers returns the channel the orchestrator reads. Each value is
 // the timestamp of the underlying quiescence pulse. The receiver
 // runs one scan per trigger.
-func (w *Watcher) Triggers() <-chan time.Time { return w.trigger }
+func (w *Watcher) Triggers() <-chan Trigger { return w.trigger }
 
 // RemoteRoots returns scope paths classified as remote at startup.
 // Used by the daemon log + future dashboard banner.
@@ -312,7 +316,7 @@ func (w *Watcher) eventLoop(ctx context.Context) {
 			if isExcludedPath(ev.Name, excludes) {
 				continue
 			}
-			w.quiesce.Bump()
+			w.quiesce.Bump(ev.Name)
 		case err, ok := <-w.notify.Errors:
 			if !ok {
 				return
@@ -340,11 +344,11 @@ func (w *Watcher) forwardLoop(ctx context.Context) {
 	}
 }
 
-func (w *Watcher) maybeForward(t time.Time) {
+func (w *Watcher) maybeForward(t Trigger) {
 	state := w.backoff.Current()
 	switch state {
 	case StatePause:
-		w.logger.Debug("trigger dropped: PAUSE", "ts", t)
+		w.logger.Debug("trigger dropped: PAUSE", "ts", t.Time, "paths", len(t.Paths))
 		return
 	case StateSlow:
 		last := time.Unix(0, w.lastForward.Load())
