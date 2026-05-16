@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=1024">
 <title>audr — policy editor</title>
-<link rel="stylesheet" href="dashboard.css">
-<link rel="stylesheet" href="policy.css">
+<link rel="stylesheet" href="/dashboard.css">
+<link rel="stylesheet" href="/policy.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230e0e0c'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='18' font-weight='600' text-anchor='middle' fill='%23f5f5f0'%3EA%3C/text%3E%3C/svg%3E">
 <!--
   htmx + Alpine vendored locally per the trust thesis. No CDN deps,
@@ -14,9 +14,14 @@
 
   htmx loads first so its attribute-driven request handling is wired
   before Alpine's reactive bindings boot.
+
+  Asset paths are absolute (/dashboard.css, /vendor/...) — the page is
+  served at /policy/edit, and relative paths would resolve to
+  /policy/dashboard.css which 404s. The dashboard's own index.html
+  ducks this because it's served at / where relative == absolute.
 -->
-<script src="vendor/htmx.min.js"></script>
-<script defer src="vendor/alpine.min.js"></script>
+<script src="/vendor/htmx.min.js"></script>
+<script defer src="/vendor/alpine.min.js"></script>
 </head>
 <body
   x-data="policyEditor()"
@@ -437,6 +442,6 @@
   </div>
 </footer>
 
-<script src="policy.js"></script>
+<script src="/policy.js"></script>
 </body>
 </html>

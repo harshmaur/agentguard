@@ -243,6 +243,73 @@ func TestPolicyEditPageRenders(t *testing.T) {
 			t.Errorf("policy.html missing %q", want)
 		}
 	}
+
+	// v0.10.2 — asset paths MUST be absolute. The page is served at
+	// /policy/edit, so a relative href="dashboard.css" resolves in
+	// the browser as /policy/dashboard.css which 404s. This caught
+	// the v1.2 styling regression that hit production until v0.10.1's
+	// nav link exposed it. Lock the contract.
+	for _, want := range []string{
+		`href="/dashboard.css"`,
+		`href="/policy.css"`,
+		`src="/vendor/htmx.min.js"`,
+		`src="/vendor/alpine.min.js"`,
+		`src="/policy.js"`,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("policy.html asset path not absolute: missing %q", want)
+		}
+	}
+}
+
+// TestPolicyEditPage_AssetsResolveFromPageURL: a real browser hitting
+// /policy/edit resolves relative URLs against /policy/, so we must
+// confirm that the page's actual asset references return 200 instead
+// of 404. This is the regression test for the v0.10.2 fix — without
+// the absolute-path change, every CSS/JS reference 404s and the
+// editor renders as unstyled HTML with no Alpine bindings.
+func TestPolicyEditPage_AssetsResolveFromPageURL(t *testing.T) {
+	srv, baseURL, token, cleanup := newPolicyTestServer(t)
+	defer cleanup()
+	_ = srv
+
+	for _, asset := range []string{
+		"/dashboard.css",
+		"/policy.css",
+		"/policy.js",
+		"/vendor/htmx.min.js",
+		"/vendor/alpine.min.js",
+	} {
+		t.Run(asset, func(t *testing.T) {
+			res, err := http.Get(baseURL + asset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			if res.StatusCode != http.StatusOK {
+				t.Errorf("%s returned %d, want 200 — the policy editor will render unstyled", asset, res.StatusCode)
+			}
+		})
+	}
+
+	// Belt and suspenders: also verify that the BAD relative resolution
+	// (/policy/dashboard.css) is the failure mode the absolute paths
+	// avoid. If this ever starts returning 200, the routing changed
+	// and we can simplify policy.html.
+	_ = token // token not required for static asset paths
+	for _, badPath := range []string{
+		"/policy/dashboard.css",
+		"/policy/vendor/htmx.min.js",
+	} {
+		res, err := http.Get(baseURL + badPath)
+		if err != nil {
+			continue
+		}
+		res.Body.Close()
+		if res.StatusCode == http.StatusOK {
+			t.Errorf("%s now serves 200 — routing changed; policy.html could go back to relative paths", badPath)
+		}
+	}
 }
 
 // TestPolicyRoutes_PutYAMLValid: POST /api/policy/yaml with raw YAML

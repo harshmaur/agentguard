@@ -3,6 +3,36 @@
 All notable changes to Audr.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versioning is `MAJOR.MINOR.PATCH`.
 
+## [0.10.2] - 2026-05-16 — Fix: policy editor renders unstyled
+
+Pre-existing v1.2 bug, exposed by v0.10.1's new POLICY nav link.
+
+`policy.html` referenced its CSS/JS with **relative paths** (`href="dashboard.css"`,
+`src="vendor/htmx.min.js"`, etc.). The page is served at URL path `/policy/edit`,
+so the browser resolved every asset against `/policy/` (e.g. `/policy/dashboard.css`)
+which returns 404. Alpine never loaded, htmx never wired, no CSS applied. The page
+rendered as a static dump of raw HTML.
+
+The audit dashboard at `/` was unaffected because its base URL is `/` already
+(relative resolves to the same path as absolute).
+
+### Fixed
+
+- **All asset paths in `policy.html` are now absolute** (`/dashboard.css`,
+  `/policy.css`, `/policy.js`, `/vendor/htmx.min.js`, `/vendor/alpine.min.js`).
+  Bug shipped in v1.2 / v0.7.0 and stayed hidden until v0.10.1 added a one-click
+  POLICY link to the dashboard topbar — before that, users only reached the page
+  via CLI or memorised URL and never noticed.
+
+### Added
+
+- **`TestPolicyEditPage_AssetsResolveFromPageURL`** regression test fetches each
+  asset over HTTP and asserts 200. Also pins that `/policy/<asset>` continues to
+  404 (proving the absolute-path fix is what's keeping the page working).
+- **Path-shape assertions** on `policy.html` body: each `href=`/`src=` must start
+  with `/`. The original substring match (`"vendor/htmx.min.js"`) passed against
+  both relative AND absolute, so it never caught the bug.
+
 ## [0.10.1] - 2026-05-16 — Dashboard nav: POLICY link in the topbar
 
 Small UX fix on top of v1.3. The audit dashboard now has a `POLICY` link in
