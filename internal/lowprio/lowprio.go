@@ -1,5 +1,5 @@
 // Package lowprio runs child processes at low scheduling priority so
-// the daemon's sidecar scans (TruffleHog, OSV-Scanner, dpkg-query)
+// the daemon's sidecar scans (Betterleaks, OSV-Scanner, dpkg-query)
 // don't compete with the user's interactive work for CPU + IO.
 //
 // Per the v1 design spec:
@@ -9,7 +9,7 @@
 //	+ ionice -c idle on Linux/macOS, BELOW_NORMAL on Windows, plus
 //	GOMAXPROCS=1 for OSV-Scanner shells)."
 //
-// Observed in the wild 2026-05-14: TruffleHog at 80% CPU + OSV-Scanner
+// Observed in the wild 2026-05-14: the legacy secret scanner at 80% CPU + OSV-Scanner
 // at 56% CPU during a first-run scan against $HOME. The user couldn't
 // use their machine while the scan ran.
 //

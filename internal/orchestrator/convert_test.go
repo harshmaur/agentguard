@@ -14,8 +14,8 @@ func TestCategorizeRuleIDDispatch(t *testing.T) {
 	}{
 		{"claude-hook-shell-rce", "ai-agent"},
 		{"codex-trust-home-or-broad", "ai-agent"},
-		{"secret-trufflehog-verified", "secrets"},
-		{"secret-trufflehog-unverified", "secrets"},
+		{"secret-betterleaks-valid", "secrets"},
+		{"secret-betterleaks-unverified", "secrets"},
 		{"osv-dpkg-openssl", "deps"},
 		{"dep-something", "deps"},
 		{"ospkg-some-cve", "os-pkg"},
@@ -229,30 +229,30 @@ func TestFindingToStateFindingFingerprintStableAcrossEquivalentInputs(t *testing
 	}
 }
 
-// TestTruffleHogVerifiedAndUnverifiedShareFingerprint pins the
-// resolution-churn fix. When trufflehog's `Verified` flag flips
-// between scans (verification API rate-limit, transient network
+// TestBetterleaksValidAndUnverifiedShareFingerprint pins the
+// resolution-churn fix. When betterleaks's validation status flips
+// between scans (validation API rate-limit, transient network
 // failure, key briefly revoked then restored), the same secret
 // must keep the same fingerprint — otherwise the old row gets
 // marked resolved and a new one opens, inflating "Resolved Today"
 // with phantom resolutions for a secret that never went away.
-func TestTruffleHogVerifiedAndUnverifiedShareFingerprint(t *testing.T) {
+func TestBetterleaksValidAndUnverifiedShareFingerprint(t *testing.T) {
 	mk := func(ruleID string) finding.Finding {
 		return finding.New(finding.Args{
 			RuleID: ruleID, Severity: finding.SeverityHigh,
-			Path: "/secrets/.env", Line: 1, Match: "detector=OpenAI secret=sk-abc",
+			Path: "/secrets/.env", Line: 1, Match: "rule=openai-api-key secret=[REDACTED]",
 		})
 	}
-	verified, err := findingToStateFinding(mk("secret-trufflehog-verified"), 1, "secrets")
+	verified, err := findingToStateFinding(mk("secret-betterleaks-valid"), 1, "secrets")
 	if err != nil {
 		t.Fatal(err)
 	}
-	unverified, err := findingToStateFinding(mk("secret-trufflehog-unverified"), 1, "secrets")
+	unverified, err := findingToStateFinding(mk("secret-betterleaks-unverified"), 1, "secrets")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if verified.Fingerprint != unverified.Fingerprint {
-		t.Errorf("trufflehog verified/unverified produced different fingerprints — every verification flap will churn the dashboard:\n  verified:   %s\n  unverified: %s", verified.Fingerprint, unverified.Fingerprint)
+		t.Errorf("betterleaks valid/unverified produced different fingerprints — every validation flap will churn the dashboard:\n  valid:      %s\n  unverified: %s", verified.Fingerprint, unverified.Fingerprint)
 	}
 	// The actual RuleID stored on each row should still differ —
 	// only the fingerprint hash collapses.

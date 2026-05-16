@@ -351,7 +351,7 @@ func IsNewer(current, candidate string) bool {
 // and fall back to running the update plan anyway.
 //
 // Used by `audr update-scanners` to skip the installer when the
-// installed version of a sidecar (osv-scanner, trufflehog, etc.)
+// installed version of a sidecar (osv-scanner, betterleaks, etc.)
 // already matches the latest tag — avoids re-downloading + rebuilding
 // gigabytes of go-build cache for a no-op upgrade. Pairs with
 // IsNewer: caller compares the returned tag against the installed

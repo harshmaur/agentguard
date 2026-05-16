@@ -9,7 +9,7 @@ import (
 )
 
 // TestAugmentPATHPrependsLinuxbrew is the regression test for the
-// 2026-05-14 observation: user installed TruffleHog via Linuxbrew,
+// 2026-05-14 observation: user installed a secret scanner via Linuxbrew,
 // daemon kept reporting "secrets: unavailable" because systemd-user
 // stripped /home/linuxbrew/.linuxbrew/bin from the daemon's PATH.
 //

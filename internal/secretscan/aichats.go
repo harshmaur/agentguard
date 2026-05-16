@@ -10,7 +10,7 @@ import (
 
 // AIChatTranscriptRoots discovers every directory under $HOME that
 // likely contains AI coding-agent chat transcripts and returns the
-// list of absolute paths suitable for adding to a TruffleHog scan.
+// list of absolute paths suitable for adding to a Betterleaks scan.
 //
 // Why this matters (eng-review): developers paste API keys into chat
 // while debugging. Those transcripts persist plaintext indefinitely.
@@ -33,9 +33,10 @@ func AIChatTranscriptRoots(homeDir string) ([]string, error) {
 
 	// Claude Code: ~/.claude/projects/<slug>/sessions/*.jsonl
 	// The sessions live one level under each project directory. We
-	// add the per-project sessions directory so TruffleHog can walk
-	// it; we don't enumerate individual jsonl files (TruffleHog's
-	// own walker is fine and respects --exclude-paths from scanignore).
+	// add the per-project sessions directory so betterleaks can walk
+	// it; we don't enumerate individual jsonl files (betterleaks'
+	// own walker is fine and respects the audr-generated config
+	// allowlist paths from scanignore).
 	claudeProjects := filepath.Join(homeDir, ".claude", "projects")
 	if entries, err := os.ReadDir(claudeProjects); err == nil {
 		for _, e := range entries {
@@ -120,7 +121,7 @@ type CanaryReport struct {
 // shape. False positives are acceptable: if the format drifts to
 // something else that happens to look like JSONL, the dashboard
 // banner won't fire, but the user can still scan and see the
-// findings TruffleHog produces (or doesn't).
+// findings betterleaks produces (or doesn't).
 func isJSONL(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {

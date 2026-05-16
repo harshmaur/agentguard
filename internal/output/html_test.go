@@ -469,14 +469,14 @@ func TestText_RendersSecretExposureSection(t *testing.T) {
 	now := time.Now()
 	r := Report{Version: "v0.2.3-test", Roots: []string{"/repo"}, FilesParsed: 1, FilesSeen: 1, StartedAt: now, FinishedAt: now.Add(time.Second), Findings: []finding.Finding{
 		{
-			RuleID:       "secret-trufflehog-verified",
+			RuleID:       "secret-betterleaks-valid",
 			Severity:     finding.SeverityHigh,
-			Title:        "Secret detected by TruffleHog: GitHub",
-			Description:  "TruffleHog reported a secret-like value from detector GitHub (verified=true).",
+			Title:        "Secret detected by Betterleaks: github-pat",
+			Description:  "Betterleaks rule github-pat matched (validation=true).",
 			Path:         "/repo/.env",
 			Line:         12,
-			Match:        "detector=GitHub secret=ghp_********SECRET",
-			Context:      "verified=true",
+			Match:        "rule=github-pat secret=[REDACTED]",
+			Context:      "source=betterleaks validation=true entropy=5.20",
 			SuggestedFix: "Rotate or revoke the secret, remove it from local files and git history, then rescan.",
 		},
 	}}
@@ -488,9 +488,9 @@ func TestText_RendersSecretExposureSection(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Secrets (1)",
-		"Secret detected by TruffleHog: GitHub",
+		"Secret detected by Betterleaks: github-pat",
 		"/repo/.env:12",
-		"Evidence: detector=GitHub secret=ghp_********SECRET",
+		"Evidence: rule=github-pat secret=[REDACTED]",
 		"Fix: Rotate or revoke the secret",
 	} {
 		if !strings.Contains(out, want) {
@@ -506,14 +506,14 @@ func TestHTML_RendersSecretExposureSection(t *testing.T) {
 	now := time.Now()
 	r := Report{Version: "v0.2.3-test", Roots: []string{"/repo"}, StartedAt: now, FinishedAt: now.Add(time.Second), Findings: []finding.Finding{
 		{
-			RuleID:       "secret-trufflehog-verified",
+			RuleID:       "secret-betterleaks-valid",
 			Severity:     finding.SeverityHigh,
 			Taxonomy:     finding.TaxDetectable,
-			Title:        "Secret detected by TruffleHog: GitHub",
-			Description:  "TruffleHog reported a secret-like value from detector GitHub (verified=true).",
+			Title:        "Secret detected by Betterleaks: github-pat",
+			Description:  "Betterleaks rule github-pat matched (validation=true).",
 			Path:         "/repo/.env",
 			Line:         12,
-			Match:        "detector=GitHub secret=ghp_********SECRET",
+			Match:        "rule=github-pat secret=[REDACTED]",
 			SuggestedFix: "Rotate or revoke the secret, remove it from local files and git history, then rescan.",
 		},
 	}}
@@ -528,9 +528,9 @@ func TestHTML_RendersSecretExposureSection(t *testing.T) {
 		`class="sev-section-head high"`,
 		`class="kind-badge secret"`,
 		"SECRET",
-		"Secret detected by TruffleHog: GitHub",
+		"Secret detected by Betterleaks: github-pat",
 		"/repo/.env",
-		"ghp_********SECRET",
+		"[REDACTED]",
 		"Rotate or revoke the secret",
 	} {
 		if !strings.Contains(out, want) {
@@ -554,7 +554,7 @@ func TestHTML_GroupsFindingsBySeverity(t *testing.T) {
 		Findings: []finding.Finding{
 			{RuleID: "claude-hook-shell-rce", Severity: finding.SeverityCritical, Taxonomy: finding.TaxEnforced, Title: "Hook RCE", Description: "x", Path: "/etc/settings.json"},
 			{RuleID: "dependency-osv-vulnerability", Severity: finding.SeverityHigh, Taxonomy: finding.TaxDetectable, Title: "Vulnerable dependency", Description: "y", Path: "/repo/package.json", Match: "lib@1.0"},
-			{RuleID: "secret-trufflehog-verified", Severity: finding.SeverityHigh, Taxonomy: finding.TaxDetectable, Title: "Secret detected", Description: "z", Path: "/repo/.env"},
+			{RuleID: "secret-betterleaks-valid", Severity: finding.SeverityHigh, Taxonomy: finding.TaxDetectable, Title: "Secret detected", Description: "z", Path: "/repo/.env"},
 			{RuleID: "mcp-prod-secret-env", Severity: finding.SeverityMedium, Taxonomy: finding.TaxDetectable, Title: "MCP secret env", Description: "w", Path: "/repo/.mcp.json"},
 		},
 	}

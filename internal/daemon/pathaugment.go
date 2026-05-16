@@ -18,13 +18,15 @@ import (
 // land in directories the user's interactive shell knows about
 // (~/.bashrc / ~/.zshrc additions) but the systemd-user environment
 // doesn't. Result: `secretscan.BackendStatus()` calls
-// `exec.LookPath("trufflehog")` and gets ErrNotFound even though
-// the binary is installed at `/home/linuxbrew/.linuxbrew/bin/trufflehog`.
+// `exec.LookPath("betterleaks")` and gets ErrNotFound even though
+// the binary is installed at `/home/linuxbrew/.linuxbrew/bin/betterleaks`.
 //
-// Observed in the wild 2026-05-14: user installed TruffleHog via
-// Linuxbrew, daemon kept reporting `secrets: unavailable`. PATH
-// debugging revealed the daemon's PATH from systemd-user was
-// missing the Linuxbrew bin dir.
+// Originally observed 2026-05-14 with the previous secret-scanning
+// backend installed via Linuxbrew; daemon kept reporting
+// `secrets: unavailable`. PATH debugging revealed the daemon's PATH
+// from systemd-user was missing the Linuxbrew bin dir. Same fix
+// applies to betterleaks and osv-scanner installed in any of these
+// locations.
 //
 // The directories below are append-safe: we only add them if they
 // (a) exist on disk and (b) aren't already on PATH. Saves us from

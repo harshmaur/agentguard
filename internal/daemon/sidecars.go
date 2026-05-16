@@ -12,7 +12,7 @@ import (
 )
 
 // SidecarStatus reports the health of one of audr's shell-out
-// dependencies: `osv-scanner` (deps + OS-pkg CVEs) or `trufflehog`
+// dependencies: `osv-scanner` (deps + OS-pkg CVEs) or `betterleaks`
 // (secrets). The daemon probes both at startup and surfaces them in the
 // dashboard so a missing or outdated sidecar shows up as an unavailable
 // category rather than a silent zero-findings verdict.
@@ -22,7 +22,7 @@ import (
 // a supply-chain risk surface). We DO clearly identify the issue and
 // point the user at `audr update-scanners`.
 type SidecarStatus struct {
-	// Name is "osv-scanner" or "trufflehog".
+	// Name is "osv-scanner" or "betterleaks".
 	Name string
 
 	// State is the overall health verdict the dashboard renders against.
@@ -75,11 +75,11 @@ const (
 
 // SidecarConfig pins the minimum version audr's daemon requires for each
 // sidecar. Bumping these values is the unambiguous knob for forcing
-// users to upgrade. Defaults below match the versions audr v0.2.x
-// already shells out to today.
+// users to upgrade. Defaults below match the versions audr v0.11+ ships
+// against.
 type SidecarConfig struct {
-	OSVScannerMinVersion string
-	TruffleHogMinVersion string
+	OSVScannerMinVersion  string
+	BetterleaksMinVersion string
 	// ProbeTimeout caps how long we wait for each `--version` call.
 	// Defensive: a hung sidecar must not block daemon startup.
 	ProbeTimeout time.Duration
@@ -90,9 +90,9 @@ type SidecarConfig struct {
 // that depends on new sidecar behavior.
 func DefaultSidecarConfig() SidecarConfig {
 	return SidecarConfig{
-		OSVScannerMinVersion: "1.8.0",
-		TruffleHogMinVersion: "3.63.0",
-		ProbeTimeout:         5 * time.Second,
+		OSVScannerMinVersion:  "1.8.0",
+		BetterleaksMinVersion: "1.2.0",
+		ProbeTimeout:          5 * time.Second,
 	}
 }
 
@@ -107,7 +107,7 @@ func CheckSidecars(ctx context.Context, cfg SidecarConfig) []SidecarStatus {
 	}
 	return []SidecarStatus{
 		checkSidecar(ctx, "osv-scanner", cfg.OSVScannerMinVersion, cfg.ProbeTimeout, parseOSVScannerVersion),
-		checkSidecar(ctx, "trufflehog", cfg.TruffleHogMinVersion, cfg.ProbeTimeout, parseTruffleHogVersion),
+		checkSidecar(ctx, "betterleaks", cfg.BetterleaksMinVersion, cfg.ProbeTimeout, parseBetterleaksVersion),
 	}
 }
 
@@ -239,18 +239,18 @@ func parseOSVScannerVersion(stdout, stderr []byte) (string, bool) {
 	return "", false
 }
 
-// TruffleHog: `trufflehog --version` prints (as of 3.63.x):
+// Betterleaks: `betterleaks --version` prints (as of 1.2.0):
 //
-//	trufflehog 3.63.0
+//	betterleaks version 1.2.0
 //
-// (Some builds also include a build suffix after a dash, which
-// parseVersion strips.) We accept either `trufflehog X.Y.Z` or the bare
-// semver on a line.
-var trufflehogVersionRE = regexp.MustCompile(`(?m)(?:trufflehog\s+)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9.+]+)?)`)
+// (Some builds may include a build suffix after a dash, which
+// parseVersion strips.) We accept either `betterleaks version X.Y.Z`
+// or `betterleaks X.Y.Z` or the bare semver on a line.
+var betterleaksVersionRE = regexp.MustCompile(`(?m)(?:betterleaks(?:\s+version)?\s+)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9.+]+)?)`)
 
-func parseTruffleHogVersion(stdout, stderr []byte) (string, bool) {
+func parseBetterleaksVersion(stdout, stderr []byte) (string, bool) {
 	for _, blob := range [][]byte{stdout, stderr} {
-		if m := trufflehogVersionRE.FindSubmatch(blob); len(m) >= 2 {
+		if m := betterleaksVersionRE.FindSubmatch(blob); len(m) >= 2 {
 			return string(m[1]), true
 		}
 	}

@@ -161,7 +161,7 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVarP(&flagQuiet, "quiet", "q", false, "suppress the readable summary on stdout")
 	cmd.Flags().IntVar(&flagJobs, "jobs", 0, "audr's own worker pool size (default: GOMAXPROCS)")
 	cmd.Flags().IntVar(&flagScannerJobs, "scanner-jobs", secretscan.DefaultJobs(),
-		"cap TruffleHog's internal worker pool via --concurrency. 0 = uncapped (TruffleHog's default = NumCPU). Default is half the logical CPUs so the scan doesn't peg the machine.")
+		"cap Betterleaks's validation worker pool via --validation-workers. 0 = uncapped (Betterleaks's default = 10). Caps concurrent HTTP roundtrips during secret validation so a scan with many findings doesn't flood provider APIs.")
 	cmd.Flags().DurationVar(&flagFileTimeout, "file-timeout", 5*time.Second, "per-file parse + rule timeout")
 	cmd.Flags().DurationVar(&flagScanTimeout, "scan-timeout", 60*time.Second, "total scan timeout")
 	cmd.Flags().Int64Var(&flagSizeLimit, "file-size-limit", 10<<20, "skip files larger than this byte size")
@@ -171,10 +171,10 @@ Exit code is 0 when no findings of severity higher than 'low' are emitted,
 	cmd.Flags().BoolVar(&flagLogJSON, "log-json", false, "emit logs as JSON instead of text")
 	cmd.Flags().BoolVar(&flagNoDeps, "no-deps", false, "skip external dependency vulnerability scanners")
 	cmd.Flags().BoolVar(&flagDepsOnly, "deps-only", false, "run only external dependency vulnerability scanners")
-	cmd.Flags().BoolVar(&flagSecrets, "secrets", false, "run external secret scanning with TruffleHog when available")
+	cmd.Flags().BoolVar(&flagSecrets, "secrets", false, "run external secret scanning with Betterleaks when available")
 	cmd.Flags().BoolVar(&flagNoSecrets, "no-secrets", false, "skip external secret scanning")
 	cmd.Flags().BoolVar(&flagSecretsOnly, "secrets-only", false, "run only external secret scanning")
-	cmd.Flags().BoolVar(&flagDeep, "deep", false, "include deeper developer-machine checks such as TruffleHog secret scanning")
+	cmd.Flags().BoolVar(&flagDeep, "deep", false, "include deeper developer-machine checks such as Betterleaks secret scanning")
 	cmd.Flags().BoolVar(&flagCI, "ci", false, "non-interactive CI mode; never prompt to install scanner backends")
 	cmd.Flags().BoolVar(&flagRequireDeps, "require-deps", false, "fail if requested dependency scanner backends are unavailable")
 	cmd.Flags().BoolVar(&flagRequireSecret, "require-secrets", false, "fail if requested secret scanner backend is unavailable")
@@ -619,7 +619,7 @@ func runSecretBackend(ctx context.Context, f scanFlags, roots []string, plan out
 		}
 	}
 	if !status.Installed {
-		msg := "secret scanner trufflehog is not installed; run `audr doctor` for install instructions"
+		msg := "secret scanner betterleaks is not installed; run `audr doctor` for install instructions"
 		if f.requireSecret || f.secretsOnly {
 			return nil, errors.New(msg)
 		}
@@ -631,7 +631,7 @@ func runSecretBackend(ctx context.Context, f scanFlags, roots []string, plan out
 		if f.requireSecret || f.secretsOnly {
 			return nil, err
 		}
-		fmt.Fprintf(os.Stderr, "warning: secret scanner trufflehog failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: secret scanner betterleaks failed: %v\n", err)
 		return nil, nil
 	}
 	return findings, nil
@@ -776,7 +776,7 @@ func newDoctorCmd() *cobra.Command {
 			for _, n := range append(secretInstall.Notes, secretUpdate.Notes...) {
 				fmt.Fprintf(w, "  note: %s\n", n)
 			}
-			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --secrets` or `--deep` uses TruffleHog for secret scanning when available. Use `audr update-scanners --yes` to refresh scanner binaries. OSV-Scanner queries OSV directly and does not require a local vulnerability DB cache. TruffleHog for secret scanning has no separate DB cache.\n")
+			fmt.Fprintf(w, "\n`audr scan` uses OSV-Scanner for dependency vulnerabilities when available. `audr scan --secrets` or `--deep` uses Betterleaks for secret scanning when available. Use `audr update-scanners --yes` to refresh scanner binaries. OSV-Scanner queries OSV directly and does not require a local vulnerability DB cache. Betterleaks has no separate DB cache.\n")
 			return nil
 		},
 	}
@@ -791,7 +791,7 @@ func newUpdateScannersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-scanners",
 		Short: "Update external scanner backends",
-		Long: `Update open-source scanners used by audr scan: OSV-Scanner and TruffleHog.
+		Long: `Update open-source scanners used by audr scan: OSV-Scanner and Betterleaks.
 
 By default the command checks the installed version against the latest
 GitHub release tag and SKIPS the update entirely when they match — no
@@ -807,11 +807,11 @@ side effects (dry run). With --yes, executes them.`,
 			if rawBackend == "" {
 				rawBackend = "auto"
 			}
-			if rawBackend != "auto" && rawBackend != "all" && rawBackend != "osv" && rawBackend != "osv-scanner" && rawBackend != "trufflehog" && rawBackend != "secrets" {
-				return fmt.Errorf("--backend must be auto | osv-scanner | trufflehog (got %q)", backend)
+			if rawBackend != "auto" && rawBackend != "all" && rawBackend != "osv" && rawBackend != "osv-scanner" && rawBackend != "betterleaks" && rawBackend != "secrets" {
+				return fmt.Errorf("--backend must be auto | osv-scanner | betterleaks (got %q)", backend)
 			}
 			runOSV := rawBackend == "auto" || rawBackend == "all" || rawBackend == "osv" || rawBackend == "osv-scanner"
-			runSecrets := rawBackend == "auto" || rawBackend == "all" || rawBackend == "trufflehog" || rawBackend == "secrets"
+			runSecrets := rawBackend == "auto" || rawBackend == "all" || rawBackend == "betterleaks" || rawBackend == "secrets"
 			w := cmd.OutOrStdout()
 			ctx := cmd.Context()
 			var backends []depscan.Backend
@@ -843,8 +843,8 @@ side effects (dry run). With --yes, executes them.`,
 				if !force {
 					st := secretscan.BackendStatus()
 					installed := probeBinaryVersion(ctx, st.Binary)
-					if skip, latest, _ := scannerAlreadyLatest(ctx, "trufflesecurity", "trufflehog", installed); skip {
-						fmt.Fprintf(w, "TruffleHog\n  installed: %s\n  latest:    %s\n  already up to date — use --force to reinstall anyway\n",
+					if skip, latest, _ := scannerAlreadyLatest(ctx, "betterleaks", "betterleaks", installed); skip {
+						fmt.Fprintf(w, "Betterleaks\n  installed: %s\n  latest:    %s\n  already up to date — use --force to reinstall anyway\n",
 							installed, latest)
 						return nil
 					}
@@ -863,7 +863,7 @@ side effects (dry run). With --yes, executes them.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner | trufflehog")
+	cmd.Flags().StringVar(&backend, "backend", "auto", "scanner backend to update: auto | osv-scanner | betterleaks")
 	cmd.Flags().BoolVar(&yes, "yes", false, "execute updates without prompting")
 	cmd.Flags().BoolVar(&ci, "ci", false, "non-interactive mode; print commands unless --yes is also set")
 	cmd.Flags().BoolVar(&dbOnly, "db-only", false, "refresh vulnerability database/cache only where supported; OSV-Scanner has no local DB cache")
@@ -915,7 +915,7 @@ func probeBinaryVersion(ctx context.Context, binary string) string {
 	if err != nil && len(out) == 0 {
 		return ""
 	}
-	// Both osv-scanner and trufflehog print versions matched by this
+	// Both osv-scanner and betterleaks print versions matched by this
 	// regex: an optional name prefix, then a dotted semver-ish token,
 	// optionally with a pre-release / build suffix.
 	m := scannerVersionRE.FindStringSubmatch(string(out))
